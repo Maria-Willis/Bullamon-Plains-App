@@ -1,2 +1,2 @@
-NEXT_PUBLIC_SUPABASE_URL=https://vszjwtpmgslvpcxfkzve.supabase.co
+window.SUPABASE_URL=https://vszjwtpmgslvpcxfkzve.supabase.co  
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_UgiN3UialubFW7pc3j3KNA_ulEUJf2C
