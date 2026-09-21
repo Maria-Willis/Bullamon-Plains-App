@@ -1,4 +1,3 @@
-
 // Bullamon Plains -- offline app shell.
 //
 // This caches the app's own files (not your farm data -- that's handled
@@ -58,12 +57,14 @@ self.addEventListener("fetch", function(event){
 
   var url = new URL(req.url);
   var isShellCrossOrigin = CROSS_ORIGIN_ASSETS.indexOf(req.url) > -1;
-  // Uploaded map photos/PDFs live in Supabase Storage, a different origin
-  // from the app itself -- matched by path rather than a fixed URL (unlike
-  // CROSS_ORIGIN_ASSETS above) since it needs to work for any file added to
-  // the "maps" bucket, not just files known in advance.
-  var isMapFile = url.pathname.indexOf("/storage/v1/object/public/maps/") > -1;
-  if(url.origin !== self.location.origin && !isShellCrossOrigin && !isMapFile) return; // let Supabase's own API calls go straight to the network, untouched
+  // Uploaded map photos/PDFs, and bulls' attached PDFs, live in Supabase
+  // Storage, a different origin from the app itself -- matched by path
+  // rather than a fixed URL (unlike CROSS_ORIGIN_ASSETS above) since it
+  // needs to work for any file added to either the "maps" or "bulls"
+  // bucket, not just files known in advance.
+  var isCachedStorageFile = url.pathname.indexOf("/storage/v1/object/public/maps/") > -1 ||
+    url.pathname.indexOf("/storage/v1/object/public/bulls/") > -1;
+  if(url.origin !== self.location.origin && !isShellCrossOrigin && !isCachedStorageFile) return; // let Supabase's own API calls go straight to the network, untouched
 
   event.respondWith(
     caches.match(req).then(function(cached){
@@ -85,11 +86,12 @@ self.addEventListener("fetch", function(event){
 });
 
 // The page (index.html) asks us to proactively download every current map
-// photo/PDF, right after it loads fresh farm data -- so Maps still works
-// offline even for a file nobody's actually opened on this device yet, not
-// only ones a fetch/<img> has already caused us to cache above. Skips
-// anything already cached, so this never re-downloads a file that hasn't
-// changed.
+// photo/PDF and bull-attachment PDF, right after it loads fresh farm data --
+// so these still work offline even for a file nobody's actually opened on
+// this device yet, not only ones a fetch/<img> has already caused us to
+// cache above. Skips anything already cached, so this never re-downloads a
+// file that hasn't changed. (Still called "cacheMapFiles" for both kinds of
+// file -- see prefetchStorageFilesForOffline() in index.html.)
 self.addEventListener("message", function(event){
   var msg = event.data;
   if(!msg || msg.type !== "cacheMapFiles" || !Array.isArray(msg.urls)) return;
