@@ -3,8 +3,14 @@
 // This caches the app's own files (not your farm data -- that's handled
 // separately by the app itself, in localStorage) so the page can still
 // open with no signal at all. Bump CACHE_NAME whenever the list of shell
-// files below changes, so old devices clean up the previous cache.
-var CACHE_NAME = "bullamon-plains-shell-v1";
+// files below changes, OR whenever the *contents* of a file already in that
+// list change (e.g. a recoloured icon, a new manifest.json) -- otherwise a
+// device that already has this service worker installed keeps serving the
+// old cached copy of that file indefinitely, even after the real file on
+// the server has changed. (Bumped 2026-09-24: the green icon files were
+// recoloured to blue, but devices with the old service worker were still
+// showing the old green favicon/PWA icon from this cache until this bump.)
+var CACHE_NAME = "bullamon-plains-shell-v2";
 
 var SHELL_ASSETS = [
   "./",
@@ -105,6 +111,44 @@ self.addEventListener("message", function(event){
           }).catch(function(){ /* offline, or blocked -- will retry on the next successful sync */ });
         });
       }));
+    })
+  );
+});
+
+// Push notifications -- see "Get notified of new notes" on the Dashboard in
+// index.html. A push arrives here from Supabase's notify-new-dashboard-note
+// Edge Function (triggered by a database webhook whenever a new Dashboard
+// note is added), carrying a small JSON payload -- this just displays it as
+// a normal system notification, which is what lets it show up even if
+// nobody has the app open at the time.
+self.addEventListener("push", function(event){
+  var data = {};
+  try{
+    data = event.data ? event.data.json() : {};
+  }catch(e){
+    data = { title: "Bullamon Plains", body: event.data ? event.data.text() : "You have a new notification." };
+  }
+  var title = data.title || "Bullamon Plains";
+  var options = {
+    body: data.body || "",
+    icon: "./icons/icon-192.png",
+    badge: "./icons/icon-192.png",
+    data: { url: data.url || "./" }
+  };
+  event.waitUntil(self.registration.showNotification(title, options));
+});
+
+// Tapping the notification focuses an already-open tab if there is one,
+// rather than always opening a new one.
+self.addEventListener("notificationclick", function(event){
+  event.notification.close();
+  var url = (event.notification.data && event.notification.data.url) || "./";
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then(function(clientList){
+      for(var i = 0; i < clientList.length; i++){
+        if("focus" in clientList[i]) return clientList[i].focus();
+      }
+      if(self.clients.openWindow) return self.clients.openWindow(url);
     })
   );
 });
