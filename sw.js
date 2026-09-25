@@ -31,7 +31,11 @@
 // (Bumped again 2026-09-25, a fifth time the same day: Safety Data Sheets
 // redesigned into a searchable list + a categorised single-product detail
 // page, with several brand new optional fields.)
-var CACHE_NAME = "bullamon-plains-shell-v7";
+// (Bumped again 2026-09-25, a sixth time the same day: 15 chemicals'
+// worth of SDS detail filled in from real, cited web research at Maria's
+// request, plus a display-bug fix so already-researched chemicals' poison
+// schedule/signal word are no longer hidden on the new detail page.)
+var CACHE_NAME = "bullamon-plains-shell-v8";
 
 var SHELL_ASSETS = [
   "./",
