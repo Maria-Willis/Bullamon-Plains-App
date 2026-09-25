@@ -16,7 +16,11 @@
 // same day. Devices that had already loaded any of the old versions were
 // still stuck on stale cached copies of index.html and/or the icon files
 // until this bump, even after a fully successful GitHub/Vercel deploy.)
-var CACHE_NAME = "bullamon-plains-shell-v3";
+// (Bumped again 2026-09-25, later the same day: index.html changed again --
+// Dashboard delete buttons added/opened up for the issues and reminders
+// cards. Same reasoning as above; bumping every time index.html's contents
+// change is now the standing practice, not a one-off.)
+var CACHE_NAME = "bullamon-plains-shell-v4";
 
 var SHELL_ASSETS = [
   "./",
