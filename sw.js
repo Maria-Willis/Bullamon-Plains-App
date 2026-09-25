@@ -28,7 +28,10 @@
 // contents. This tag now makes that instantly visible on-screen.)
 // (Bumped again 2026-09-25, a fourth time the same day: removed the
 // "Report a machinery issue" card from the Dashboard, at Maria's request.)
-var CACHE_NAME = "bullamon-plains-shell-v6";
+// (Bumped again 2026-09-25, a fifth time the same day: Safety Data Sheets
+// redesigned into a searchable list + a categorised single-product detail
+// page, with several brand new optional fields.)
+var CACHE_NAME = "bullamon-plains-shell-v7";
 
 var SHELL_ASSETS = [
   "./",
