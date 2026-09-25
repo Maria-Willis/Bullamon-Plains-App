@@ -10,7 +10,13 @@
 // the server has changed. (Bumped 2026-09-24: the green icon files were
 // recoloured to blue, but devices with the old service worker were still
 // showing the old green favicon/PWA icon from this cache until this bump.)
-var CACHE_NAME = "bullamon-plains-shell-v2";
+// (Bumped again 2026-09-25: index.html changed -- machinery icons moved to
+// real files under icons/machinery/, plus the dashboard-issue-reappearing
+// fix -- and the dozer/loader icon files themselves changed twice in the
+// same day. Devices that had already loaded any of the old versions were
+// still stuck on stale cached copies of index.html and/or the icon files
+// until this bump, even after a fully successful GitHub/Vercel deploy.)
+var CACHE_NAME = "bullamon-plains-shell-v3";
 
 var SHELL_ASSETS = [
   "./",
