@@ -20,7 +20,15 @@
 // Dashboard delete buttons added/opened up for the issues and reminders
 // cards. Same reasoning as above; bumping every time index.html's contents
 // change is now the standing practice, not a one-off.)
-var CACHE_NAME = "bullamon-plains-shell-v4";
+// (Bumped again 2026-09-25, a third time the same day: added a small visible
+// APP_BUILD version tag in the sidebar next to the Refresh app button --
+// after Maria correctly did everything right (uploaded both files, deploy
+// succeeded) and still couldn't tell whether her device had picked up the
+// changes, since there was no way to check that without comparing raw file
+// contents. This tag now makes that instantly visible on-screen.)
+// (Bumped again 2026-09-25, a fourth time the same day: removed the
+// "Report a machinery issue" card from the Dashboard, at Maria's request.)
+var CACHE_NAME = "bullamon-plains-shell-v6";
 
 var SHELL_ASSETS = [
   "./",
