@@ -39,7 +39,12 @@
 // cell, like a real spreadsheet -- Tag/Name/Animal ID/DOB/Price, every
 // year's test result, and the Notes text all edit in place now, instead of
 // only through the Edit panel below the table.)
-var CACHE_NAME = "bullamon-plains-shell-v9";
+// (Bumped again 2026-09-27, a second time the same day: Animal ID removed
+// entirely from the Bulls table and the add/edit-bull form; 2022 and 2023's
+// year columns archived (hidden, not deleted -- restorable any time from
+// "Show archived years"); admins can now archive/restore/add year columns
+// from the table itself, instead of that list being fixed in code.)
+var CACHE_NAME = "bullamon-plains-shell-v10";
 
 var SHELL_ASSETS = [
   "./",
