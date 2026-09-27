@@ -35,7 +35,11 @@
 // worth of SDS detail filled in from real, cited web research at Maria's
 // request, plus a display-bug fix so already-researched chemicals' poison
 // schedule/signal word are no longer hidden on the new detail page.)
-var CACHE_NAME = "bullamon-plains-shell-v8";
+// (Bumped again 2026-09-27: the Bulls table is now directly editable cell by
+// cell, like a real spreadsheet -- Tag/Name/Animal ID/DOB/Price, every
+// year's test result, and the Notes text all edit in place now, instead of
+// only through the Edit panel below the table.)
+var CACHE_NAME = "bullamon-plains-shell-v9";
 
 var SHELL_ASSETS = [
   "./",
