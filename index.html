@@ -1487,7 +1487,7 @@ const DEFAULT_STATE = {
 // change to this file, same as CACHE_NAME in sw.js -- it gives an instant,
 // no-technical-steps-needed way to confirm whether a given device is
 // actually running the latest deploy, without comparing file contents.
-var APP_BUILD = "2026-09-28.2";
+var APP_BUILD = "2026-09-28.3";
 
 /* ======================================================================
    UTILITIES
@@ -8222,6 +8222,22 @@ async function boot(){
     state.settings.bullArchiveYear2021V1 = true;
     migrated = true;
   }
+  // one-time migration (2026-09-28): fixes the left/right order of any year
+  // column that was added before "+ Add year" placed a same-year variant
+  // (e.g. "2026 Retest") to the left of its plain year -- at Maria's
+  // request ("Move the 2026 Retest to the left of the 2026 year"). New
+  // additions from here on already land correctly (insertBullYearColumn());
+  // this just corrects anything added under the older behaviour, using the
+  // same narrow, non-destructive fix (fixYearTieOrder()) -- no bull's
+  // test-log data is touched, and no column's position changes unless it
+  // was genuinely tied with another one on the same year number.
+  if(!state.settings.bullYearTieOrderFixV1){
+    var ycFix = bullYearColumns();
+    ycFix.active = fixYearTieOrder(ycFix.active);
+    ycFix.archived = fixYearTieOrder(ycFix.archived);
+    state.settings.bullYearTieOrderFixV1 = true;
+    migrated = true;
+  }
 
   booted = true;
   cacheGoodState();
@@ -10363,6 +10379,34 @@ function bullYearColumns(){
 function sortYearsDesc(years){
   return years.slice().sort(function(a, b){ return parseInt(b, 10) - parseInt(a, 10); });
 }
+// Corrects the left/right order of any year columns that share the same
+// year number but not the same spelling (a plain year and its "Retest"
+// variant, e.g. "2026" and "2026 Retest") -- the plain one always ends up
+// last (rightmost) within that tied pair. Deliberately narrow: it only
+// ever reorders entries that are numeric ties with each other, and leaves
+// every other column's relative position completely untouched, so it's
+// safe to run over a whole existing list (see the one-time migration that
+// uses it below) without disturbing years that were never part of a tie.
+function fixYearTieOrder(years){
+  var byNum = {};
+  years.forEach(function(y, i){
+    var n = parseInt(y, 10);
+    (byNum[n] = byNum[n] || []).push(i);
+  });
+  var result = years.slice();
+  Object.keys(byNum).forEach(function(n){
+    var idxs = byNum[n];
+    if(idxs.length < 2) return;
+    var items = idxs.map(function(i){ return years[i]; });
+    items.sort(function(a, b){
+      var aPlain = /^[0-9]+$/.test(a), bPlain = /^[0-9]+$/.test(b);
+      if(aPlain !== bPlain) return aPlain ? 1 : -1;
+      return 0;
+    });
+    idxs.forEach(function(i, k){ result[i] = items[k]; });
+  });
+  return result;
+}
 function archiveBullYearColumn(year){
   var yc = bullYearColumns();
   yc.active = yc.active.filter(function(y){ return y !== year; });
@@ -10375,6 +10419,30 @@ function restoreBullYearColumn(year){
   yc.archived = yc.archived.filter(function(y){ return y !== year; });
   if(yc.active.indexOf(year) === -1) yc.active.push(year);
   yc.active = sortYearsDesc(yc.active);
+  persist();
+}
+// Permanently removes a year column (active or archived) from the table, at
+// Maria's request for a real "delete" alongside Archive/Restore -- for a
+// column added by mistake (wrong year typed, an unwanted Retest column,
+// etc.) rather than one that should just be hidden. Per this app's usual
+// non-destructive rule, this never touches a bull's own testLog data: if
+// any bull already has a result recorded under this exact year, that entry
+// is left completely untouched and simply stops being shown as a column --
+// it reappears on its own if this same year is ever added back later. The
+// confirmation message says up front whether that applies, so it's never a
+// surprise.
+function deleteBullYearColumn(year){
+  var withData = bullItems().filter(function(b){
+    return (b.testLog || []).some(function(t){ return t.year === year; });
+  }).length;
+  var msg = 'Delete the "' + year + '" column?';
+  msg += withData > 0
+    ? (' ' + withData + ' bull' + (withData === 1 ? " has a test result" : "s have test results") + ' recorded under ' + year + ' -- that data is kept on those bulls, it just won\'t be shown as a column any more (it reappears if "' + year + '" is ever added back).')
+    : ' No bull currently has any data recorded under it.';
+  if(!confirm(msg)) return;
+  var yc = bullYearColumns();
+  yc.active = yc.active.filter(function(y){ return y !== year; });
+  yc.archived = yc.archived.filter(function(y){ return y !== year; });
   persist();
 }
 function addBullYearColumn(e){
@@ -10559,7 +10627,13 @@ function renderBullsTable(list, years, isArchived, archivedYearsInView){
       var ctrl = isArchivedCol
         ? '<button type="button" class="subtle-btn" style="font-size:10px;padding:1px 4px;" title="Restore ' + esc(y) + ' to the active year columns" onclick="restoreBullYearColumn(\'' + esc(y) + '\')">&#8635; Restore</button>'
         : '<button type="button" class="subtle-btn" style="font-size:10px;padding:1px 4px;" title="Archive the ' + esc(y) + ' column -- test results for ' + esc(y) + ' are kept, this just hides the column here" onclick="archiveBullYearColumn(\'' + esc(y) + '\')">&times; Archive</button>';
-      return "<th>" + label + "<br/>" + ctrl + "</th>";
+      // "Delete" (as distinct from Archive/Restore, which only hide/show the
+      // column) permanently removes it from the year-columns list -- for a
+      // column added by mistake rather than one that should stay available.
+      // Works from either state (active or archived), and confirms first
+      // (deleteBullYearColumn() itself explains what happens to any data).
+      var delBtn = '<button type="button" class="subtle-btn" style="font-size:10px;padding:1px 4px;color:var(--danger);" title="Delete the ' + esc(y) + ' column entirely" onclick="deleteBullYearColumn(\'' + esc(y) + '\')">Delete</button>';
+      return "<th>" + label + "<br/>" + ctrl + " " + delBtn + "</th>";
     }).join("") +
     "<th>Notes</th><th>Price</th>" +
     (isArchived ? "<th>Reason</th><th>Date</th>" : "") +
