@@ -44,7 +44,13 @@
 // year columns archived (hidden, not deleted -- restorable any time from
 // "Show archived years"); admins can now archive/restore/add year columns
 // from the table itself, instead of that list being fixed in code.)
-var CACHE_NAME = "bullamon-plains-shell-v10";
+// (Bumped again 2026-09-27, a third time the same day: a row's cells only
+// become editable after clicking a new "Edit" button on that row, instead
+// of always being live inputs -- touching a cell was triggering edit mode
+// with no explicit action first, and also made a long test result need
+// scrolling inside a cramped textarea to read. 2021's year column archived.
+// Price moved to the end of the row, after Notes.)
+var CACHE_NAME = "bullamon-plains-shell-v11";
 
 var SHELL_ASSETS = [
   "./",
