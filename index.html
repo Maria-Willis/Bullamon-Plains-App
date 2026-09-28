@@ -575,6 +575,44 @@
     cursor:pointer;
   }
   .filter-pill.active{ background:var(--accent); color:var(--accent-contrast); border-color:var(--accent); }
+  /* Machinery Maintenance restructure (2026-09-28, matching Maria's
+     reference mockups): a machine's detail screen is now Overview / Parts /
+     History / Issues tabs instead of always-visible stacked toggle
+     sections. Reuses .filter-pill-row/.filter-pill for the tab strip itself
+     (same look as the existing All/Due/Out filter pills) so this reads as
+     the same design language, not a new one. */
+  .detail-tab-row{ display:flex; gap:4px; border-bottom:1px solid var(--border); margin:14px 0 16px; }
+  .detail-tab-btn{
+    background:none; border:none; border-bottom:2px solid transparent;
+    padding:8px 4px; margin-right:18px; font-size:13.5px; font-weight:600;
+    color:var(--text-muted); cursor:pointer;
+  }
+  .detail-tab-btn.active{ color:var(--accent-strong); border-bottom-color:var(--accent-strong); }
+  .due-checklist-row{ display:flex; align-items:center; gap:10px; padding:10px 2px; border-bottom:1px solid var(--border); font-size:13.5px; }
+  .due-checklist-row:last-child{ border-bottom:none; }
+  .due-checklist-dot{ width:18px; height:18px; border-radius:50%; border:2px solid var(--border); flex-shrink:0; }
+  .due-checklist-row.checked .due-checklist-dot{ background:var(--status-done); border-color:var(--status-done); position:relative; }
+  /* Severity picker (Report an issue) -- three equal-width pill buttons,
+     managed with plain JS (selectSeverityPill()) rather than a full
+     render(), so picking a severity never disturbs whatever's already been
+     typed into the description field above it. */
+  .severity-pill-row{ display:flex; gap:8px; margin:6px 0 2px; }
+  .severity-pill-btn{
+    flex:1; border:1px solid var(--border); background:var(--surface); color:var(--text);
+    border-radius:var(--radius-lg); padding:9px 6px; font-size:13px; font-weight:600; cursor:pointer;
+  }
+  .severity-pill-btn.sel-minor{ background:color-mix(in srgb, var(--status-done) 16%, transparent); color:var(--status-done); border-color:transparent; }
+  .severity-pill-btn.sel-repair{ background:color-mix(in srgb, var(--pri-medium) 16%, transparent); color:var(--pri-medium); border-color:transparent; }
+  .severity-pill-btn.sel-unsafe{ background:var(--danger); color:#fff; border-color:var(--danger); }
+  /* "Parts used" chips (Log work / Add action taken) -- a small removable
+     token per part, matching the mockup's rounded pill-with-x tokens. */
+  .chip-row{ display:flex; flex-wrap:wrap; gap:8px; margin:8px 0; }
+  .chip{
+    display:inline-flex; align-items:center; gap:6px;
+    background:var(--surface-2); border:1px solid var(--border); border-radius:var(--radius-pill);
+    padding:5px 8px 5px 12px; font-size:12.5px; font-weight:600;
+  }
+  .chip button{ background:none; border:none; color:var(--text-muted); cursor:pointer; font-size:13px; line-height:1; padding:2px; }
   .back-chevron-btn{
     display:inline-flex;
     align-items:center;
@@ -1487,7 +1525,7 @@ const DEFAULT_STATE = {
 // change to this file, same as CACHE_NAME in sw.js -- it gives an instant,
 // no-technical-steps-needed way to confirm whether a given device is
 // actually running the latest deploy, without comparing file contents.
-var APP_BUILD = "2026-09-28.3";
+var APP_BUILD = "2026-09-28.4";
 
 /* ======================================================================
    UTILITIES
@@ -1631,6 +1669,12 @@ function prefetchStorageFilesForOffline(){
   (state.sops || []).forEach(function(s){
     (s.photos || []).forEach(function(p){ if(p.url) urls.push(p.url); });
   });
+  (state.machinery || []).forEach(function(m){
+    (m.issues || []).forEach(function(iss){
+      if(iss.photoUrl) urls.push(iss.photoUrl);
+      (iss.actions || []).forEach(function(a){ if(a.photoUrl) urls.push(a.photoUrl); });
+    });
+  });
   if(!urls.length) return;
   navigator.serviceWorker.controller.postMessage({ type: "cacheMapFiles", urls: urls });
 }
@@ -1720,6 +1764,11 @@ var ui = {
   machineryQuery: "",
   machineryFilter: "all",   // "all" | "due" | "out" -- fleet-list filter pills
   machinerySelected: null,  // id of the machine currently open in detail view, or null for the fleet list
+  machineryTab: "overview", // "overview" | "parts" | "history" | "issues" -- which tab of the selected machine's detail screen is showing
+  machineryLogWork: null,   // {id, mode: "service"|"other"} while the full-page "Log work" screen is open, or null
+  machineryReportIssue: null, // machine id while the full-page "Report an issue" screen is open, or null
+  machineryIssueSelected: null, // issue id while that issue's own detail/action-timeline screen is open, or null
+  machinePartsQuery: "",
   sdsQuery: "",
   sdsSelected: null,   // id of the chemical currently open in its own SDS detail view, or null for the searchable list
   bullsQuery: "",
@@ -8239,6 +8288,31 @@ async function boot(){
     migrated = true;
   }
 
+  // Machinery Maintenance restructure (2026-09-28, matching Maria's reference
+  // mockups: Overview/Parts/History/Issues tabs, issue severity, and an
+  // action-taken timeline). Every already-existing machine, issue and part
+  // needs these new fields defaulted once so the new screens have something
+  // sensible to read -- a machine with no serviceChecklistItems yet gets the
+  // same starter checklist a brand-new machine gets (editable afterwards); an
+  // issue reported before severity existed defaults to "Minor" (never
+  // "Unsafe", so this migration itself can never silently tag an existing
+  // machine "Out of action") and gets an empty actions[] timeline; a part
+  // recorded before "Qty on hand" existed just gets an empty qty.
+  if(!state.settings.machineryMaintenanceRestructureV1){
+    (state.machinery || []).forEach(function(m){
+      if(!m.serviceChecklistItems) m.serviceChecklistItems = DEFAULT_MACHINE_CHECKLIST.slice();
+      (m.issues || []).forEach(function(iss){
+        if(!iss.severity) iss.severity = "Minor";
+        if(!iss.actions) iss.actions = [];
+      });
+      (m.parts || []).forEach(function(p){
+        if(p.qty == null) p.qty = "";
+      });
+    });
+    state.settings.machineryMaintenanceRestructureV1 = true;
+    migrated = true;
+  }
+
   booted = true;
   cacheGoodState();
   subscribeRealtime();
@@ -9389,6 +9463,23 @@ function machineIconHtml(m, cls){
   return '<img class="' + cls + '" src="' + machineIconAsset(m) + '" alt="" />';
 }
 
+// The default set of standard-service checklist items a new machine starts
+// with (2026-09-28, matching Maria's reference mockups' "Due at next
+// service" / "Service items completed" checklists) -- editable per machine
+// from its Overview tab afterwards, since not every machine's service is
+// identical (e.g. a spray rig vs. a truck).
+var DEFAULT_MACHINE_CHECKLIST = ["Engine oil & filter", "Fuel filters", "Air filter check", "Grease all points"];
+
+// "Out of action" (2026-09-28): before issues had a severity, this was read
+// as "has any open issue at all" (see the old fleet-card comment). Now that
+// issues carry a severity, this means specifically "has an open issue
+// marked Unsafe" -- matching the mockups ("Marking an issue Unsafe tags the
+// machine Out of action"). A Minor or Needs-repair issue can be open
+// without taking the machine out of action.
+function machineOutOfAction(m){
+  return (m.issues || []).some(function(i){ return i.status !== "Resolved" && i.severity === "Unsafe"; });
+}
+
 function renderMachinery(){
   // Fleet-list / detail-view navigation (2026-09-24 redesign, to match
   // Maria's reference photos): the page shows either the whole fleet as a
@@ -9408,15 +9499,12 @@ function renderMachineryList(){
   var active = all.filter(function(m){ return m.status !== "archived"; });
   var archived = all.filter(function(m){ return m.status === "archived"; });
   var dueCount = active.filter(machineDueForService).length;
-  // "Out of action" has no dedicated status field of its own -- it's read
-  // as "has at least one open (unresolved) reported issue", since that's
-  // the closest thing this app already tracks to a machine being down.
-  var outCount = active.filter(function(m){ return (m.issues||[]).some(function(i){ return i.status !== "Resolved"; }); }).length;
+  var outCount = active.filter(machineOutOfAction).length;
 
   var filter = ui.machineryFilter || "all";
   var list = active;
   if(filter === "due") list = list.filter(machineDueForService);
-  else if(filter === "out") list = list.filter(function(m){ return (m.issues||[]).some(function(i){ return i.status !== "Resolved"; }); });
+  else if(filter === "out") list = list.filter(machineOutOfAction);
   if(q) list = list.filter(function(m){
     return (m.name + " " + (m.type||"") + " " + (m.regNo||"")).toLowerCase().indexOf(q) > -1;
   });
@@ -9478,7 +9566,7 @@ function renderMachineFleetCard(m){
         '<p class="row-muted" style="margin:0;font-size:12.5px;">' + esc(m.type) + (m.regNo ? " &middot; " + esc(m.regNo) : "") + '</p></div>' +
       '</div>' +
       '<div style="display:flex;gap:6px;align-items:center;flex-shrink:0;">' +
-        (openIssues.length ? '<span class="pill pill-high">' + openIssues.length + ' issue' + (openIssues.length === 1 ? "" : "s") + '</span>' : '') +
+        (machineOutOfAction(m) ? '<span class="pill pill-high">&#9888; Out of action</span>' : (openIssues.length ? '<span class="pill pill-medium">' + openIssues.length + ' issue' + (openIssues.length === 1 ? "" : "s") + '</span>' : "")) +
         '<span class="pill pill-due ' + dueTone + '">' + dueLabel + '</span>' +
         '<span class="nav-chevron">&#8250;</span>' +
       '</div>' +
@@ -9494,33 +9582,54 @@ function renderMachineFleetCard(m){
 // from Maria's reference photos but isn't a feature this app has, and she
 // asked for it to be left out.
 function renderMachineDetail(m){
-  var historyOpen = ui.openForms["history_" + m.id];
-  var partsOpen = ui.openForms["parts_" + m.id];
-  var issuesOpen = ui.openForms["issues_" + m.id];
   var editing = ui.editing.machine === m.id;
+  var html = '<button type="button" class="back-chevron-btn" onclick="ui.machinerySelected=null;ui.machineryLogWork=null;ui.machineryReportIssue=null;ui.machineryIssueSelected=null;render();">&#8249; Back to machinery</button>';
+  html += '<div class="card">';
+  if(editing){
+    html += renderMachineForm(m);
+    html += '</div>';
+    return html;
+  }
+
+  // Dedicated full-page sub-screens -- Log work, Report an issue, and an
+  // issue's own detail/action-timeline screen (2026-09-28 restructure, to
+  // match Maria's reference mockups) -- take over the whole card instead of
+  // living inline in a tab, since each of these is a one-off action rather
+  // than something to browse. Each has its own back/Cancel control.
+  if(ui.machineryLogWork && ui.machineryLogWork.id === m.id){
+    html += renderMachineLogWorkForm(m, ui.machineryLogWork);
+    html += '</div>';
+    return html;
+  }
+  if(ui.machineryReportIssue === m.id){
+    html += renderMachineIssueForm(m);
+    html += '</div>';
+    return html;
+  }
+  var selectedIssue = ui.machineryIssueSelected ? byId(m.issues || [], ui.machineryIssueSelected) : null;
+  if(ui.machineryIssueSelected && !selectedIssue) ui.machineryIssueSelected = null;
+  if(selectedIssue){
+    html += renderMachineIssueDetail(m, selectedIssue);
+    html += '</div>';
+    return html;
+  }
+
   var issues = m.issues || [];
   var scheduleConfigured = machineScheduleConfigured(m);
   var nextMilestone = machineNextMilestone(m);
   var d = daysUntil(m.nextServiceDue);
-  var dueLabel, dueTone, dueOk;
+  var dueLabel, dueTone, dueOk, progressPct = null;
   if(scheduleConfigured && nextMilestone){
     var hoursRemaining = nextMilestone.hours - (m.currentReading || 0);
     var toneWindow = m.serviceIntervalHours || 250;
     dueOk = hoursRemaining > toneWindow * 0.25;
     dueTone = hoursRemaining <= toneWindow * 0.1 ? "pill-high" : hoursRemaining <= toneWindow * 0.25 ? "pill-medium" : "pill-todo";
     dueLabel = "Service due at " + fmtNum(nextMilestone.hours, "hrs") + " (" + fmtNum(Math.max(0, hoursRemaining), "hrs") + " to go)";
+    progressPct = Math.max(0, Math.min(100, 100 * (1 - hoursRemaining / toneWindow)));
   } else {
     dueOk = d == null || d > 21;
     dueTone = d != null && d <= 7 ? "pill-high" : d != null && d <= 21 ? "pill-medium" : "pill-todo";
     dueLabel = "Service due " + fmtDate(m.nextServiceDue);
-  }
-
-  var html = '<button type="button" class="back-chevron-btn" onclick="ui.machinerySelected=null;render();">&#8249; Back to machinery</button>';
-  html += '<div class="card">';
-  if(editing){
-    html += renderMachineForm(m);
-    html += '</div>';
-    return html;
   }
 
   html += '<div class="card-row" style="align-items:flex-start;">' +
@@ -9530,95 +9639,433 @@ function renderMachineDetail(m){
       '<p class="row-muted" style="margin:0;font-size:13px;">' + esc(m.type) + (m.regNo ? " &middot; " + esc(m.regNo) : "") + '</p>' +
       '<p class="row-muted" style="margin:4px 0 0;font-size:12.5px;">' + fmtNum(m.currentReading, "hrs") + ' current reading</p></div>' +
     '</div>' +
-    (m.status === "archived" ? '<span class="pill pill-todo">Sold / Other</span>' : '') +
-  '</div>';
-
-  html += '<div class="due-progress-card' + (dueOk ? " ok" : "") + '"><div class="stat-label">Maintenance status</div>' +
-    '<div style="font-weight:700;font-size:14.5px;margin-top:2px;">' + dueLabel + '</div></div>';
-
-  // The "Maintenance schedule" stat (Due at X hrs · every Y hrs / Not set) is
-  // deliberately hidden here as of 2026-09-24, at Maria's request -- the same
-  // due-at figure is still shown in full in the "Maintenance status" card
-  // just above, so nothing is actually lost, just decluttered off this one
-  // screen. Last service / Interval stay, unchanged.
-  html += '<div class="form-grid" style="margin:12px 0;">' +
-    '<div><div class="stat-label">Last service</div><div style="font-weight:600;">' + fmtNum(m.lastServiceReading, "hrs") + ' &middot; ' + fmtDate(m.lastServiceDate) + '</div></div>' +
-    '<div><div class="stat-label">Interval</div><div style="font-weight:600;">' + esc(m.serviceIntervalDesc || "—") + '</div></div>' +
+    '<div style="display:flex;gap:6px;align-items:center;flex-shrink:0;">' +
+      (machineOutOfAction(m) ? '<span class="pill pill-high">&#9888; Out of action</span>' : '') +
+      (m.status === "archived" ? '<span class="pill pill-todo">Sold / Other</span>' : '') +
+    '</div>' +
   '</div>';
 
   if(m.status === "archived"){
-    html += '<p class="row-muted" style="margin:0 0 10px;font-size:12px;">' +
+    html += '<p class="row-muted" style="margin:10px 0 0;font-size:12px;">' +
       (m.archivedReason ? esc(m.archivedReason) : "No reason given") + (m.archivedDate ? " &middot; " + fmtDate(m.archivedDate) : "") +
     '</p>';
     if(isAdmin()){
-      html += '<div class="job-actions" style="margin-bottom:12px;">' +
+      html += '<div class="job-actions" style="margin:10px 0 0;">' +
         '<button type="button" class="btn btn-ghost btn-sm" onclick="restoreMachine(\'' + m.id + '\')">Restore to active list</button>' +
         '<button type="button" class="btn btn-danger btn-sm" onclick="confirmDeleteMachine(\'' + m.id + '\')">Delete machine entirely</button>' +
       '</div>';
     }
   } else if(isAdmin()){
-    html += '<div class="job-actions" style="margin-top:12px;">' +
+    html += '<div class="job-actions" style="margin:10px 0 0;">' +
       '<button type="button" class="btn btn-ghost btn-sm" onclick="ui.editing.machine=\'' + m.id + '\';render();">Edit</button>' +
       '<button type="button" class="btn btn-ghost btn-sm" onclick="toggleForm(\'archive_' + m.id + '\')">' + (ui.openForms["archive_" + m.id] ? "Cancel" : "Mark as Sold / Other") + '</button>' +
     '</div>';
     if(ui.openForms["archive_" + m.id]) html += renderArchiveMachineForm(m);
   }
 
-  html += '<hr style="border:none;border-top:1px solid var(--border);margin:14px 0;" />';
-  // Service log and maintenance schedule used to be two separate
-  // toggles/tables (Maria found that split confusing -- "I need the
-  // service log and the schedule combined into one"). Now a single
-  // "Show service history" toggle opens one combined table: any still-
-  // outstanding scheduled milestones first (clickable to log them), then
-  // every actual logged record underneath (newest first), each with its
-  // own Edit button -- including old records well outside the schedule's
-  // current computed window, which previously had no edit path at all.
-  html += '<button type="button" class="section-toggle-btn" onclick="ui.openForms[\'history_' + m.id + '\']=!ui.openForms[\'history_' + m.id + '\'];render();">' + (historyOpen ? "Hide service history" : "Show service history (" + (m.log||[]).length + ")") + '</button>';
-  if(historyOpen) html += renderMachineServiceHistory(m);
-  if(isAdmin()){
-    html += '<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">' +
-      '<button type="button" class="btn btn-primary btn-sm" style="width:auto;" onclick="openLogServiceForNextDue(\'' + m.id + '\')">' + (scheduleConfigured && nextMilestone ? "Log service due (" + fmtNum(nextMilestone.hours, "hrs") + ")" : "Log service") + '</button>' +
-      '<button type="button" class="btn btn-primary btn-sm" style="width:auto;" onclick="toggleForm(\'svc_' + m.id + '\')">' + (ui.openForms["svc_" + m.id] ? "Cancel" : "+ Log other work") + '</button>' +
-      '<button type="button" class="btn btn-ghost btn-sm" onclick="toggleForm(\'setSchedule_' + m.id + '\')">' + (ui.openForms["setSchedule_" + m.id] ? "Cancel" : (scheduleConfigured ? "Edit maintenance schedule" : "+ Set maintenance schedule")) + '</button>' +
-      ((m.log || []).length ? '<button type="button" class="btn btn-danger btn-sm" onclick="confirmDeleteServiceHistory(\'' + m.id + '\')">Delete all service history</button>' : '') +
-    '</div>';
-  }
-  if(ui.openForms["svc_" + m.id]) html += renderServiceLogForm(m);
-  if(ui.openForms["setSchedule_" + m.id]) html += renderMaintenanceScheduleForm(m);
+  // Overview / Parts / History / Issues tabs (2026-09-28 restructure, at
+  // Maria's request, to match her reference mockups) -- replaces the old
+  // always-visible stacked "Show service history" / "Show Parts & Part
+  // Numbers" / "Report Issue & Show Issues" toggle sections with a proper
+  // tab strip. Reuses the same .filter-pill-row look as the fleet list's
+  // own All/Due/Out filter pills (see .detail-tab-row/.detail-tab-btn in
+  // the stylesheet) so this still reads as this app's existing design
+  // language, not a new one -- Maria asked to restructure the content and
+  // flow here, not restyle the app.
+  var tab = ui.machineryTab || "overview";
+  html += '<div class="detail-tab-row">' +
+    [["overview", "Overview"], ["parts", "Parts"], ["history", "History"], ["issues", "Issues (" + issues.length + ")"]].map(function(t){
+      return '<button type="button" class="detail-tab-btn' + (tab === t[0] ? " active" : "") + '" onclick="ui.machineryTab=\'' + t[0] + '\';render();">' + t[1] + '</button>';
+    }).join("") +
+  '</div>';
 
-  html += '<hr style="border:none;border-top:1px solid var(--border);margin:14px 0;" />';
-  html += '<button type="button" class="section-toggle-btn" onclick="ui.openForms[\'parts_' + m.id + '\']=!ui.openForms[\'parts_' + m.id + '\'];render();">' + (partsOpen ? "Hide parts & part numbers" : "Show Parts & Part Numbers (" + (m.parts||[]).length + ")") + '</button>';
-  if(partsOpen) html += renderMachinePartsSection(m);
+  if(tab === "parts") html += renderMachinePartsTab(m);
+  else if(tab === "history") html += renderMachineHistoryTab(m);
+  else if(tab === "issues") html += renderMachineIssuesTab(m);
+  else html += renderMachineOverviewTab(m, dueLabel, dueOk, progressPct);
 
-  html += '<hr style="border:none;border-top:1px solid var(--border);margin:14px 0;" />';
-  html += '<button type="button" class="section-toggle-btn" onclick="ui.openForms[\'issues_' + m.id + '\']=!ui.openForms[\'issues_' + m.id + '\'];render();">' + (issuesOpen ? "Hide issues" : "Report Issue & Show Issues (" + issues.length + ")") + '</button>';
-  if(issuesOpen){
-    if(issues.length === 0){
-      html += '<div class="empty-state" style="margin-top:8px;">No issues reported for this machine.</div>';
-    } else {
-      html += '<div class="list-cards" style="margin-top:8px;">' + issues.slice().sort(byDateDesc("date")).map(function(iss){
-        var editKey = "editissue_" + iss.id;
-        var editing = ui.openForms[editKey];
-        if(editing){
-          return '<div class="card" style="box-shadow:none;border:1px solid var(--border);padding:10px 12px;">' + renderMachineIssueEditForm(m, iss) + '</div>';
-        }
-        return '<div class="card" style="box-shadow:none;border:1px solid var(--border);padding:10px 12px;">' +
-          '<div class="card-row"><p style="margin:0;flex:1;">' + esc(iss.description) + '</p>' +
-          '<span class="pill ' + (iss.status === "Resolved" ? "pill-todo" : "pill-high") + '">' + esc(iss.status || "Open") + '</span></div>' +
-          '<p class="row-muted" style="margin:6px 0 0;font-size:11.5px;">Reported by ' + esc(iss.reportedBy) + ' on ' + fmtDate(iss.date) + '</p>' +
-          '<div style="display:flex;gap:6px;margin-top:8px;">' +
-            (iss.status !== "Resolved" ? '<button type="button" class="btn btn-ghost btn-sm" onclick="resolveMachineIssue(\'' + m.id + '\',\'' + iss.id + '\')">Mark resolved</button>' : '<button type="button" class="btn btn-ghost btn-sm" onclick="reopenMachineIssue(\'' + m.id + '\',\'' + iss.id + '\')">Reopen</button>') +
-            (isAdmin() ? '<button type="button" class="btn btn-ghost btn-sm" onclick="ui.openForms[\'' + editKey + '\']=true;render();">Edit</button>' : '') +
-            (isAdmin() ? '<button type="button" class="btn btn-danger btn-sm" onclick="if(confirm(\'Delete this issue?\')){deleteMachineIssue(\'' + m.id + '\',\'' + iss.id + '\');}">Delete</button>' : '') +
-          '</div>' +
-        '</div>';
-      }).join("") + '</div>';
-    }
-    html += '<button type="button" class="btn btn-ghost btn-sm" style="margin-top:10px;" onclick="toggleForm(\'newIssue_' + m.id + '\')">' + (ui.openForms["newIssue_" + m.id] ? "Cancel" : "+ Report an issue") + '</button>';
-    if(ui.openForms["newIssue_" + m.id]) html += renderMachineIssueForm(m);
-  }
   html += '</div>';
   return html;
+}
+
+// Overview tab: the "next service due" status card (now with a progress
+// bar towards the next scheduled milestone, at Maria's request to "make the
+// boxes/info deeper" -- reusing the exact same due/hours-remaining maths
+// this app already had, just also drawn as a bar), the standard checklist
+// of what's due at the next service (editable per machine, since not every
+// machine's service is identical), and the three primary actions (Log
+// service / Log other work / Report issue) as full-page screens of their
+// own, matching the reference mockups.
+function renderMachineOverviewTab(m, dueLabel, dueOk, progressPct){
+  var html = '<div class="due-progress-card' + (dueOk ? " ok" : "") + '"><div class="stat-label">Maintenance status</div>' +
+    '<div style="font-weight:700;font-size:14.5px;margin-top:2px;">' + dueLabel + '</div>' +
+    (progressPct != null ? '<div style="height:8px;border-radius:99px;background:var(--surface-2);margin-top:10px;overflow:hidden;"><div style="height:100%;width:' + progressPct.toFixed(1) + '%;background:var(--accent-strong);"></div></div>' : '') +
+  '</div>';
+
+  html += '<div class="form-grid" style="margin:12px 0;">' +
+    '<div><div class="stat-label">Last service</div><div style="font-weight:600;">' + fmtNum(m.lastServiceReading, "hrs") + ' &middot; ' + fmtDate(m.lastServiceDate) + '</div></div>' +
+    '<div><div class="stat-label">Interval</div><div style="font-weight:600;">' + esc(m.serviceIntervalDesc || "—") + '</div></div>' +
+  '</div>';
+
+  var checklist = m.serviceChecklistItems || [];
+  var checklistEditing = ui.openForms["checklist_" + m.id];
+  html += '<div class="stat-label" style="margin-top:14px;">Due at next service</div>';
+  if(!checklist.length){
+    html += '<div class="empty-state" style="margin-top:6px;">No standard service items set for this machine yet.</div>';
+  } else {
+    html += '<div style="margin-top:6px;border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden;">' +
+      checklist.map(function(item){ return '<div class="due-checklist-row"><span class="due-checklist-dot"></span>' + esc(item) + '</div>'; }).join("") +
+    '</div>';
+  }
+  if(isAdmin()){
+    html += '<button type="button" class="btn btn-ghost btn-sm" style="margin-top:8px;" onclick="toggleForm(\'checklist_' + m.id + '\')">' + (checklistEditing ? "Cancel" : "Edit service checklist") + '</button>';
+    if(checklistEditing) html += renderMachineChecklistForm(m);
+  }
+
+  html += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:16px;">' +
+    '<button type="button" class="btn btn-primary" style="width:auto;" onclick="ui.machineryLogWork={id:\'' + m.id + '\',mode:\'service\'};render();">&#128295; Log service</button>' +
+    '<button type="button" class="btn btn-ghost" style="width:auto;" onclick="ui.machineryLogWork={id:\'' + m.id + '\',mode:\'other\'};render();">+ Log other work</button>' +
+    '<button type="button" class="btn btn-ghost" style="width:auto;" onclick="ui.machineryReportIssue=\'' + m.id + '\';render();">&#9888; Report issue</button>' +
+  '</div>';
+  return html;
+}
+
+// A machine's standard service checklist (2026-09-28) -- deliberately just
+// a plain one-item-per-line textarea rather than individual add/remove
+// buttons per item, since re-typing a short list occasionally is far less
+// code and far less fragile than a whole separate mini-CRUD for it, and
+// this is edited rarely (set once per machine, tweaked occasionally) rather
+// than a running log.
+function renderMachineChecklistForm(m){
+  var current = (m.serviceChecklistItems || []).join("\n");
+  return '<form class="form-panel" style="margin-top:10px;" onsubmit="saveMachineChecklist(event,\'' + m.id + '\')">' +
+    '<h4 style="margin-top:0;">Service checklist — ' + esc(m.name) + '</h4>' +
+    '<div class="field"><label>One item per line</label><textarea name="items" rows="5" placeholder="e.g. Engine oil &amp; filter">' + esc(current) + '</textarea></div>' +
+    '<div class="form-actions"><button type="submit" class="btn btn-primary" style="width:auto;">Save</button><button type="button" class="btn btn-ghost" onclick="toggleForm(\'checklist_' + m.id + '\')">Cancel</button></div>' +
+  '</form>';
+}
+function saveMachineChecklist(e, machineId){
+  e.preventDefault();
+  var f = e.target;
+  var m = byId(state.machinery, machineId);
+  if(!m) return;
+  m.serviceChecklistItems = f.items.value.split("\n").map(function(s){ return s.trim(); }).filter(function(s){ return !!s; });
+  ui.openForms["checklist_" + machineId] = false;
+  persist();
+}
+
+// Parts tab wrapper: adds the search box and "+ Add part" button the
+// reference mockup shows at the top of this screen, around the existing
+// renderMachinePartsSection table (unchanged apart from the new Qty column
+// and a copy-part-number button).
+function renderMachinePartsTab(m){
+  var q = (ui.machinePartsQuery || "").trim().toLowerCase();
+  var addKey = "newPart_" + m.id;
+  var html = '<div class="toolbar">' +
+    '<input class="search-input" type="text" placeholder="Search parts or part numbers" value="' + escAttr(ui.machinePartsQuery || "") + '" oninput="ui.machinePartsQuery=this.value;render();" />' +
+    '<span style="flex:1;"></span>' +
+    (isAdmin() ? '<button type="button" class="btn btn-primary" style="width:auto;" onclick="toggleForm(\'' + addKey + '\')">' + (ui.openForms[addKey] ? "Cancel" : "+ Add part") + '</button>' : "") +
+  '</div>';
+  if(ui.openForms[addKey]) html += renderMachinePartForm(m, null);
+  html += renderMachinePartsSection(m, q);
+  return html;
+}
+
+// History tab wrapper: the existing combined service-history + schedule
+// table, unchanged, plus the maintenance-schedule and delete-all-history
+// admin controls that used to sit directly underneath it.
+function renderMachineHistoryTab(m){
+  var scheduleConfigured = machineScheduleConfigured(m);
+  var html = renderMachineServiceHistory(m);
+  if(isAdmin()){
+    html += '<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">' +
+      '<button type="button" class="btn btn-ghost btn-sm" onclick="toggleForm(\'setSchedule_' + m.id + '\')">' + (ui.openForms["setSchedule_" + m.id] ? "Cancel" : (scheduleConfigured ? "Edit maintenance schedule" : "+ Set maintenance schedule")) + '</button>' +
+      ((m.log || []).length ? '<button type="button" class="btn btn-danger btn-sm" onclick="confirmDeleteServiceHistory(\'' + m.id + '\')">Delete all service history</button>' : "") +
+    '</div>';
+  }
+  if(ui.openForms["setSchedule_" + m.id]) html += renderMaintenanceScheduleForm(m);
+  return html;
+}
+
+// Issues tab: a plain list (open issues read the same as before, just now
+// each row opens its own full detail/action-timeline screen instead of
+// expanding an inline edit form in place). Reporting a new issue is never
+// admin-gated -- anyone signed in can report one, same as before this
+// restructure.
+function renderMachineIssuesTab(m){
+  var issues = (m.issues || []).slice().sort(byDateDesc("date"));
+  var html = "";
+  if(!issues.length){
+    html += '<div class="empty-state">No issues reported for this machine.</div>';
+  } else {
+    html += '<div class="list-cards">' + issues.map(function(iss){
+      var open = iss.status !== "Resolved";
+      var sevTone = iss.severity === "Unsafe" ? "pill-high" : iss.severity === "Needs repair" ? "pill-medium" : "pill-todo";
+      return '<div class="card" style="cursor:pointer;box-shadow:none;border:1px solid var(--border);padding:10px 12px;" onclick="ui.machineryIssueSelected=\'' + iss.id + '\';render();">' +
+        '<div class="card-row"><p style="margin:0;flex:1;">' + esc(iss.description) + '</p><span class="nav-chevron">&#8250;</span></div>' +
+        '<div style="display:flex;gap:6px;align-items:center;margin-top:6px;flex-wrap:wrap;">' +
+          '<span class="pill ' + (open ? "pill-high" : "pill-todo") + '">' + esc(iss.status || "Open") + '</span>' +
+          (iss.severity ? '<span class="pill ' + sevTone + '">' + esc(iss.severity) + '</span>' : "") +
+        '</div>' +
+        '<p class="row-muted" style="margin:6px 0 0;font-size:11.5px;">Reported by ' + esc(iss.reportedBy) + ' on ' + fmtDate(iss.date) + '</p>' +
+      '</div>';
+    }).join("") + '</div>';
+  }
+  html += '<button type="button" class="btn btn-primary btn-sm" style="width:auto;margin-top:12px;" onclick="ui.machineryReportIssue=\'' + m.id + '\';render();">+ Report an issue</button>';
+  return html;
+}
+
+// A single issue's full detail/action-timeline screen (2026-09-28, matching
+// the reference mockup exactly): status pill, the reported description and
+// photo (or its edit form, admin-only), a running "Action taken" timeline,
+// then the "Add action taken" form and the Save action / Mark resolved
+// buttons together in one <form> so both act on whatever's currently typed
+// above them.
+function renderMachineIssueDetail(m, iss){
+  var editKey = "editissue_" + iss.id;
+  var editingDesc = ui.openForms[editKey];
+  var open = iss.status !== "Resolved";
+  var sevTone = iss.severity === "Unsafe" ? "pill-high" : iss.severity === "Needs repair" ? "pill-medium" : "pill-todo";
+  var actionFormKey = "issueAction_" + iss.id;
+  var actionErr = ui.formErrors[actionFormKey];
+
+  var html = '<button type="button" class="back-chevron-btn" onclick="ui.machineryIssueSelected=null;render();">&#8249; Back to issues</button>';
+  html += '<div class="card-row" style="margin-top:6px;">' +
+    '<span class="pill ' + (open ? "pill-high" : "pill-todo") + '">' + esc(iss.status || "Open") + (iss.severity ? ' &middot; ' + esc(iss.severity) : "") + '</span>' +
+  '</div>';
+
+  if(editingDesc){
+    html += renderMachineIssueEditForm(m, iss);
+  } else {
+    html += '<p style="margin:10px 0 4px;font-weight:700;font-size:16px;">' + esc(iss.description) + '</p>' +
+      '<p class="row-muted" style="margin:0 0 10px;font-size:12px;">' + esc(m.name) + ' &middot; Reported by ' + esc(iss.reportedBy) + ' &middot; ' + fmtDate(iss.date) + (iss.hourMeter != null ? ' &middot; ' + fmtNum(iss.hourMeter, "hrs") : "") + '</p>';
+    if(iss.photoUrl) html += '<img src="' + escAttr(iss.photoUrl) + '" style="max-width:220px;border-radius:12px;border:1px solid var(--border);margin-bottom:10px;display:block;" />';
+  }
+
+  html += '<div class="stat-label" style="margin-top:10px;">Action taken</div>';
+  var actions = iss.actions || [];
+  if(!actions.length){
+    html += '<div class="empty-state" style="margin-top:6px;">No action logged yet.</div>';
+  } else {
+    html += '<div style="margin-top:8px;">' + actions.map(function(a){
+      return '<div style="border-left:2px solid var(--status-done);padding-left:12px;margin-bottom:12px;">' +
+        '<p style="margin:0;font-weight:600;font-size:12.5px;">' + esc(a.by) + ' &middot; ' + fmtDate(a.date) + '</p>' +
+        '<p style="margin:2px 0 0;font-size:13px;">' + esc(a.description) + '</p>' +
+        (a.partsUsed && a.partsUsed.length ? '<p class="row-muted" style="margin:2px 0 0;font-size:11.5px;">Parts used: ' + a.partsUsed.map(function(pu){ return esc(pu.name) + (pu.qty ? " ×" + esc(pu.qty) : ""); }).join(", ") + '</p>' : "") +
+        (a.photoUrl ? '<img src="' + escAttr(a.photoUrl) + '" style="max-width:160px;border-radius:10px;border:1px solid var(--border);margin-top:6px;display:block;" />' : "") +
+      '</div>';
+    }).join("") + '</div>';
+  }
+
+  var partsChipsId = "actionParts_" + iss.id;
+  html += '<form onsubmit="addMachineIssueAction(event,\'' + m.id + '\',\'' + iss.id + '\')" style="margin-top:10px;">' +
+    (actionErr ? '<p style="color:var(--danger);font-size:12.5px;font-weight:600;margin:0 0 8px;">' + esc(actionErr) + '</p>' : "") +
+    '<textarea name="description" rows="3" placeholder="What did you do?" style="width:100%;box-sizing:border-box;"></textarea>' +
+    '<div id="' + partsChipsId + '" class="chip-row"></div>' +
+    '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:8px 0;">' +
+      renderPartsUsedPicker(m, partsChipsId) +
+      '<label class="btn btn-ghost btn-sm" style="width:auto;cursor:pointer;">&#128247; Photo<input type="file" name="photo" accept="image/*" style="display:none;" onchange="markPhotoAttached(this)" /></label>' +
+      '<span class="row-muted" data-photo-label style="font-size:11.5px;"></span>' +
+    '</div>' +
+    '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">' +
+      '<button type="submit" class="btn btn-ghost" style="width:auto;">Save action</button>' +
+      (open ? '<button type="button" class="btn btn-primary" style="width:auto;" onclick="resolveMachineIssue(\'' + m.id + '\',\'' + iss.id + '\')">Mark resolved</button>' : '<button type="button" class="btn btn-ghost" style="width:auto;" onclick="reopenMachineIssue(\'' + m.id + '\',\'' + iss.id + '\')">Reopen</button>') +
+    '</div>' +
+  '</form>';
+
+  if(isAdmin()){
+    html += '<div style="display:flex;gap:8px;margin-top:14px;border-top:1px solid var(--border);padding-top:10px;">' +
+      '<button type="button" class="btn btn-ghost btn-sm" onclick="ui.openForms[\'' + editKey + '\']=' + (editingDesc ? "false" : "true") + ';render();">' + (editingDesc ? "Cancel edit" : "Edit report") + '</button>' +
+      '<button type="button" class="btn btn-danger btn-sm" onclick="if(confirm(\'Delete this issue?\')){deleteMachineIssue(\'' + m.id + '\',\'' + iss.id + '\');}">Delete</button>' +
+    '</div>';
+  }
+  return html;
+}
+
+// A small "+ Parts used" picker (Add action taken / Log work) -- a
+// dropdown of this machine's own Parts & Part Numbers list plus a qty box,
+// managed entirely with plain DOM methods (addPartsUsedChip below) rather
+// than going through render(), so picking a part never disturbs whatever's
+// already typed into the surrounding form (same reasoning as the severity
+// pills). Returns "" when the machine has no parts recorded yet, since
+// there's nothing to pick from.
+function renderPartsUsedPicker(m, containerId){
+  var parts = m.parts || [];
+  if(!parts.length) return "";
+  var selId = containerId + "_sel";
+  var qtyId = containerId + "_qty";
+  return '<select id="' + selId + '" style="max-width:200px;">' +
+      parts.map(function(p){ return '<option value="' + escAttr(p.id) + '" data-name="' + escAttr(p.name) + '">' + esc(p.name) + (p.partNumber ? " (" + esc(p.partNumber) + ")" : "") + '</option>'; }).join("") +
+    '</select>' +
+    '<input id="' + qtyId + '" type="text" value="1" style="width:44px;" title="Qty" />' +
+    '<button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="addPartsUsedChip(\'' + containerId + '\',\'' + selId + '\',\'' + qtyId + '\')">+ Parts used</button>';
+}
+function addPartsUsedChip(containerId, selId, qtyId){
+  var container = document.getElementById(containerId);
+  var sel = document.getElementById(selId);
+  var qtyInput = document.getElementById(qtyId);
+  if(!container || !sel || !sel.options.length) return;
+  var opt = sel.options[sel.selectedIndex];
+  var qty = (qtyInput && qtyInput.value.trim()) || "1";
+  var partName = opt.getAttribute("data-name") || opt.textContent;
+  var chip = document.createElement("span");
+  chip.className = "chip";
+  var label = document.createElement("span");
+  label.textContent = partName + (qty ? " ×" + qty : "");
+  chip.appendChild(label);
+  var removeBtn = document.createElement("button");
+  removeBtn.type = "button";
+  removeBtn.textContent = "×";
+  removeBtn.title = "Remove";
+  removeBtn.onclick = function(){ container.removeChild(chip); };
+  chip.appendChild(removeBtn);
+  var hidden = document.createElement("input");
+  hidden.type = "hidden";
+  hidden.name = "partsUsedChip";
+  hidden.value = opt.value + "|" + partName + "|" + qty;
+  chip.appendChild(hidden);
+  container.appendChild(chip);
+}
+// Just records the chosen file's name next to the "+ Photo"/"Add photo"
+// button (plain DOM, no render()) -- the actual file stays on the input
+// element itself and is only read (and uploaded) once the surrounding form
+// is actually submitted, exactly like every other file input in this app.
+function markPhotoAttached(input){
+  var form = input.form;
+  var lbl = form ? form.querySelector("[data-photo-label]") : null;
+  if(lbl) lbl.textContent = (input.files && input.files[0]) ? ("Attached: " + input.files[0].name) : "";
+}
+// The severity picker (Report an issue) is plain three-button toggle, also
+// managed without a render() for the same reason as the parts picker above.
+// Toggles the visible "tags the machine Out of action" warning banner the
+// moment Unsafe is picked (or hides it again if the person changes their
+// mind), rather than only surfacing that after they've already submitted.
+function selectSeverityPill(btn, value){
+  var row = btn.parentElement;
+  Array.prototype.forEach.call(row.children, function(b){ b.classList.remove("sel-minor", "sel-repair", "sel-unsafe"); });
+  btn.classList.add(value === "Unsafe" ? "sel-unsafe" : value === "Needs repair" ? "sel-repair" : "sel-minor");
+  var form = btn.form;
+  if(!form) return;
+  var hidden = form.querySelector('input[name="severity"]');
+  if(hidden) hidden.value = value;
+  var warn = form.querySelector(".banner.warn");
+  if(warn) warn.style.display = value === "Unsafe" ? "block" : "none";
+}
+function copyPartNumber(btn, text){
+  if(!navigator.clipboard || !navigator.clipboard.writeText) return;
+  navigator.clipboard.writeText(text).then(function(){
+    var old = btn.textContent;
+    btn.textContent = "✓";
+    setTimeout(function(){ btn.textContent = old; }, 1200);
+  }).catch(function(){ /* clipboard blocked (e.g. no HTTPS/permission) -- the part number is still right there to copy by hand */ });
+}
+
+// The unified "Log work" full-page screen (2026-09-28, matching the
+// reference mockup): a Service/Other-work toggle, hour meter + date, then
+// either the machine's standard service checklist (pre-ticked, since most
+// scheduled services complete every standard item) or a free-text "what
+// was done" for other work, a Parts used picker either way, and -- for a
+// Service entry against a currently-due milestone -- a preview of what the
+// next service will be due at once this one's saved. Writes into the exact
+// same m.log this app already had (so History/the schedule maths are
+// completely unaffected), just with the new structured checklistDone/
+// partsUsed/kind fields alongside the existing ones. The old per-milestone
+// inline form in the History tab (renderMilestoneLogForm) is untouched and
+// still works exactly as before -- this is an additional, primary way to
+// log work, not a replacement for that one.
+function renderMachineLogWorkForm(m, ctx){
+  var mode = ctx.mode === "other" ? "other" : "service";
+  var scheduleConfigured = machineScheduleConfigured(m);
+  var target = null;
+  if(mode === "service" && scheduleConfigured){
+    var next = machineNextMilestone(m);
+    if(next && !machineMilestoneLog(m, milestoneKey(next.hours))){
+      target = next;
+    } else {
+      var milestones = machineScheduleMilestones(m) || [];
+      for(var i = 0; i < milestones.length; i++){
+        if(!machineMilestoneLog(m, milestoneKey(milestones[i].hours))){ target = milestones[i]; break; }
+      }
+    }
+  }
+  var formKey = "logwork_" + m.id;
+  var err = ui.formErrors[formKey];
+  var checklist = m.serviceChecklistItems || [];
+  var partsChipsId = "logworkParts_" + m.id;
+
+  var html = '<button type="button" class="back-chevron-btn" onclick="ui.machineryLogWork=null;render();">&#8249; Cancel</button>' +
+    '<h3 style="margin:10px 0 4px;">Log work — ' + esc(m.name) + '</h3>' +
+    '<div class="filter-pill-row">' +
+      '<button type="button" class="filter-pill' + (mode === "service" ? " active" : "") + '" onclick="ui.machineryLogWork={id:\'' + m.id + '\',mode:\'service\'};render();">Service</button>' +
+      '<button type="button" class="filter-pill' + (mode === "other" ? " active" : "") + '" onclick="ui.machineryLogWork={id:\'' + m.id + '\',mode:\'other\'};render();">Other work</button>' +
+    '</div>' +
+    '<form onsubmit="addMachineWorkLog(event,\'' + m.id + '\',\'' + mode + '\',' + (target ? milestoneKey(target.hours) : "null") + ')">' +
+    (err ? '<p style="color:var(--danger);font-size:12.5px;font-weight:600;margin:8px 0;">' + esc(err) + '</p>' : "") +
+    '<div class="form-grid" style="margin-top:10px;">' +
+      '<div class="field"><label>Hour meter</label><input type="text" inputmode="decimal" name="reading" required value="' + escAttr(target ? target.hours : m.currentReading) + '" /></div>' +
+      '<div class="field"><label>Date</label><input type="date" name="date" value="' + todayISO() + '" required /></div>' +
+    '</div>';
+  if(mode === "service"){
+    html += '<div class="stat-label" style="margin-top:12px;">Service items completed</div>' +
+      '<div style="margin-top:6px;border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden;">' +
+        (checklist.length ? checklist.map(function(item, i){
+          var itemId = "svcitem_" + m.id + "_" + i;
+          return '<div class="checkbox-row" style="padding:9px 10px;border-bottom:1px solid var(--border);">' +
+            '<input type="checkbox" name="checklistDone" value="' + escAttr(item) + '" id="' + itemId + '" checked />' +
+            '<label for="' + itemId + '" style="font-weight:400;text-transform:none;">' + esc(item) + '</label>' +
+          '</div>';
+        }).join("") : '<div class="empty-state">No standard service items set for this machine yet -- add some from its Overview tab.</div>') +
+      '</div>';
+  } else {
+    html += '<div class="field" style="margin-top:10px;"><label>What was done</label><textarea name="description" rows="2" required placeholder="e.g. Replaced hydraulic hose, front left"></textarea></div>';
+  }
+  html += '<div class="stat-label" style="margin-top:14px;">Parts used</div>' +
+    '<div id="' + partsChipsId + '" class="chip-row"></div>' +
+    '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:4px 0;">' + renderPartsUsedPicker(m, partsChipsId) + '</div>' +
+    '<div class="field" style="margin-top:10px;"><label>Performed by</label><input type="text" name="performedBy" value="' + escAttr(currentUser().name) + '" /></div>' +
+    '<div class="field" style="margin-top:10px;"><label>Notes (optional)</label><textarea name="notes" rows="2"></textarea></div>';
+  if(scheduleConfigured && mode === "service"){
+    html += '<div class="due-progress-card ok" style="margin-top:12px;"><div class="stat-label">Next service due at</div><div style="font-weight:700;font-size:14.5px;">' + fmtNum((target ? target.hours : (m.currentReading || 0)) + (m.serviceIntervalHours || 0), "hrs") + '</div></div>';
+  }
+  html += '<div class="form-actions" style="margin-top:14px;"><button type="submit" class="btn btn-primary">Save ' + (mode === "service" ? "service" : "work") + '</button></div>' +
+  '</form>';
+  return html;
+}
+function addMachineWorkLog(e, machineId, mode, milestoneHoursKey){
+  e.preventDefault();
+  var f = e.target;
+  var formKey = "logwork_" + machineId;
+  var m = byId(state.machinery, machineId);
+  if(!m) return;
+  var reading = parseHoursInput(f.reading.value);
+  if(isNaN(reading)){
+    ui.formErrors[formKey] = "Enter a valid hour-meter reading (e.g. 2140).";
+    render();
+    return;
+  }
+  var description = mode === "service" ? "Scheduled service" : (f.description ? f.description.value.trim() : "");
+  if(mode === "other" && !description){
+    ui.formErrors[formKey] = "Describe what work was done.";
+    render();
+    return;
+  }
+  delete ui.formErrors[formKey];
+  var checklistDone = mode === "service" ? Array.prototype.slice.call(f.querySelectorAll('input[name="checklistDone"]:checked')).map(function(cb){ return cb.value; }) : [];
+  var partsUsed = Array.prototype.slice.call(f.querySelectorAll('input[name="partsUsedChip"]')).map(function(inp){
+    var parts = inp.value.split("|");
+    return { partId: parts[0], name: parts[1], qty: parts[2] };
+  });
+  m.log = m.log || [];
+  m.log.unshift({
+    id: uid("l"), date: f.date.value, description: description, performedBy: f.performedBy.value.trim(),
+    reading: reading, notes: f.notes.value.trim(), kind: mode,
+    checklistDone: checklistDone, partsUsed: partsUsed,
+    milestoneHours: milestoneHoursKey
+  });
+  m.currentReading = reading;
+  if(mode === "service"){ m.lastServiceDate = f.date.value; m.lastServiceReading = reading; }
+  ui.machineryLogWork = null;
+  persist();
 }
 
 // Parts & Part Numbers -- a per-machine reference list (not a log of events
@@ -9628,12 +10075,17 @@ function renderMachineDetail(m){
 // editing/deleting entries is admin-only, same as the machine's own Edit
 // form and maintenance schedule, since it's reference data staff rely on
 // being accurate rather than a running log anyone should freely add to.
-function renderMachinePartsSection(m){
+function renderMachinePartsSection(m, q){
   var parts = (m.parts || []).slice().sort(function(a,b){ return String(a.name||"").localeCompare(String(b.name||"")); });
+  if(q){
+    parts = parts.filter(function(p){
+      return String(p.name||"").toLowerCase().indexOf(q) > -1 || String(p.partNumber||"").toLowerCase().indexOf(q) > -1;
+    });
+  }
   var openForms = "";
   var html = "";
   if(!parts.length){
-    html += '<div class="empty-state" style="margin-top:8px;">No parts or part numbers recorded yet.</div>';
+    html += '<div class="empty-state" style="margin-top:8px;">' + (q ? "No parts match that search." : "No parts or part numbers recorded yet.") + '</div>';
   } else {
     var rows = parts.map(function(p){
       var editKey = "editpart_" + p.id;
@@ -9641,7 +10093,8 @@ function renderMachinePartsSection(m){
       if(editing) openForms += renderMachinePartForm(m, p);
       return '<tr>' +
         '<td>' + esc(p.name) + '</td>' +
-        '<td class="row-muted">' + esc(p.partNumber || "—") + '</td>' +
+        '<td class="row-muted">' + esc(p.partNumber || "—") + (p.partNumber ? ' <button type="button" class="subtle-btn" title="Copy part number" onclick="copyPartNumber(this,\'' + escAttr(p.partNumber) + '\')">&#128203;</button>' : "") + '</td>' +
+        '<td class="row-muted">' + esc(p.qty || "—") + '</td>' +
         '<td class="row-muted">' + esc(p.notes || "—") + '</td>' +
         '<td style="white-space:nowrap;">' + (isAdmin() ?
           ('<button type="button" class="btn btn-ghost btn-sm" onclick="ui.openForms[\'' + editKey + '\']=!ui.openForms[\'' + editKey + '\'];render();">' + (editing ? "Cancel" : "Edit") + '</button> ' +
@@ -9649,14 +10102,9 @@ function renderMachinePartsSection(m){
           : "") + '</td>' +
       '</tr>';
     }).join("");
-    html += '<div class="table-wrap" style="box-shadow:none;margin-top:8px;"><table><thead><tr><th>Part / component</th><th>Part number</th><th>Notes</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div>';
+    html += '<div class="table-wrap" style="box-shadow:none;margin-top:8px;"><table><thead><tr><th>Part / component</th><th>Part number</th><th>Qty</th><th>Notes</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div>';
   }
   if(openForms) html += '<div style="margin-top:10px;">' + openForms + '</div>';
-  if(isAdmin()){
-    var addKey = "newPart_" + m.id;
-    html += '<button type="button" class="btn btn-ghost btn-sm" style="margin-top:10px;" onclick="toggleForm(\'' + addKey + '\')">' + (ui.openForms[addKey] ? "Cancel" : "+ Add part") + '</button>';
-    if(ui.openForms[addKey]) html += renderMachinePartForm(m, null);
-  }
   return html;
 }
 function renderMachinePartForm(m, existing){
@@ -9668,7 +10116,8 @@ function renderMachinePartForm(m, existing){
     '<div class="form-grid">' +
       '<div class="field"><label>Part / component</label><input type="text" name="name" required value="' + escAttr(existing ? existing.name : "") + '" placeholder="e.g. Engine oil filter" /></div>' +
       '<div class="field"><label>Part number</label><input type="text" name="partNumber" value="' + escAttr(existing ? existing.partNumber : "") + '" placeholder="e.g. RE504836" /></div>' +
-      '<div class="field span-2"><label>Notes (optional)</label><input type="text" name="notes" value="' + escAttr(existing ? existing.notes : "") + '" placeholder="e.g. supplier, where to order, quantity needed" /></div>' +
+      '<div class="field"><label>Qty on hand (optional)</label><input type="text" name="qty" value="' + escAttr(existing ? existing.qty : "") + '" placeholder="e.g. 2" /></div>' +
+      '<div class="field span-2"><label>Notes (optional)</label><input type="text" name="notes" value="' + escAttr(existing ? existing.notes : "") + '" placeholder="e.g. supplier, where to order" /></div>' +
     '</div>' +
     '<div class="form-actions"><button type="submit" class="btn btn-primary" style="width:auto;">Save</button>' +
       '<button type="button" class="btn btn-ghost" onclick="delete ui.formErrors[\'' + formKey + '\'];' + (existing ? ("ui.openForms['" + formKey + "']=false;render();") : ("toggleForm('" + formKey + "')")) + '">Cancel</button>' +
@@ -9689,7 +10138,7 @@ function saveMachinePart(e, machineId, partId){
   var m = byId(state.machinery, machineId);
   if(!m) return;
   m.parts = m.parts || [];
-  var data = { name: name, partNumber: f.partNumber.value.trim(), notes: f.notes.value.trim() };
+  var data = { name: name, partNumber: f.partNumber.value.trim(), qty: f.qty.value.trim(), notes: f.notes.value.trim() };
   if(partId){
     var existing = byId(m.parts, partId);
     if(existing) Object.assign(existing, data);
@@ -9823,36 +10272,158 @@ function saveMaintenanceSchedule(e, id){
   persist();
 }
 
+// "Report an issue" full page (2026-09-28 restructure, matching Maria's
+// reference mockup): a 3-level severity picker (Minor / Needs repair /
+// Unsafe), managed with plain JS (selectSeverityPill) so picking one never
+// disturbs the description textarea above it; an optional photo; hour
+// meter + date; and a warning banner that only appears once Unsafe is
+// picked, reading exactly what the mockup shows -- WITHOUT any "...and
+// alerts [Supervisor]" clause, since Maria chose to build the severity/
+// out-of-action behaviour but explicitly skipped wiring up an actual
+// notification (no recipient was given). She can ask for that separately
+// later with a name/role if she still wants it built.
 function renderMachineIssueForm(m){
-  return '<form class="form-panel" style="margin-top:10px;" onsubmit="addMachineIssue(event,\'' + m.id + '\')">' +
-    '<h4>Report an issue — ' + esc(m.name) + '</h4>' +
+  var formKey = "newIssue_" + m.id;
+  var err = ui.formErrors[formKey];
+  return '<form onsubmit="addMachineIssue(event,\'' + m.id + '\')">' +
+    '<button type="button" class="back-chevron-btn" onclick="ui.machineryReportIssue=null;render();">&#8249; Cancel</button>' +
+    '<h3 style="margin:10px 0 4px;">Report an issue — ' + esc(m.name) + '</h3>' +
+    (err ? '<p style="color:var(--danger);font-size:12.5px;font-weight:600;margin:8px 0;">' + esc(err) + '</p>' : "") +
+    '<div class="field" style="margin-top:10px;"><label>What&#39;s wrong?</label><textarea name="description" rows="3" required placeholder="e.g. Hydraulic leak near the left lift arm"></textarea></div>' +
+    '<div class="stat-label" style="margin-top:10px;">Severity</div>' +
+    '<input type="hidden" name="severity" value="Minor" />' +
+    '<div class="severity-pill-row">' +
+      '<button type="button" class="severity-pill-btn sel-minor" onclick="selectSeverityPill(this,\'Minor\')">Minor</button>' +
+      '<button type="button" class="severity-pill-btn" onclick="selectSeverityPill(this,\'Needs repair\')">Needs repair</button>' +
+      '<button type="button" class="severity-pill-btn" onclick="selectSeverityPill(this,\'Unsafe\')">&#9888; Unsafe</button>' +
+    '</div>' +
+    '<div class="banner warn" style="display:none;margin-top:10px;">&#9888; Marking an issue Unsafe tags the machine Out of action.</div>' +
+    '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:12px 0;">' +
+      '<label class="btn btn-ghost btn-sm" style="width:auto;cursor:pointer;">&#128247; Add photo<input type="file" name="photo" accept="image/*" style="display:none;" onchange="markPhotoAttached(this)" /></label>' +
+      '<span class="row-muted" data-photo-label style="font-size:11.5px;"></span>' +
+    '</div>' +
     '<div class="form-grid">' +
-      '<div class="field span-2"><label>What did you notice?</label><textarea name="description" rows="3" required placeholder="e.g. Hydraulic leak near the left lift arm"></textarea></div>' +
-      '<div class="field"><label>Reported by</label><input type="text" name="reportedBy" value="' + escAttr(currentUser().name) + '" /></div>' +
+      '<div class="field"><label>Hour meter</label><input type="text" inputmode="decimal" name="hourMeter" value="' + escAttr(m.currentReading) + '" /></div>' +
       '<div class="field"><label>Date</label><input type="date" name="date" value="' + todayISO() + '" required /></div>' +
     '</div>' +
-    '<div class="form-actions"><button type="submit" class="btn btn-primary" style="width:auto;">Save</button><button type="button" class="btn btn-ghost" onclick="toggleForm(\'newIssue_' + m.id + '\')">Cancel</button></div>' +
+    '<div class="form-actions" style="margin-top:14px;"><button type="submit" class="btn btn-primary">Submit report</button></div>' +
   '</form>';
 }
-function addMachineIssue(e, id){
+async function addMachineIssue(e, id){
   e.preventDefault();
   var f = e.target;
+  var formKey = "newIssue_" + id;
   if(!byId(state.machinery, id)) return;
   var description = f.description.value.trim();
-  if(!description) return;
-  var reportedByRaw = f.reportedBy.value.trim();
+  if(!description){
+    ui.formErrors[formKey] = "Describe what you noticed.";
+    render();
+    return;
+  }
+  var severity = (f.severity && f.severity.value) || "Minor";
   var dateVal = f.date.value;
+  var hourMeterRaw = f.hourMeter ? f.hourMeter.value.trim() : "";
+  var hourMeter = hourMeterRaw ? parseHoursInput(hourMeterRaw) : NaN;
+  if(isNaN(hourMeter)) hourMeter = null;
+  var file = f.photo && f.photo.files && f.photo.files[0];
+  var photoUrl = null;
+  var submitBtn = f.querySelector('button[type="submit"]');
+  delete ui.formErrors[formKey];
+  if(file){
+    if(!supabaseClient){
+      ui.formErrors[formKey] = "Can't upload the photo right now (not connected to the database). Try again once you're back online, or submit without a photo.";
+      render();
+      return;
+    }
+    if(submitBtn){ submitBtn.disabled = true; submitBtn.textContent = "Uploading…"; }
+    try{
+      var uploadBlob = await compressMapPhoto(file);
+      var path = uid("issuephoto") + ".jpg";
+      var upRes = await supabaseClient.storage.from("machinery-photos").upload(path, uploadBlob, { cacheControl: "3600", upsert: false, contentType: "image/jpeg" });
+      if(upRes.error) throw upRes.error;
+      photoUrl = supabaseClient.storage.from("machinery-photos").getPublicUrl(path).data.publicUrl;
+    }catch(err){
+      console.error("[Bullamon Plains] issue photo upload failed:", err);
+      ui.formErrors[formKey] = "Couldn't upload that photo (" + (err && err.message ? err.message : "unknown error") + "). Try again, or submit without a photo.";
+      if(submitBtn){ submitBtn.disabled = false; submitBtn.textContent = "Submit report"; }
+      render();
+      return;
+    }
+  }
+  var reportedByRaw = currentUser().name;
   var newIssueId = uid("iss"); // generated once, up front, and reused by `doIt` below so a replay after a save conflict (see persist()/adoptLatestAfterConflict) adds the same issue once, not a duplicate
   var doIt = function(){
     var mm = byId(state.machinery, id);
     if(!mm) return;
     mm.issues = mm.issues || [];
     if(!byId(mm.issues, newIssueId)){
-      mm.issues.unshift({ id: newIssueId, description: description, reportedBy: (reportedByRaw || currentUser().name), date: dateVal, status: "Open" });
+      mm.issues.unshift({ id: newIssueId, description: description, reportedBy: reportedByRaw, date: dateVal, status: "Open", severity: severity, hourMeter: hourMeter, photoUrl: photoUrl, actions: [] });
     }
   };
   doIt();
-  ui.openForms["newIssue_" + id] = false;
+  ui.machineryReportIssue = null;
+  ui.machineryTab = "issues";
+  persist(doIt);
+}
+// A dated entry in an issue's "Action taken" timeline (2026-09-28, matching
+// the reference mockup) -- who did what, any parts used, and an optional
+// photo, added to iss.actions[] without ever replacing/losing an earlier
+// action the way editing the original report would. The issue itself stays
+// open until "Mark resolved" is pressed separately (existing
+// resolveMachineIssue, unchanged).
+async function addMachineIssueAction(e, machineId, issueId){
+  e.preventDefault();
+  var f = e.target;
+  var formKey = "issueAction_" + issueId;
+  var m = byId(state.machinery, machineId);
+  var iss = m && byId(m.issues || [], issueId);
+  if(!iss) return;
+  var description = f.description.value.trim();
+  if(!description){
+    ui.formErrors[formKey] = "Describe what was done.";
+    render();
+    return;
+  }
+  var partsUsed = Array.prototype.slice.call(f.querySelectorAll('input[name="partsUsedChip"]')).map(function(inp){
+    var parts = inp.value.split("|");
+    return { partId: parts[0], name: parts[1], qty: parts[2] };
+  });
+  var file = f.photo && f.photo.files && f.photo.files[0];
+  var photoUrl = null;
+  var submitBtn = f.querySelector('button[type="submit"]');
+  delete ui.formErrors[formKey];
+  if(file){
+    if(!supabaseClient){
+      ui.formErrors[formKey] = "Can't upload the photo right now (not connected to the database). Try again once you're back online, or save without a photo.";
+      render();
+      return;
+    }
+    if(submitBtn){ submitBtn.disabled = true; submitBtn.textContent = "Uploading…"; }
+    try{
+      var uploadBlob = await compressMapPhoto(file);
+      var path = uid("actionphoto") + ".jpg";
+      var upRes = await supabaseClient.storage.from("machinery-photos").upload(path, uploadBlob, { cacheControl: "3600", upsert: false, contentType: "image/jpeg" });
+      if(upRes.error) throw upRes.error;
+      photoUrl = supabaseClient.storage.from("machinery-photos").getPublicUrl(path).data.publicUrl;
+    }catch(err){
+      console.error("[Bullamon Plains] action photo upload failed:", err);
+      ui.formErrors[formKey] = "Couldn't upload that photo (" + (err && err.message ? err.message : "unknown error") + "). Try again, or save without a photo.";
+      if(submitBtn){ submitBtn.disabled = false; submitBtn.textContent = "Save action"; }
+      render();
+      return;
+    }
+  }
+  var newActionId = uid("act");
+  var doIt = function(){
+    var mm = byId(state.machinery, machineId);
+    var ii = mm && byId(mm.issues || [], issueId);
+    if(!ii) return;
+    ii.actions = ii.actions || [];
+    if(!byId(ii.actions, newActionId)){
+      ii.actions.push({ id: newActionId, by: currentUser().name, date: todayISO(), description: description, partsUsed: partsUsed, photoUrl: photoUrl });
+    }
+  };
+  doIt();
   persist(doIt);
 }
 // Lets an admin correct a previously reported issue (description/reported
@@ -10167,6 +10738,8 @@ function renderMachineServiceHistory(m){
     if(editingLog) openForms += renderEditServiceLogForm(m, l);
     var scheduledTag = l.milestoneHours != null ? ' <span class="row-muted" style="font-size:10.5px;">(scheduled ' + fmtNum(l.milestoneHours) + ' hrs)</span>' : '';
     var usedTag = "";
+    if(l.checklistDone && l.checklistDone.length) usedTag += '<br/><span class="row-muted" style="font-size:11px;">Completed: ' + esc(l.checklistDone.join(", ")) + '</span>';
+    if(l.partsUsed && l.partsUsed.length) usedTag += '<br/><span class="row-muted" style="font-size:11px;">Parts used: ' + esc(l.partsUsed.map(function(pu){ return pu.name + (pu.qty ? " ×" + pu.qty : ""); }).join(", ")) + '</span>';
     if(l.filtersUsed) usedTag += '<br/><span class="row-muted" style="font-size:11px;">Filters used: ' + esc(l.filtersUsed) + '</span>';
     if(l.oilUsed) usedTag += '<br/><span class="row-muted" style="font-size:11px;">Oil used: ' + esc(l.oilUsed) + '</span>';
     if(l.notes) usedTag += '<br/><span class="row-muted" style="font-size:11px;white-space:pre-wrap;">Notes: ' + esc(l.notes) + '</span>';
@@ -10328,7 +10901,7 @@ function saveMachine(e, id){
   }
   delete ui.formErrors[formKey];
   if(id){ Object.assign(byId(state.machinery, id), data); ui.editing.machine = null; }
-  else { state.machinery.push(Object.assign({ id: uid("m"), currentReading: 0, lastServiceDate: "", lastServiceReading: 0, log: [] }, data)); ui.openForms.newMachine = false; }
+  else { state.machinery.push(Object.assign({ id: uid("m"), currentReading: 0, lastServiceDate: "", lastServiceReading: 0, log: [], serviceChecklistItems: DEFAULT_MACHINE_CHECKLIST.slice() }, data)); ui.openForms.newMachine = false; }
   persist();
 }
 
