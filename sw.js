@@ -50,7 +50,19 @@
 // with no explicit action first, and also made a long test result need
 // scrolling inside a cramped textarea to read. 2021's year column archived.
 // Price moved to the end of the row, after Notes.)
-var CACHE_NAME = "bullamon-plains-shell-v11";
+// (Bumped again 2026-09-28: printing the Bulls list was overcrowded and
+// unreadable, with test results getting hard-clipped mid-word/mid-sentence
+// (the old design forced exactly 2 pages by clamping every cell to 2 lines,
+// no matter how long its text was). That hard clip is now removed entirely
+// -- every row is as tall as its content genuinely needs -- and the print
+// font/padding enlarged, at the cost of the list now printing across 4
+// pages instead of 2. Also: adding a new Bulls year column now accepts
+// "<year> Retest" (e.g. "2026 Retest"), not just a plain 4-digit year.)
+// (Bumped again 2026-09-28, a second time the same day: a newly added Bulls
+// year column now lands to the left of the current year's own column
+// instead of wherever plain year-number sorting put it -- fixes "2026
+// Retest" landing to the right of "2026" instead of to its left.)
+var CACHE_NAME = "bullamon-plains-shell-v13";
 
 var SHELL_ASSETS = [
   "./",
