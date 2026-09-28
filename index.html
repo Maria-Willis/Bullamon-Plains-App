@@ -1487,7 +1487,7 @@ const DEFAULT_STATE = {
 // change to this file, same as CACHE_NAME in sw.js -- it gives an instant,
 // no-technical-steps-needed way to confirm whether a given device is
 // actually running the latest deploy, without comparing file contents.
-var APP_BUILD = "2026-09-28.1";
+var APP_BUILD = "2026-09-28.2";
 
 /* ======================================================================
    UTILITIES
@@ -10395,10 +10395,36 @@ function addBullYearColumn(e){
     setNotice("err", year + " is already a column here (check \"Show archived years\" if you don't see it in the table).");
     return;
   }
-  yc.active.push(year);
-  yc.active = sortYearsDesc(yc.active);
+  insertBullYearColumn(yc.active, year);
   ui.openForms.addBullYear = false;
   persist();
+}
+// Places a newly added year column (from "+ Add year" above), at Maria's
+// request: "the add year needs to be placed to the left of the current
+// year" -- rather than plain descending year-number sort, which put a
+// same-year column like "2026 Retest" (added after "2026" already existed,
+// and numerically tied with it) to its *right* instead of its left.
+//   - A genuine future year (e.g. "2027", added while today is still in
+//     2026) keeps proper chronological order -- inserted just ahead of the
+//     first existing column that isn't itself a later future year, so
+//     several future years still read newest-first, exactly like before.
+//   - The current year itself, a same-year variant of it (a "2026 Retest"
+//     column), or an older year lands immediately to the left of the real
+//     current year's own column specifically (falling back to the very
+//     front of the table if that column isn't currently active).
+function insertBullYearColumn(years, year){
+  var currentYear = new Date().getFullYear();
+  var yearNum = parseInt(year, 10);
+  if(yearNum > currentYear){
+    for(var i = 0; i < years.length; i++){
+      if(parseInt(years[i], 10) <= yearNum){ years.splice(i, 0, year); return; }
+    }
+    years.push(year);
+    return;
+  }
+  var idx = years.indexOf(String(currentYear));
+  if(idx === -1){ years.unshift(year); return; }
+  years.splice(idx, 0, year);
 }
 
 // Scrolls a just-opened Bulls panel (an edit/add-test form rendered below
