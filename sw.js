@@ -69,7 +69,19 @@
 // (active or archived) to permanently remove a column added by mistake --
 // separate from Archive/Restore, which only hide/show a column. Deleting
 // never touches any bull's own test-log data underneath.)
-var CACHE_NAME = "bullamon-plains-shell-v14";
+// (Bumped again 2026-09-28, a fourth time the same day: Machinery Maintenance
+// restructured to match Maria's reference mockups -- a machine's detail
+// screen is now Overview/Parts/History/Issues tabs instead of always-visible
+// stacked sections; issues now carry a severity (Minor/Needs repair/Unsafe),
+// with "Out of action" redefined to mean specifically an open Unsafe issue;
+// each issue gets a running "Action taken" timeline instead of a single
+// edit/resolve; a new unified "Log work" screen (Service or Other work)
+// records a completed-items checklist and parts used; Parts gained a Qty
+// column, search, and a copy-part-number button. New "machinery-photos"
+// Supabase Storage bucket added to this cache's storage-file matching, for
+// issue/action photos -- requires running supabase-storage-setup-
+// machinery.sql once, same as the "maps"/"bulls" buckets did.)
+var CACHE_NAME = "bullamon-plains-shell-v15";
 
 var SHELL_ASSETS = [
   "./",
@@ -128,7 +140,8 @@ self.addEventListener("fetch", function(event){
   // needs to work for any file added to either the "maps" or "bulls"
   // bucket, not just files known in advance.
   var isCachedStorageFile = url.pathname.indexOf("/storage/v1/object/public/maps/") > -1 ||
-    url.pathname.indexOf("/storage/v1/object/public/bulls/") > -1;
+    url.pathname.indexOf("/storage/v1/object/public/bulls/") > -1 ||
+    url.pathname.indexOf("/storage/v1/object/public/machinery-photos/") > -1;
   if(url.origin !== self.location.origin && !isShellCrossOrigin && !isCachedStorageFile) return; // let Supabase's own API calls go straight to the network, untouched
 
   event.respondWith(
