@@ -62,7 +62,14 @@
 // year column now lands to the left of the current year's own column
 // instead of wherever plain year-number sorting put it -- fixes "2026
 // Retest" landing to the right of "2026" instead of to its left.)
-var CACHE_NAME = "bullamon-plains-shell-v13";
+// (Bumped again 2026-09-28, a third time the same day: a one-time migration
+// fixes the same left/right ordering for any year column added before that
+// fix existed (e.g. an already-saved "2026 Retest" that was still sitting
+// to the right of "2026"). Also added a "Delete" button per year column
+// (active or archived) to permanently remove a column added by mistake --
+// separate from Archive/Restore, which only hide/show a column. Deleting
+// never touches any bull's own test-log data underneath.)
+var CACHE_NAME = "bullamon-plains-shell-v14";
 
 var SHELL_ASSETS = [
   "./",
