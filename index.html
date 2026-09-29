@@ -581,10 +581,21 @@
      sections. Reuses .filter-pill-row/.filter-pill for the tab strip itself
      (same look as the existing All/Due/Out filter pills) so this reads as
      the same design language, not a new one. */
-  .detail-tab-row{ display:flex; gap:4px; border-bottom:1px solid var(--border); margin:14px 0 16px; }
+  /* On a narrow phone, "Overview"/"Parts"/"History"/"Issues (N)" together are
+     often wider than the card itself -- without this, the row just overflows
+     the card's right edge instead of wrapping or scrolling (reported by
+     Maria 2026-09-28: "when the machine is opened on my phone, the Issues is
+     outside the borders"). Scrolls horizontally within the card instead,
+     same as .table-wrap already does for a wide table; flex-shrink:0 on each
+     button stops them being squashed to fit. */
+  .detail-tab-row{
+    display:flex; gap:18px; border-bottom:1px solid var(--border); margin:14px 0 16px;
+    overflow-x:auto; -webkit-overflow-scrolling:touch; scrollbar-width:none;
+  }
+  .detail-tab-row::-webkit-scrollbar{ display:none; }
   .detail-tab-btn{
     background:none; border:none; border-bottom:2px solid transparent;
-    padding:8px 4px; margin-right:18px; font-size:13.5px; font-weight:600;
+    padding:8px 4px; font-size:13.5px; font-weight:600; white-space:nowrap; flex-shrink:0;
     color:var(--text-muted); cursor:pointer;
   }
   .detail-tab-btn.active{ color:var(--accent-strong); border-bottom-color:var(--accent-strong); }
@@ -1525,7 +1536,7 @@ const DEFAULT_STATE = {
 // change to this file, same as CACHE_NAME in sw.js -- it gives an instant,
 // no-technical-steps-needed way to confirm whether a given device is
 // actually running the latest deploy, without comparing file contents.
-var APP_BUILD = "2026-09-28.4";
+var APP_BUILD = "2026-09-28.6";
 
 /* ======================================================================
    UTILITIES
@@ -9674,13 +9685,13 @@ function renderMachineDetail(m){
   // flow here, not restyle the app.
   var tab = ui.machineryTab || "overview";
   html += '<div class="detail-tab-row">' +
-    [["overview", "Overview"], ["parts", "Parts"], ["history", "History"], ["issues", "Issues (" + issues.length + ")"]].map(function(t){
+    [["overview", "Overview"], ["parts", "Parts"], ["schedule", "Service Schedule"], ["issues", "Issues (" + issues.length + ")"]].map(function(t){
       return '<button type="button" class="detail-tab-btn' + (tab === t[0] ? " active" : "") + '" onclick="ui.machineryTab=\'' + t[0] + '\';render();">' + t[1] + '</button>';
     }).join("") +
   '</div>';
 
   if(tab === "parts") html += renderMachinePartsTab(m);
-  else if(tab === "history") html += renderMachineHistoryTab(m);
+  else if(tab === "schedule") html += renderMachineServiceScheduleTab(m);
   else if(tab === "issues") html += renderMachineIssuesTab(m);
   else html += renderMachineOverviewTab(m, dueLabel, dueOk, progressPct);
 
@@ -9691,11 +9702,17 @@ function renderMachineDetail(m){
 // Overview tab: the "next service due" status card (now with a progress
 // bar towards the next scheduled milestone, at Maria's request to "make the
 // boxes/info deeper" -- reusing the exact same due/hours-remaining maths
-// this app already had, just also drawn as a bar), the standard checklist
-// of what's due at the next service (editable per machine, since not every
-// machine's service is identical), and the three primary actions (Log
-// service / Log other work / Report issue) as full-page screens of their
-// own, matching the reference mockups.
+// this app already had, just also drawn as a bar), Last service/Interval,
+// and the three primary actions (Log service / Log other work / Report
+// issue) as full-page screens of their own, matching the reference
+// mockups. The "Due at next service" checklist used to live here too, but
+// moved to the new Service Schedule tab (2026-09-28, at Maria's follow-up
+// request: "Note on the overview should list items due at the next service
+// and these items should be in the service schedule") -- see
+// renderMachineServiceScheduleTab. Log service still opens the same quick
+// Log Work form either way; it reads the same m.serviceChecklistItems
+// either way too, so nothing about what gets logged changed, just where the
+// checklist is shown/edited.
 function renderMachineOverviewTab(m, dueLabel, dueOk, progressPct){
   var html = '<div class="due-progress-card' + (dueOk ? " ok" : "") + '"><div class="stat-label">Maintenance status</div>' +
     '<div style="font-weight:700;font-size:14.5px;margin-top:2px;">' + dueLabel + '</div>' +
@@ -9706,21 +9723,6 @@ function renderMachineOverviewTab(m, dueLabel, dueOk, progressPct){
     '<div><div class="stat-label">Last service</div><div style="font-weight:600;">' + fmtNum(m.lastServiceReading, "hrs") + ' &middot; ' + fmtDate(m.lastServiceDate) + '</div></div>' +
     '<div><div class="stat-label">Interval</div><div style="font-weight:600;">' + esc(m.serviceIntervalDesc || "—") + '</div></div>' +
   '</div>';
-
-  var checklist = m.serviceChecklistItems || [];
-  var checklistEditing = ui.openForms["checklist_" + m.id];
-  html += '<div class="stat-label" style="margin-top:14px;">Due at next service</div>';
-  if(!checklist.length){
-    html += '<div class="empty-state" style="margin-top:6px;">No standard service items set for this machine yet.</div>';
-  } else {
-    html += '<div style="margin-top:6px;border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden;">' +
-      checklist.map(function(item){ return '<div class="due-checklist-row"><span class="due-checklist-dot"></span>' + esc(item) + '</div>'; }).join("") +
-    '</div>';
-  }
-  if(isAdmin()){
-    html += '<button type="button" class="btn btn-ghost btn-sm" style="margin-top:8px;" onclick="toggleForm(\'checklist_' + m.id + '\')">' + (checklistEditing ? "Cancel" : "Edit service checklist") + '</button>';
-    if(checklistEditing) html += renderMachineChecklistForm(m);
-  }
 
   html += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:16px;">' +
     '<button type="button" class="btn btn-primary" style="width:auto;" onclick="ui.machineryLogWork={id:\'' + m.id + '\',mode:\'service\'};render();">&#128295; Log service</button>' +
@@ -9771,12 +9773,35 @@ function renderMachinePartsTab(m){
   return html;
 }
 
-// History tab wrapper: the existing combined service-history + schedule
-// table, unchanged, plus the maintenance-schedule and delete-all-history
-// admin controls that used to sit directly underneath it.
-function renderMachineHistoryTab(m){
+// Service Schedule tab (2026-09-28, at Maria's follow-up request: "the
+// service schedule is now in history. It should be under Service Schedule.
+// Note on the overview should list items due at the next service and these
+// items should be in the service schedule") -- what used to be the History
+// tab is now Service Schedule: the "Due at next service" checklist (moved
+// here from Overview, same underlying m.serviceChecklistItems data, just
+// shown/edited from this tab now instead), the maintenance-schedule admin
+// controls, then the existing combined upcoming-milestones + completed-log
+// table underneath (unchanged), and "Delete all service history" at the
+// bottom -- past records stay on this same tab rather than a separate one.
+function renderMachineServiceScheduleTab(m){
   var scheduleConfigured = machineScheduleConfigured(m);
-  var html = renderMachineServiceHistory(m);
+  var checklist = m.serviceChecklistItems || [];
+  var checklistEditing = ui.openForms["checklist_" + m.id];
+  var html = '<div class="stat-label">Due at next service</div>';
+  if(!checklist.length){
+    html += '<div class="empty-state" style="margin-top:6px;">No standard service items set for this machine yet.</div>';
+  } else {
+    html += '<div style="margin-top:6px;border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden;">' +
+      checklist.map(function(item){ return '<div class="due-checklist-row"><span class="due-checklist-dot"></span>' + esc(item) + '</div>'; }).join("") +
+    '</div>';
+  }
+  if(isAdmin()){
+    html += '<button type="button" class="btn btn-ghost btn-sm" style="margin-top:8px;" onclick="toggleForm(\'checklist_' + m.id + '\')">' + (checklistEditing ? "Cancel" : "Edit service checklist") + '</button>';
+    if(checklistEditing) html += renderMachineChecklistForm(m);
+  }
+
+  html += '<div class="stat-label" style="margin-top:18px;">Schedule &amp; history</div>';
+  html += renderMachineServiceHistory(m);
   if(isAdmin()){
     html += '<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">' +
       '<button type="button" class="btn btn-ghost btn-sm" onclick="toggleForm(\'setSchedule_' + m.id + '\')">' + (ui.openForms["setSchedule_" + m.id] ? "Cancel" : (scheduleConfigured ? "Edit maintenance schedule" : "+ Set maintenance schedule")) + '</button>' +
@@ -9882,32 +9907,40 @@ function renderMachineIssueDetail(m, iss){
   return html;
 }
 
-// A small "+ Parts used" picker (Add action taken / Log work) -- a
-// dropdown of this machine's own Parts & Part Numbers list plus a qty box,
-// managed entirely with plain DOM methods (addPartsUsedChip below) rather
-// than going through render(), so picking a part never disturbs whatever's
+// A small "+ Parts used" picker (Add action taken / Log work) -- a free-text
+// part-name box (with a <datalist> of this machine's own Parts & Part
+// Numbers, when it has any, for quick autocomplete) plus a qty box, managed
+// entirely with plain DOM methods (addPartsUsedChip below) rather than
+// going through render(), so picking a part never disturbs whatever's
 // already typed into the surrounding form (same reasoning as the severity
-// pills). Returns "" when the machine has no parts recorded yet, since
-// there's nothing to pick from.
+// pills). 2026-09-28 fix: this used to be a <select> built only from
+// m.parts, which rendered as nothing at all -- not even an input -- for any
+// machine with no parts catalogued yet ("The parts used section is blank.
+// You can't add anything to it"). A free-text box always renders and works,
+// catalogued or not; typing a name that matches an existing part links the
+// chip to that part's id, and typing anything else still records a plain
+// name (e.g. a part not yet added to Parts & Part Numbers).
 function renderPartsUsedPicker(m, containerId){
   var parts = m.parts || [];
-  if(!parts.length) return "";
-  var selId = containerId + "_sel";
+  var nameId = containerId + "_name";
   var qtyId = containerId + "_qty";
-  return '<select id="' + selId + '" style="max-width:200px;">' +
-      parts.map(function(p){ return '<option value="' + escAttr(p.id) + '" data-name="' + escAttr(p.name) + '">' + esc(p.name) + (p.partNumber ? " (" + esc(p.partNumber) + ")" : "") + '</option>'; }).join("") +
-    '</select>' +
+  var listId = containerId + "_list";
+  return '<input id="' + nameId + '" type="text" list="' + listId + '" placeholder="Part used" style="max-width:170px;" />' +
+    (parts.length ? '<datalist id="' + listId + '">' + parts.map(function(p){ return '<option value="' + escAttr(p.name) + '">'; }).join("") + '</datalist>' : "") +
     '<input id="' + qtyId + '" type="text" value="1" style="width:44px;" title="Qty" />' +
-    '<button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="addPartsUsedChip(\'' + containerId + '\',\'' + selId + '\',\'' + qtyId + '\')">+ Parts used</button>';
+    '<button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="addPartsUsedChip(\'' + containerId + '\',\'' + nameId + '\',\'' + qtyId + '\',\'' + m.id + '\')">+ Add</button>';
 }
-function addPartsUsedChip(containerId, selId, qtyId){
+function addPartsUsedChip(containerId, nameId, qtyId, machineId){
   var container = document.getElementById(containerId);
-  var sel = document.getElementById(selId);
+  var nameInput = document.getElementById(nameId);
   var qtyInput = document.getElementById(qtyId);
-  if(!container || !sel || !sel.options.length) return;
-  var opt = sel.options[sel.selectedIndex];
+  if(!container || !nameInput) return;
+  var partName = nameInput.value.trim();
+  if(!partName) return;
   var qty = (qtyInput && qtyInput.value.trim()) || "1";
-  var partName = opt.getAttribute("data-name") || opt.textContent;
+  var m = machineId ? byId(state.machinery, machineId) : null;
+  var matched = m ? (m.parts || []).find(function(p){ return String(p.name).toLowerCase() === partName.toLowerCase(); }) : null;
+  var partId = matched ? matched.id : "";
   var chip = document.createElement("span");
   chip.className = "chip";
   var label = document.createElement("span");
@@ -9922,9 +9955,12 @@ function addPartsUsedChip(containerId, selId, qtyId){
   var hidden = document.createElement("input");
   hidden.type = "hidden";
   hidden.name = "partsUsedChip";
-  hidden.value = opt.value + "|" + partName + "|" + qty;
+  hidden.value = partId + "|" + partName + "|" + qty;
   chip.appendChild(hidden);
   container.appendChild(chip);
+  nameInput.value = "";
+  if(qtyInput) qtyInput.value = "1";
+  nameInput.focus();
 }
 // Just records the chosen file's name next to the "+ Photo"/"Add photo"
 // button (plain DOM, no render()) -- the actual file stays on the input
