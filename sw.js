@@ -81,7 +81,28 @@
 // Supabase Storage bucket added to this cache's storage-file matching, for
 // issue/action photos -- requires running supabase-storage-setup-
 // machinery.sql once, same as the "maps"/"bulls" buckets did.)
-var CACHE_NAME = "bullamon-plains-shell-v15";
+// (Bumped again 2026-09-28, a fifth time the same day: two mobile/data bugs
+// in the new Machinery Maintenance restructure fixed -- (1) the Overview/
+// Parts/History/Issues tab strip on a narrow phone screen ran wider than
+// the machine's card and spilled out past its right border ("the Issues is
+// outside the borders"); it now scrolls horizontally within the card
+// instead, like a long table already did. (2) The "Parts used" picker on
+// Log Work/Add action taken rendered as completely blank -- no input at
+// all -- for any machine with no parts yet recorded under Parts & Part
+// Numbers ("The parts used section is blank. You can't add anything to
+// it"); it's now a free-text box (with autocomplete from the machine's own
+// parts list when it has any) that always renders, catalogued or not.)
+// (Bumped again 2026-09-28, a sixth time the same day: what used to be the
+// "History" tab in the Machinery Maintenance restructure is now "Service
+// Schedule", at Maria's request ("the service schedule is now in history.
+// It should be under Service Schedule"). It now leads with the "Due at next
+// service" checklist (moved here from the Overview tab -- same underlying
+// data, just shown/edited from this tab now) and the maintenance-schedule
+// admin controls, with the completed service-history table and "Delete all
+// service history" underneath, same tab. Overview keeps its status card and
+// the Log service/Log other work/Report issue buttons -- Log service still
+// opens the same quick Log Work form as before, reading the same checklist.)
+var CACHE_NAME = "bullamon-plains-shell-v17";
 
 var SHELL_ASSETS = [
   "./",
