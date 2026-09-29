@@ -113,7 +113,10 @@
 // (Bumped again 2026-09-29: Maria pointed out Infopest is defunct (closed
 // 31 Jan 2024) -- the "Find the current SDS" card now links to the live
 // APVMA PubCRIS register plus a per-product web search instead.)
-var CACHE_NAME = "bullamon-plains-shell-v21";
+// (Bumped again 2026-09-29: added a "Search APVMA" button to the main
+// Safety Data Sheets list page too, at Maria's request, not just the
+// per-chemical detail page.)
+var CACHE_NAME = "bullamon-plains-shell-v22";
 
 var SHELL_ASSETS = [
   "./",
