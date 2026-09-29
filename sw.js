@@ -102,7 +102,18 @@
 // service history" underneath, same tab. Overview keeps its status card and
 // the Log service/Log other work/Report issue buttons -- Log service still
 // opens the same quick Log Work form as before, reading the same checklist.)
-var CACHE_NAME = "bullamon-plains-shell-v17";
+// (Bumped 2026-09-29: sdsWebResearchV2 migration fills hazard/first-aid
+// data for 28 more SDS chemicals from genuine researched sources.)
+// (Bumped again 2026-09-29: every SDS chemical detail page now has a
+// "Find the current SDS" card linking to Infopest/APVMA.)
+// (Bumped again 2026-09-29: corrected a safety-critical error introduced by
+// sdsWebResearchV2 (Spraytop 250 / csheet_159 was wrongly listed as diquat,
+// corrected to paraquat), flagged six other data-identity discrepancies, and
+// filled real sourced data for 58 more chemicals via sdsWebResearchV3.)
+// (Bumped again 2026-09-29: Maria pointed out Infopest is defunct (closed
+// 31 Jan 2024) -- the "Find the current SDS" card now links to the live
+// APVMA PubCRIS register plus a per-product web search instead.)
+var CACHE_NAME = "bullamon-plains-shell-v21";
 
 var SHELL_ASSETS = [
   "./",
