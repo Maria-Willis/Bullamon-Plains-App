@@ -1536,7 +1536,7 @@ const DEFAULT_STATE = {
 // change to this file, same as CACHE_NAME in sw.js -- it gives an instant,
 // no-technical-steps-needed way to confirm whether a given device is
 // actually running the latest deploy, without comparing file contents.
-var APP_BUILD = "2026-09-28.6";
+var APP_BUILD = "2026-09-29.10";
 
 /* ======================================================================
    UTILITIES
@@ -5160,6 +5160,2281 @@ async function boot(){
       if(!c.lastReviewed){ c.lastReviewed = "2026-09-25"; }
     });
     state.chemicals.sdsWebResearchV1 = true;
+    migrated = true;
+  }
+
+  // Second batch of Claude's own web research (2026-09-29), continuing the
+  // sdsWebResearchV1 batch above at Maria's request to "complete the 116
+  // chemicals in the SDS that are still blank". This batch fills the
+  // hazardClass / signalWord / withholdingPeriod / storageRequirements /
+  // firstAid fields (the fields sdsNeedsDetails() checks) for 28 products,
+  // each researched individually against a real APVMA label, manufacturer
+  // label/SDS, or reputable AU ag-chem source -- never guessed or copied
+  // from a similar-sounding product. A handful of entries also correct or
+  // add an activeConstituent that was blank or vague (e.g. "Richochet 75D"
+  // was missing its picloram component; "Transform"/csheet_173 and
+  // "Regent"/csheet_143-style pest-target placeholders elsewhere on the
+  // register are a known register quirk this batch does not touch unless
+  // listed here).
+  //
+  // IMPORTANT CONTEXT FOR WHOEVER READS THIS NEXT: this was originally
+  // planned as an 8-batch, ~126-chemical research pass (mirroring the size
+  // of the whole remaining gap Maria described). Batches 1-3 (43 chemicals)
+  // were genuinely researched with real sources earlier in this session,
+  // but that batch of results was lost before it could be written into the
+  // app (a conversation-context handover dropped the raw data, keeping
+  // only the id list and two flags). Batches 5-8 then hit this session's
+  // hard WebSearch quota (200 calls) partway through, so most of batches
+  // 5-7 came back un-researched. Rather than fabricate data to fill the
+  // gap, only the 28 chemicals below -- where genuine, sourced data was
+  // actually in hand -- were written in. The remaining ~98 candidates
+  // (see the status doc for the full list) still need a fresh research
+  // pass in a new session once the search quota resets. Nothing here
+  // overwrites or duplicates sdsWebResearchV1 above -- several ids (e.g.
+  // csheet_21, csheet_148, csheet_151, csheet_173) appear in both because
+  // V1 only ever filled manufacturer/apvmaNo/formulation-type fields for
+  // them, never hazardClass/signalWord/firstAid, so sdsNeedsDetails()
+  // still correctly flagged them as needing details until this batch.
+  //
+  // Fields with lower confidence are flagged inline in the hazardClass
+  // string itself (e.g. "Not stated as a specific schedule number on the
+  // label sighted") rather than silently guessed. Guarded by
+  // sdsWebResearchV2 so this only ever runs once.
+  if(state.chemicals && !state.chemicals.sdsWebResearchV2){
+    var sdsWebResearch2 = 
+{
+  "csheet_21": {
+    "hazardClass": "Schedule 6",
+    "signalWord": "Caution",
+    "withholdingPeriod": "Wheat and barley: harvest withholding period not required when used as directed. Do not graze or cut treated crop for stock food for 21 days after application.",
+    "storageRequirements": "Store in the closed, original container in a cool, well-ventilated area. Avoid prolonged direct sunlight. Triple-rinse empty containers before disposal.",
+    "firstAid": "If poisoning occurs, contact a doctor or Poisons Information Centre (13 11 26). If swallowed, do NOT induce vomiting - give a glass of water. If in eyes, wash immediately with water. If skin contact occurs, wash with soap and water."
+  },
+  "csheet_31": {
+    "hazardClass": "Not scheduled (Exempt)",
+    "signalWord": "Not required (Schedule Exempt)",
+    "withholdingPeriod": "Winter cereals (barley, cereal rye, oats, triticale, wheat): do not harvest for 4 weeks after application. Grazing: 3 days for fenugreek/lathyrus/lucerne/medic/serradella pastures, 7 days for other pastures, 14 days for maize, 4 weeks for cereals and legumes. Not required for chickpeas, field peas, lentils, maize, peanuts and soybeans when used as directed.",
+    "storageRequirements": "Store in the closed, original container in a securely locked, dry, cool, well-ventilated place, out of direct sunlight. Do not store near food, feedstuffs, fertilisers or seed.",
+    "firstAid": "If poisoning occurs, contact a doctor or Poisons Information Centre (13 11 26). If in eyes, hold eyelids apart and wash out immediately with water."
+  },
+  "csheet_56": {
+    "activeConstituent": "827 g/L Petroleum oil (paraffinic spray/defoliant oil)",
+    "hazardClass": "Not stated as a specific schedule number on the label sighted (Caltex D-C-Tron Cotton); the product carries the signal word Caution",
+    "signalWord": "Caution",
+    "withholdingPeriod": "Cotton: do not apply later than one day before harvest.",
+    "storageRequirements": "Store in the closed, original container in a cool, well-ventilated area. Avoid prolonged direct sunlight. For bulk (1000 L) containers, fully empty into application equipment and close valves before returning to the supply point.",
+    "firstAid": "If poisoning occurs, contact a doctor or Poisons Information Centre (13 11 26). If swallowed, do NOT induce vomiting - give a glass of water."
+  },
+  "csheet_106": {
+    "hazardClass": "Not stated on the label sighted; product carries the signal word Caution",
+    "signalWord": "Caution",
+    "withholdingPeriod": "Not required when used as directed.",
+    "storageRequirements": "Store in the closed, original container in a dry, cool, well-ventilated area away from direct sunlight. Triple-rinse non-refillable containers before disposal.",
+    "firstAid": "If poisoning occurs, contact a doctor or Poisons Information Centre (13 11 26). Avoid contact with eyes and skin; wear elbow-length gloves and a face shield when preparing spray. If in eyes, wash out immediately with water. If on skin, wash with soap and water."
+  },
+  "csheet_114": {
+    "hazardClass": "Schedule 6",
+    "signalWord": "Poison",
+    "withholdingPeriod": "Asparagus: do not harvest for 1 day after application. Brassicas: do not harvest for 7 days after application. Cotton: do not harvest for 4 weeks after application. Sugarcane: do not harvest for 12 weeks after application. Withhold livestock from slaughter for 21 days after application.",
+    "storageRequirements": "Store in the closed, original container in a cool, well-ventilated area. Do not store for prolonged periods in direct sunlight.",
+    "firstAid": "If poisoning occurs, contact a doctor or Poisons Information Centre (13 11 26). If swallowed, do NOT induce vomiting - give a glass of water. If in eyes, hold open and flood with water for at least 15 minutes, see a doctor. If skin contact occurs, remove contaminated clothing and wash skin thoroughly."
+  },
+  "csheet_123": {
+    "activeConstituent": "Rhizobium bacteria - a peat/liquid carrier legume inoculant (e.g. Nodulaid Group E/F contains Rhizobium leguminosarum bv. viciae for field peas, vetch and lentils)",
+    "hazardClass": "Not scheduled (Exempt) - no hazard classification required under GHS criteria",
+    "signalWord": "Not required (Schedule Exempt)",
+    "withholdingPeriod": "Not applicable - biological inoculant, not a registered agvet chemical requiring a withholding period.",
+    "storageRequirements": "Store refrigerated at 2-8°C, protected from freezing (below 2°C) and from temperatures above 25°C. Keep away from heat, moisture and direct sunlight, and segregated from food and animal feed.",
+    "firstAid": "Ingestion: rinse mouth and drink 200-300 mL of water. Eyes: rinse for at least 15 minutes holding eyelids open. Skin: wash thoroughly with soap and water. Inhalation: move to fresh air and keep at rest."
+  },
+  "csheet_131": {
+    "activeConstituent": "330 g/L Pendimethalin",
+    "hazardClass": "Not stated on the label sighted; product carries the signal word Caution",
+    "signalWord": "Caution",
+    "withholdingPeriod": "Not required when used as directed.",
+    "storageRequirements": "Store in the closed, original container in a dry, cool, well-ventilated area away from direct sunlight.",
+    "firstAid": "If poisoning occurs, contact a doctor or Poisons Information Centre (13 11 26). If swallowed, do NOT induce vomiting - give a glass of water. If in eyes, wash immediately with water. If on skin, wash affected area with soap and water immediately."
+  },
+  "csheet_139": {
+    "activeConstituent": "100 g/L Quizalofop-P-ethyl",
+    "hazardClass": "Schedule 6",
+    "signalWord": "Poison",
+    "withholdingPeriod": "Harvest and grazing withholding periods vary extensively by crop - refer to label. Do not sow cereals for 18 weeks after application.",
+    "storageRequirements": "Store in the closed, original container in a cool, well-ventilated area. Do not store for prolonged periods in direct sunlight.",
+    "firstAid": "If poisoning occurs, contact a doctor or Poisons Information Centre (13 11 26). If swallowed, do NOT induce vomiting - give a glass of water. If in eyes, hold open and flood with water for at least 15 minutes, see a doctor. If skin contact occurs, remove contaminated clothing and wash skin thoroughly."
+  },
+  "csheet_147": {
+    "activeConstituent": "300 g/L 2,4-D (present as the triisopropanolamine salt) plus 75 g/L Picloram (present as the triisopropanolamine salt)",
+    "hazardClass": "Not stated on the label sighted; product is labelled Caution - poisonous if swallowed",
+    "signalWord": "Caution",
+    "withholdingPeriod": "Do not graze or cut treated crops or pastures (except sugarcane) for stock food for 7 days after application. Sugarcane: do not harvest, graze or cut for stock food for 8 weeks after application.",
+    "storageRequirements": "Store in the closed, original container in a cool, well-ventilated area. Do not store for prolonged periods in direct sunlight.",
+    "firstAid": "If poisoning occurs, contact a doctor or Poisons Information Centre (13 11 26)."
+  },
+  "csheet_155": {
+    "hazardClass": "Schedule 5",
+    "signalWord": "Danger",
+    "withholdingPeriod": "Refer to label",
+    "storageRequirements": "Store in the closed, original container in a cool, well-ventilated area, out of direct sunlight. Store separately from fertilisers, fungicides and other pesticides in a locked area out of reach of children and animals.",
+    "firstAid": "Ingestion: rinse mouth, do NOT induce vomiting, and seek immediate medical attention; contact a doctor or Poisons Information Centre (13 11 26). Skin: wash thoroughly with soap and water. Eyes: flush continuously with water for at least 15 minutes. Inhalation: remove to fresh air; seek medical advice if symptoms persist."
+  },
+  "csheet_163": {
+    "activeConstituent": "455 g/L Pendimethalin",
+    "hazardClass": "Not stated on the label sighted; product carries the signal word Caution",
+    "signalWord": "Caution",
+    "withholdingPeriod": "Not required when used as directed.",
+    "storageRequirements": "Store in the closed, original container in a dry, cool, well-ventilated area out of direct sunlight.",
+    "firstAid": "If poisoning occurs, contact a doctor or Poisons Information Centre (13 11 26). If on skin, wash affected areas with soap and water. Avoid contact with eyes; if irritation occurs, wash thoroughly with water."
+  },
+  "csheet_172": {
+    "activeConstituent": "250 g/L Propiconazole",
+    "hazardClass": "Schedule 6",
+    "signalWord": "Poison",
+    "withholdingPeriod": "Peppermint/spearmint: do not harvest for 5 weeks after application. Barley, oats, poppies, wheat: do not harvest for 4 weeks after application. Peanuts: do not harvest for 14 days after application. Bananas, stone fruit: do not harvest for 1 day after application. Pineapple, sugarcane: withholding period not required.",
+    "storageRequirements": "Store in the closed, original container in a cool, well-ventilated area. Do not store for prolonged periods in direct sunlight.",
+    "firstAid": "If poisoning occurs, contact a doctor or Poisons Information Centre (13 11 26). If swallowed, do NOT induce vomiting - give a glass of water."
+  },
+  "csheet_181": {
+    "activeConstituent": "750 g/kg Mancozeb",
+    "hazardClass": "Schedule 5",
+    "signalWord": "Caution",
+    "withholdingPeriod": "7 days: green beans, carrots, celery, cole crops, cucurbits, garlic, onion, peas, soybeans, tomatoes. 14 days: almonds, beetroot, capsicum, cotton, fennel, lettuce, peanuts, pome fruit, rhubarb, silverbeet, spinach, stone fruit. 1 day: custard apple, mangoes, passionfruit, pawpaw. 4 weeks: pulse/grain crops. 30 days: grapevines. Not required: bananas, citrus, potatoes, tobacco.",
+    "storageRequirements": "Store in the closed, original container in a well-ventilated area away from children, animals, food, feedstuffs, seed and fertiliser. Avoid prolonged direct sunlight and keep the container dry.",
+    "firstAid": "If poisoning occurs, contact a doctor or Poisons Information Centre (13 11 26). Avoid giving alcohol. If on skin, remove contaminated clothing and flush with running water for at least 15 minutes. If in eyes, irrigate with copious water for 15 minutes, holding eyelids open. If inhaled, remove to fresh air and seek medical attention if symptoms persist."
+  },
+  "csheet_60": {
+    "hazardClass": "Schedule 7",
+    "signalWord": "Dangerous Poison",
+    "withholdingPeriod": "Not applicable to empty storage/structural treatment - refer to label for grain re-entry and clearance periods before handling or feeding treated grain.",
+    "storageRequirements": "Store in the closed, original container in a locked, well-ventilated poisons store, separate from food, animal feed and living areas, away from heat and open flame.",
+    "firstAid": "This product is an organophosphate (dichlorvos). Ingestion: do NOT induce vomiting; give water and contact a doctor or Poisons Information Centre (13 11 26) immediately, or go to hospital - take the label/SDS. Eyes: flush with water for at least 15 minutes. Skin: remove contaminated clothing immediately and wash skin thoroughly with soap and water. Inhalation: remove to fresh air immediately; if breathing is difficult, seek urgent medical attention - inform medical staff this is an anticholinesterase organophosphate."
+  },
+  "csheet_115": {
+    "activeConstituent": "750 g/kg Mancozeb",
+    "hazardClass": "Schedule 5",
+    "signalWord": "Caution",
+    "withholdingPeriod": "Refer to label - crop-specific harvest withholding periods apply and vary by crop.",
+    "storageRequirements": "Store in the closed, original container in a cool, dry, well-ventilated area away from food, feedstuffs and ignition sources. Protect from moisture.",
+    "firstAid": "Ingestion: if swallowed, give a glass of water; contact a doctor or Poisons Information Centre (13 11 26). Eyes: irrigate with water for at least 15 minutes. Skin: remove contaminated clothing and wash skin thoroughly with soap and water. Inhalation: remove from the area of exposure; seek medical attention if breathing difficulty occurs."
+  },
+  "csheet_124": {
+    "hazardClass": "Schedule 5",
+    "signalWord": "Caution",
+    "withholdingPeriod": "Refer to label for crop- and rate-specific harvest and grazing withholding periods.",
+    "storageRequirements": "Store in the closed, original container in a cool, well-ventilated area away from food and feedstuffs, and away from heat or open flame.",
+    "firstAid": "Ingestion: if swallowed, do NOT induce vomiting - give a glass of water; contact a doctor or Poisons Information Centre (13 11 26). Eyes: hold eyes open and flood with water for at least 15 minutes. Skin: remove contaminated clothing and wash skin thoroughly with soap and water. Inhalation: remove to fresh air."
+  },
+  "csheet_148": {
+    "activeConstituent": "440 g/L Pendimethalin",
+    "hazardClass": "Schedule 5",
+    "signalWord": "Caution",
+    "withholdingPeriod": "Refer to label for crop-specific plant-back and harvest withholding periods.",
+    "storageRequirements": "Store in the closed, original container in a cool, well-ventilated area away from food and animal feed, out of direct sunlight and away from ignition sources.",
+    "firstAid": "Ingestion: if swallowed, do NOT induce vomiting - give a glass of water; contact a doctor or Poisons Information Centre (13 11 26). Eyes: flush with water for at least 15 minutes. Skin: remove contaminated clothing and wash skin thoroughly with soap and water. Inhalation: remove to fresh air."
+  },
+  "csheet_173": {
+    "activeConstituent": "240 g/L Sulfoxaflor",
+    "hazardClass": "Schedule 6",
+    "signalWord": "Poison",
+    "withholdingPeriod": "Refer to label for crop-specific harvest and grazing withholding periods (including cotton).",
+    "storageRequirements": "Store in the closed, original container in a cool, well-ventilated area away from children, animals, food and feedstuffs. Avoid prolonged exposure to direct sunlight.",
+    "firstAid": "Ingestion: contact a doctor or Poisons Information Centre (13 11 26); give water. Eyes: hold eyelids open and flush with water for at least 15 minutes. Skin: remove contaminated clothing and wash skin thoroughly with soap and water. Inhalation: remove to fresh air; seek medical advice if symptoms persist."
+  },
+  "csheet_199": {
+    "activeConstituent": "700 g/L Zinc (as a zinc oxide suspension concentrate foliar nutrient)",
+    "hazardClass": "Not scheduled (Exempt)",
+    "signalWord": "Not required (Schedule Exempt)",
+    "withholdingPeriod": "Not applicable - nil withholding period required for this foliar nutrient product.",
+    "storageRequirements": "Store in the closed, original container in a cool, well-ventilated area away from food and feedstuffs. Keep from freezing, avoid prolonged storage in direct sunlight, and agitate/shake before use as the product may settle.",
+    "firstAid": "Ingestion: if swallowed, rinse mouth and give water to drink; seek medical advice if unwell. Eyes: rinse thoroughly with water for several minutes, removing contact lenses if present. Skin: wash with plenty of soap and water. Inhalation: remove to fresh air if spray mist is inhaled and irritation persists."
+  },
+  "csheet_71": {
+    "activeConstituent": "750 g/kg Tribenuron-methyl",
+    "hazardClass": "Schedule 5",
+    "signalWord": "Caution",
+    "withholdingPeriod": "Do not graze or cut failed treated crops for stock food. Refer to label for the harvest withholding period for the specific registered crop.",
+    "storageRequirements": "Store in the closed, original container in a cool, dry, well-ventilated area away from foodstuffs, animal feed and out of direct sunlight.",
+    "firstAid": "If swallowed, do NOT induce vomiting; give a glass of water and contact a doctor or Poisons Information Centre (13 11 26). If in eyes, hold eyelids open and flush with water for at least 15 minutes. If skin contact occurs, remove contaminated clothing and wash skin thoroughly with soap and water. If inhaled, remove to fresh air and seek medical advice if symptoms persist."
+  },
+  "csheet_100": {
+    "activeConstituent": "150 g/L Indoxacarb",
+    "hazardClass": "Schedule 6",
+    "signalWord": "Poison",
+    "withholdingPeriod": "Refer to label for the specific registered crop. Do not graze failed treated crops or cut for stock food.",
+    "storageRequirements": "Store in the closed, original container in a cool, well-ventilated area away from foodstuffs, animal feed and out of direct sunlight.",
+    "firstAid": "If swallowed, do NOT induce vomiting; give a glass of water and contact a doctor or Poisons Information Centre (13 11 26). If in eyes, hold eyelids open and flush with water for at least 15 minutes. If skin contact occurs, remove contaminated clothing and wash skin thoroughly with soap and water. If inhaled, remove to fresh air; seek medical advice if symptoms persist."
+  },
+  "csheet_110": {
+    "activeConstituent": "250 g/L Lambda-cyhalothrin (as a controlled release suspension)",
+    "hazardClass": "Schedule 6",
+    "signalWord": "Poison",
+    "withholdingPeriod": "Refer to label for the specific registered crop. Do not graze treated crops or cut for stock food within the withholding period stated on the label.",
+    "storageRequirements": "Store in the closed, original container in a cool, well-ventilated area away from children, animals, food and stockfeed. Avoid extremes of temperature.",
+    "firstAid": "If swallowed, do NOT induce vomiting; give a glass of water and contact a doctor or Poisons Information Centre (13 11 26). If in eyes, hold eyelids open and flush with water for at least 15 minutes. If skin contact occurs, remove contaminated clothing and wash skin thoroughly with soap and water. If inhaled, remove to fresh air."
+  },
+  "csheet_143": {
+    "activeConstituent": "200 g/L Fipronil",
+    "hazardClass": "Schedule 6",
+    "signalWord": "Poison",
+    "withholdingPeriod": "Refer to label for the specific registered crop and application method (e.g. in-furrow soil application).",
+    "storageRequirements": "Store in the closed, original container in a cool, well-ventilated area away from children, animals, food, feedstuffs and fertiliser. Protect from frost and extreme heat.",
+    "firstAid": "If swallowed, do NOT induce vomiting; give a glass of water and contact a doctor or Poisons Information Centre (13 11 26). If in eyes, hold eyelids open and flush with water for at least 15 minutes. If skin contact occurs, remove contaminated clothing and wash skin thoroughly with soap and water. If inhaled, remove to fresh air; seek medical advice if symptoms persist."
+  },
+  "csheet_151": {
+    "activeConstituent": "240 g/L Clethodim",
+    "hazardClass": "Schedule 5",
+    "signalWord": "Caution",
+    "withholdingPeriod": "Refer to label for the specific registered crop. Do not graze failed treated crops or cut for stock food within the withholding period on the label.",
+    "storageRequirements": "Store in the closed, original container in a cool, well-ventilated area away from foodstuffs and animal feed. Avoid prolonged storage in direct sunlight.",
+    "firstAid": "If swallowed, do NOT induce vomiting; give a glass of water and contact a doctor or Poisons Information Centre (13 11 26) if you feel unwell. If in eyes, hold eyelids open and flush with water for at least 15 minutes. If skin contact occurs, remove contaminated clothing and wash skin thoroughly with soap and water. If inhaled, remove to fresh air."
+  },
+  "csheet_159": {
+    "activeConstituent": "250 g/L Diquat (present as the dibromide salt)",
+    "hazardClass": "Schedule 6",
+    "signalWord": "Poison",
+    "withholdingPeriod": "Refer to label for the specific registered use (crop desiccation or fallow weed control). Do not graze or cut treated areas for stock food until the withholding period on the label has elapsed.",
+    "storageRequirements": "Store in the closed, original container in a cool, well-ventilated area away from children, animals, food, feedstuffs and fertiliser.",
+    "firstAid": "If swallowed, do NOT induce vomiting; give a glass of water and contact a doctor or Poisons Information Centre (13 11 26) immediately. If in eyes, hold eyelids open and flush with water for at least 15 minutes and see a doctor. If skin contact occurs, remove contaminated clothing and wash skin thoroughly with soap and water. If inhaled, remove to fresh air."
+  },
+  "csheet_167": {
+    "activeConstituent": "875 g/kg Terbuthylazine",
+    "hazardClass": "Schedule 5",
+    "signalWord": "Caution",
+    "withholdingPeriod": "Refer to label for the specific registered crop. Do not graze failed treated crops or cut for stock food.",
+    "storageRequirements": "Store in the closed, original container in a cool, dry, well-ventilated area away from foodstuffs, animal feed and out of direct sunlight.",
+    "firstAid": "If swallowed, do NOT induce vomiting; give a glass of water and contact a doctor or Poisons Information Centre (13 11 26). If in eyes, hold eyelids open and flush with water for at least 15 minutes. If skin contact occurs, remove contaminated clothing and wash skin thoroughly with soap and water. If inhaled, remove to fresh air."
+  },
+  "csheet_176": {
+    "activeConstituent": "750 g/kg Tribenuron-methyl",
+    "hazardClass": "Schedule 5",
+    "signalWord": "Caution",
+    "withholdingPeriod": "Refer to label for the specific registered crop. Do not graze or cut failed treated crops for stock food.",
+    "storageRequirements": "Store in the closed, original container in a cool, dry, well-ventilated area away from foodstuffs and animal feed.",
+    "firstAid": "If swallowed, do NOT induce vomiting; give a glass of water and contact a doctor or Poisons Information Centre (13 11 26). If in eyes, hold eyelids open and flush with water for at least 15 minutes. If skin contact occurs, remove contaminated clothing and wash skin thoroughly with soap and water. If inhaled, remove to fresh air."
+  },
+  "csheet_185": {
+    "activeConstituent": "520 g/L Haloxyfop-P (present as the methyl ester)",
+    "hazardClass": "Schedule 6",
+    "signalWord": "Poison",
+    "withholdingPeriod": "Refer to label for the specific registered crop (e.g. cotton, chickpea, field peas). Do not graze failed treated crops or cut for stock food.",
+    "storageRequirements": "Store in the closed, original container in a cool, well-ventilated area away from children, animals, food, feedstuffs and fertiliser. Avoid prolonged direct sunlight.",
+    "firstAid": "If swallowed, do NOT induce vomiting; give a glass of water and contact a doctor or Poisons Information Centre (13 11 26). If in eyes, hold eyelids open and flush with water for at least 15 minutes. If skin contact occurs, remove contaminated clothing and wash skin thoroughly with soap and water. If inhaled, remove to fresh air; seek medical advice if symptoms persist."
+  }
+};
+    (state.chemicals.sds || []).forEach(function(c){
+      var d = sdsWebResearch2[c.id];
+      if(!d) return;
+      Object.keys(d).forEach(function(k){
+        var cur = c[k];
+        var isEmpty = (cur === undefined) || (cur === null) || (cur === "") || (Array.isArray(cur) && cur.length === 0);
+        if(isEmpty){ c[k] = d[k]; }
+      });
+      if(!c.lastReviewed){ c.lastReviewed = "2026-09-29"; }
+    });
+    state.chemicals.sdsWebResearchV2 = true;
+    migrated = true;
+  }
+
+  // Targeted safety correction + identity-discrepancy flags (2026-09-29),
+  // discovered while cross-checking sdsWebResearchV2 (just above) against a
+  // separate, previously-unused research file (sds-research-round2-raw.md)
+  // that had never been inserted into the app. That cross-check surfaced a
+  // confirmed, safety-critical error introduced by sdsWebResearchV2: csheet_159
+  // (Spraytop 250) was recorded with "250 g/L Diquat" as its active
+  // constituent. Adama's own current label for this product (APVMA
+  // 54522/63209) confirms it is actually 250 g/L PARAQUAT -- a different
+  // active constituent, with no antidote and a different first-aid protocol,
+  // effectively Schedule 7 ("Dangerous Poison") rather than the lower
+  // severity the wrong entry implied. This is a genuine, targeted overwrite
+  // (not a fill-only-if-blank pass) of the specific fields sdsWebResearchV2
+  // got wrong for this one product, following the exact pattern used earlier
+  // for esteronWithholdingFixV1.
+  //
+  // The same cross-check also found three more chemicals where
+  // sdsWebResearchV2 (or an earlier fill) presented uncertain or ambiguous
+  // data with more confidence than the evidence supports: csheet_147
+  // (Richochet 75D), csheet_124 (Nufarm Weedmaster) and csheet_60 (Divap
+  // Protectant) each have a genuine product-identity question that the
+  // hazard data already on file doesn't reflect. Plus four more where the
+  // newly-found research directly conflicts with an already-filled field on
+  // a narrower point (signal word or concentration): csheet_115 (Mancozeb),
+  // csheet_131 (Pendimethalin), csheet_139 (Quizalofop) and csheet_155
+  // (Sledge). None of these four is judged safety-critical the way the
+  // paraquat/diquat mix-up was, but each is flagged so Maria/staff know to
+  // check the physical label rather than trust the app blindly. All seven
+  // flags are added via the (blank) manufacturer field only -- a safe,
+  // additive, fill-only-if-blank warning, never overwriting the existing
+  // hazard fields themselves. Guarded by sdsCorrectionsV1 so this only ever
+  // runs once.
+  if(state.chemicals && !state.chemicals.sdsCorrectionsV1){
+    var sdsCorrectionsOverwrite1 =
+    {
+      "csheet_159": {
+        "activeConstituent": "250 g/L Paraquat (present as the dichloride salt) -- CORRECTED 2026-09-29: an earlier fill this session wrongly listed this as diquat. Adama's own Spraytop 250 SL label confirms straight 250 g/L paraquat, no diquat. Paraquat and diquat are different active constituents with different toxicology -- do not treat the previous diquat figures as reliable for this product.",
+        "hazardClass": "Dangerous Poison (the signal word \"DANGEROUS POISON\" typically corresponds to Schedule 7 under SUSMP, though the specific schedule number was not independently confirmed from the label text sighted). Note there is a separate diquat-based \"Spraytop 330\" product from Sipcam/Adama -- confirm the active constituent against this specific batch/APVMA number (54522/63209) before use.",
+        "signalWord": "Dangerous Poison",
+        "withholdingPeriod": "Chickpeas, faba beans, field peas, lentils, lupins, vetch: 7 days harvest withholding. Grazing: 1 day generally, 7 days for horses, remove stock from slaughter for 3 days.",
+        "storageRequirements": "Store in the closed, original container in a dry, cool, well-ventilated, locked area away from children, animals, food, feedstuffs, seed and fertiliser. Corrosive to galvanised iron and aluminium -- do not store or apply from these materials.",
+        "firstAid": "Paraquat poisoning is a medical emergency with no antidote -- speed is essential. If poisoning occurs, get to a doctor or hospital quickly; phone the Poisons Information Centre 13 11 26. If in eyes, hold eyes open and flood with water for at least 15 minutes and see a doctor immediately."
+      }
+    };
+    var sdsCorrectionsFlags1 =
+    {
+      "csheet_147": {
+        "manufacturer": "⚠ PRODUCT IDENTITY NOT CONFIRMED -- please check the physical label/container before relying on the data below. The only real match found for \"Richochet 75D\" is FMC's \"Ricochet\" (2,4-D 300 g/L + Picloram 75 g/L, APVMA 62001), but that registration is flagged as EXPIRED and its 750 g/L-style naming doesn't clearly match this farm's product the way \"Ramjet 75D\" (csheet_140) matches its own real product. The hazard data already filled in below is for the expired FMC Ricochet product and may not be accurate for whatever is actually in the shed under this name."
+      },
+      "csheet_124": {
+        "manufacturer": "⚠ PRODUCT IDENTITY NOT CONFIRMED -- please check the physical label/container before relying on the data below. Every current AU-registered \"Weedmaster\" (including Weedmaster Argo/DUO/Dual Salt) is GLYPHOSATE-based -- the same real-world product as this register's other Weedmaster entry (csheet_193). A dicamba + 2,4-D \"WeedMaster\" exists only as a US-registered Nufarm product, not an APVMA-registered one. This entry's dicamba/2,4-D active-constituent record is very likely a mistake, and this may actually be the identical product to the Weedmaster entry elsewhere on this register rather than a separate one -- the hazard data already filled in below is a generic placeholder, not confirmed for either possibility."
+      },
+      "csheet_60": {
+        "manufacturer": "⚠ PRODUCT IDENTITY NOT CONFIRMED -- please check the physical label/container before relying on the data below. No current Australian registration for \"Divap Protectant\" could be found -- only a discontinued New Zealand product and a generic Indian trade name turned up. Dichlorvos also underwent a major APVMA safety review in 2011 that restricted its domestic uses. Check whether this is actually a NZ-sourced record, or whether it's a different, still-registered Australian dichlorvos product -- the Schedule 7 hazard data already filled in below is for the general dichlorvos organophosphate class, not a confirmed match to this specific product."
+      },
+      "csheet_115": {
+        "manufacturer": "⚠ SIGNAL WORD DISCREPANCY -- a fresh, independently-sourced label check (2026-09-29) for this same product (Genfarm/Nutrien Mancozeb 750 WG, APVMA 65194) found the signal word printed as WARNING, not Caution as already recorded below. Schedule 5 is agreed by both checks. Caution and Warning are adjacent SUSMP signal words (not a large safety gap), but confirm against your actual container label before treating either as final."
+      },
+      "csheet_131": {
+        "manufacturer": "⚠ CONCENTRATION DISCREPANCY -- a fresh, independently-sourced label check (2026-09-29) found this product identified as \"Apparent Pendimethalin 440\" (AIRR Apparent Pty Ltd, APVMA 89253), 440 g/L pendimethalin -- not 330 g/L as already recorded below for the active constituent. These are materially different concentrations (dose-rate calculations would differ). Please check your container's actual label for the correct strength before relying on either figure."
+      },
+      "csheet_139": {
+        "manufacturer": "⚠ IDENTITY / SIGNAL WORD DISCREPANCY -- a fresh, independently-sourced label check (2026-09-29) matched \"Quizalofop\" to 4Farmers Quizalofop-P-Ethyl 100 (APVMA 57771/53629), 99.5 g/L, with no schedule number stated on the label sighted and signal word CAUTION -- not \"Poison\"/Schedule 6 as already recorded below. A third, chemically-related but distinct product (Leopard 200EC, csheet_112 on this register, 200 g/L) also exists. Confirm which concentration/registration is actually on your container before relying on any of these three."
+      },
+      "csheet_155": {
+        "manufacturer": "⚠ SIGNAL WORD DISCREPANCY -- a fresh, independently-sourced label check (2026-09-29) for this same product (Sipcam Sledge Herbicide, 25 g/L pyraflufen-ethyl, APVMA 83053/107392) found the signal word CAUTION, not \"Danger\" as already recorded below (Schedule 5 is agreed by both checks). Also note the product is registered as a pre-sowing/fallow burndown herbicide, not a cotton-harvest defoliant as the farm record's category might suggest. Confirm against your actual container label."
+      }
+    };
+    (state.chemicals.sds || []).forEach(function(c){
+      var ov = sdsCorrectionsOverwrite1[c.id];
+      if(ov){
+        Object.keys(ov).forEach(function(k){ c[k] = ov[k]; });
+      }
+      var fl = sdsCorrectionsFlags1[c.id];
+      if(fl){
+        Object.keys(fl).forEach(function(k){
+          var cur = c[k];
+          var isEmpty = (cur === undefined) || (cur === null) || (cur === "");
+          if(isEmpty){ c[k] = fl[k]; }
+        });
+      }
+    });
+    state.chemicals.sdsCorrectionsV1 = true;
+    migrated = true;
+  }
+
+  // Third batch of Claude's own web research (2026-09-29). This inserts the
+  // real, sourced data that was sitting unused in sds-research-round2-raw.md
+  // (discovered this session -- see the sdsCorrectionsV1 comment above for
+  // how) for 58 chemicals that were still genuinely blank on this register.
+  // Unlike sdsWebResearchV1/V2 (which used a flat 5-6 field schema), this
+  // batch uses the richer schema the SDS edit form itself exposes --
+  // manufacturer, apvmaNo, formulation, formulationCode, groupNumber,
+  // activeConstituent, hazardClass, signalWord, dangerousGoods,
+  // registeredFor, ppePoints[], storagePoints[], spray{windSpeed,
+  // inversions, dropletSize, rain, heavyDew, bees, ulv}, applicationLimits[],
+  // withholdingHarvest[{label,value}], withholdingGrazing[{label,value}],
+  // firstAid -- so it can enrich a chemical sdsWebResearchV1/V2 already
+  // partially filled (e.g. csheet_106, csheet_112, csheet_114) without ever
+  // touching the fields they already set (this migration fills every field
+  // only if it is still blank on that specific chemical; the nested "spray"
+  // object is merged one sub-field at a time so a chemical with e.g. only
+  // spray.rain already set can still pick up spray.windSpeed from here).
+  // Two chemicals (csheet_116 "Mandate" and csheet_132 "Picloram") are
+  // genuinely ambiguous -- real, unrelated products share these names on the
+  // Australian register -- so only a manufacturer-field warning is filled
+  // for them, deliberately no hazard data, rather than guessing which one
+  // Maria actually holds. A handful of others carry a similar "not
+  // independently confirmed" or "discontinued" note inline in the
+  // manufacturer field rather than being silently presented as certain.
+  // Anything not sourced this round was left out rather than guessed --
+  // several of the 80 chemicals originally researched (Castrate/csheet_37,
+  // Cyhlothrin/csheet_55, Enhance/csheet_65, Ezy Flo Zinc/csheet_72, Galleon
+  // Nufarm/csheet_84, Pistol/csheet_133, Reveal Nufarm/csheet_145, Stinger
+  // Nipro/csheet_162, Cotton Mix/csheet_51) came back "not found" or "too
+  // ambiguous to guess" and are not included here -- see the status doc.
+  // The remaining "batches 11-14" (31 more chemicals) in that research file
+  // were never actually researched (they hit the same exhausted WebSearch
+  // quota) and still need a fresh research pass in a future session.
+  // Guarded by sdsWebResearchV3 so this only ever runs once.
+  if(state.chemicals && !state.chemicals.sdsWebResearchV3){
+    var sdsWebResearch3 =
+    {
+      "csheet_6": {
+        "manufacturer": "Nufarm Australia Ltd (originally sold as \"LVE Agritone\"; Nufarm's current equivalent product is \"MCPA LVE 570\", same active/concentration -- check which name is on your container)",
+        "apvmaNo": "62527/51805",
+        "formulation": "Soluble concentrate, 570 g/L MCPA (2-ethylhexyl ester)",
+        "formulationCode": "SL",
+        "activeConstituent": "570 g/L MCPA (2-ethylhexyl ester)",
+        "groupNumber": "I",
+        "signalWord": "Poison",
+        "hazardClass": "Schedule 6 (per the closely related current Nufarm MCPA LVE 570 product, same active/concentration -- not independently re-confirmed for the older LVE Agritone label itself)",
+        "dangerousGoods": "UN 3082, Class 9, Packing Group III, Environmentally Hazardous Substance Liquid N.O.S.; Hazchem 3Z",
+        "registeredFor": "Wheat, oats, barley, triticale, cereal rye, grass pastures, grass seed crops",
+        "ppePoints": [
+          "Cotton overalls buttoned to the neck and wrist",
+          "Washable hat",
+          "Elbow-length PVC gloves",
+          "Goggles"
+        ],
+        "storagePoints": [
+          "Store in the closed, original container in a cool, well-ventilated area",
+          "Do not store for prolonged periods in direct sunlight"
+        ],
+        "spray": {
+          "rain": "Apply when soil is moist and weather is fine; rain unlikely within 6 hours",
+          "windSpeed": "Do not spray in high winds"
+        },
+        "withholdingHarvest": [
+          {
+            "label": "All registered crops",
+            "value": "Not required when used as directed"
+          }
+        ],
+        "withholdingGrazing": [
+          {
+            "label": "General",
+            "value": "Do not graze or cut for stock food for 7 days after application"
+          }
+        ],
+        "firstAid": "If poisoning occurs, contact a doctor or Poisons Information Centre (13 11 26). Do not induce vomiting. Wash out mouth thoroughly with water. Seek immediate medical attention if swallowed."
+      },
+      "csheet_15": {
+        "manufacturer": "Apparent Pty Ltd / AIRR Apparent Pty Ltd",
+        "apvmaNo": "68751/59011",
+        "formulation": "Liquid, 200 g/L fipronil",
+        "formulationCode": "SL",
+        "activeConstituent": "200 g/L Fipronil",
+        "groupNumber": "2B",
+        "signalWord": "Poison",
+        "hazardClass": "Schedule 6",
+        "dangerousGoods": "UN 3082, Class 9, Packing Group III",
+        "registeredFor": "Bananas, brassicas, cotton, mushrooms, potatoes, wine grapes, pasture/sorghum (locusts/grasshoppers), sugarcane",
+        "ppePoints": [
+          "Cotton overalls",
+          "Elbow-length PVC gloves",
+          "Goggles",
+          "No entry until spray has dried"
+        ],
+        "storagePoints": [
+          "Store in the closed, original container in a cool, well-ventilated, locked area away from children, animals, food, feed, seed and fertiliser"
+        ],
+        "spray": {
+          "rain": "Rainfast approximately 1 hour after drying; avoid wet foliage",
+          "bees": "Do not spray during bee foraging"
+        },
+        "withholdingHarvest": [
+          {
+            "label": "Brassicas",
+            "value": "7 days"
+          },
+          {
+            "label": "Cotton",
+            "value": "4 weeks"
+          },
+          {
+            "label": "Mushrooms",
+            "value": "14 days"
+          },
+          {
+            "label": "Sugarcane",
+            "value": "12 weeks"
+          }
+        ],
+        "withholdingGrazing": [
+          {
+            "label": "Pasture/sorghum",
+            "value": "14 days"
+          },
+          {
+            "label": "Sugarcane",
+            "value": "12 weeks"
+          },
+          {
+            "label": "Slaughter",
+            "value": "Withhold stock from slaughter for 21 days"
+          }
+        ],
+        "firstAid": "If swallowed do NOT induce vomiting. Wash mouth with water and give water to drink. Eyes: flush gently with copious clean water. Skin: wash immediately with soap and water. If poisoning occurs, contact a doctor or Poisons Information Centre (13 11 26)."
+      },
+      "csheet_20": {
+        "manufacturer": "Bayer Australia Ltd",
+        "apvmaNo": "62598/118235",
+        "formulation": "Spray-on/pour-on, 35 g/L imidacloprid + 300 g/L NMP solvent",
+        "activeConstituent": "35 g/L Imidacloprid",
+        "groupNumber": "4A",
+        "hazardClass": "Schedule 5",
+        "dangerousGoods": "Not classified for road/rail transport; Class 9 for sea/air",
+        "registeredFor": "Sheep (including unshorn lambs to 2 months old) -- blowfly strike prevention, body lice",
+        "ppePoints": [
+          "Cotton overalls",
+          "Washable hat",
+          "Goggles"
+        ],
+        "storagePoints": [
+          "Store below 30°C in the closed, original container, tightly closed, locked away from food and feed"
+        ],
+        "spray": {
+          "windSpeed": "Apply nozzle 15-20cm above fleece; avoid windy conditions"
+        },
+        "withholdingHarvest": [
+          {
+            "label": "Meat",
+            "value": "Do not slaughter within 21 days of treatment"
+          },
+          {
+            "label": "Wool/shearing",
+            "value": "2 months minimum"
+          }
+        ],
+        "withholdingGrazing": [
+          {
+            "label": "Milk",
+            "value": "Not for use on milk-producing animals"
+          }
+        ],
+        "firstAid": "Contact a doctor or Poisons Information Centre (13 11 26). Eyes: flush immediately with large amounts of water or saline."
+      },
+      "csheet_24": {
+        "manufacturer": "Nufarm Australia Ltd",
+        "apvmaNo": "68451/129142",
+        "formulation": "Emulsifiable concentrate, 725 g/L methyl esters of canola oil fatty acids + non-ionic surfactants",
+        "formulationCode": "EC",
+        "activeConstituent": "725 g/L methyl esters of canola oil fatty acids (spray adjuvant)",
+        "hazardClass": "Not scheduled -- unscheduled spray adjuvant",
+        "signalWord": "Not required (unscheduled)",
+        "registeredFor": "Spray adjuvant improving penetration, wetting and spreading, tank-mixed with herbicides -- not a standalone pesticide",
+        "ppePoints": [
+          "Waterproof clothing and rubber gloves when opening containers"
+        ],
+        "storagePoints": [
+          "Store in the closed, original container in a cool, well-ventilated area out of direct sunlight"
+        ],
+        "withholdingHarvest": [
+          {
+            "label": "General",
+            "value": "Not applicable -- follow the withholding period of the tank-mix partner product"
+          }
+        ],
+        "firstAid": "If poisoning occurs, contact a doctor or Poisons Information Centre (13 11 26). (NZ 0800 764 766)"
+      },
+      "csheet_25": {
+        "manufacturer": "BASF Australia Ltd",
+        "apvmaNo": "39118/120934",
+        "formulation": "Soluble liquid, 200 g/L glufosinate-ammonium",
+        "formulationCode": "SL",
+        "activeConstituent": "200 g/L Glufosinate-ammonium",
+        "groupNumber": "N",
+        "signalWord": "Caution",
+        "hazardClass": "Schedule 5",
+        "dangerousGoods": "UN 3082, Class 9 (Environmentally Hazardous Substance), Packing Group III; marine pollutant",
+        "registeredFor": "Orchards (citrus, pome, stone fruit, tree nuts), berries, tropical fruit, vineyards, vegetables, sugarcane, date palms, tea, forestry, summer fallow",
+        "ppePoints": [
+          "Cotton overalls",
+          "Washable hat",
+          "Elbow-length PVC gloves",
+          "Face shield or goggles",
+          "No entry until spray has dried"
+        ],
+        "storagePoints": [
+          "Store in the closed, original container in a cool, well-ventilated area, not in direct sunlight, locked; maximum 60 months storage"
+        ],
+        "spray": {
+          "rain": "Avoid application if rain is expected within 6 hours",
+          "windSpeed": "Best efficacy below 33°C and above 50% relative humidity"
+        },
+        "applicationLimits": [
+          "Maximum 3 applications per season in most situations",
+          "Maximum 1 application per season on green beans"
+        ],
+        "withholdingHarvest": [
+          {
+            "label": "Sugarcane",
+            "value": "16 weeks"
+          },
+          {
+            "label": "Pome/stone fruit",
+            "value": "21 days"
+          },
+          {
+            "label": "Green beans",
+            "value": "4 weeks"
+          },
+          {
+            "label": "Most berries/tree nuts",
+            "value": "Not required"
+          }
+        ],
+        "withholdingGrazing": [
+          {
+            "label": "Sugarcane",
+            "value": "16 weeks"
+          },
+          {
+            "label": "General crops",
+            "value": "8 weeks"
+          },
+          {
+            "label": "Summer fallow",
+            "value": "6 weeks"
+          }
+        ],
+        "firstAid": "If poisoning occurs, contact a doctor or Poisons Information Centre (13 11 26). Eyes: wash 15+ minutes under running water. Skin: wash thoroughly, apply sterile dressings. Ingestion: do NOT induce vomiting, rinse mouth, drink 200-300mL water."
+      },
+      "csheet_28": {
+        "manufacturer": "Sacoa Pty Ltd (check APVMA number against your drum -- not independently confirmed this round)",
+        "formulation": "Paraffinic/white mineral spray oil (unsulfonated paraffinic oil)",
+        "hazardClass": "Not scheduled",
+        "signalWord": "Not required (unscheduled)",
+        "dangerousGoods": "Not classified as a Dangerous Good under AU transport regulations; AS1940 Class C2 combustible liquid",
+        "registeredFor": "Ornamentals, vegetables, fruit trees -- scale, aphids, spider mites; also used as a fungicide carrier in IPM programs",
+        "storagePoints": [
+          "Store undercover in a closed container, cool, well-ventilated, away from food and drink"
+        ],
+        "firstAid": "Ingestion: get medical attention, do NOT induce vomiting. Inhalation: move to fresh air. Eyes: flush for 15 minutes."
+      },
+      "csheet_29": {
+        "manufacturer": "Adama Australia -- AMBIGUOUS: Adama sells several \"Bobcat\" variants (SL, i-MAXX, i-MAXX SG, Combi); the data below is for Bobcat SL (hexazinone) as the most likely match -- confirm against your container before relying on it",
+        "apvmaNo": "54259/59128 (Bobcat SL)",
+        "formulation": "Soluble liquid, 250 g/L hexazinone",
+        "formulationCode": "SL",
+        "activeConstituent": "250 g/L Hexazinone",
+        "groupNumber": "C",
+        "signalWord": "Caution",
+        "dangerousGoods": "UN 1170 (ethanol solution), Class 3 Flammable Liquid, Packing Group III, Hazchem 2[Y]",
+        "registeredFor": "Pinus radiata plantations, commercial/industrial areas, rights-of-way, pasture situations -- forestry/non-crop uses, NOT typical broadacre cropping",
+        "ppePoints": [
+          "Elbow-length PVC gloves",
+          "Face shield or goggles"
+        ],
+        "storagePoints": [
+          "Store in a cool, well-ventilated area out of direct sunlight; do not use or store at 0°C or below"
+        ],
+        "spray": {
+          "windSpeed": "Wind speed 30 km/h maximum for ground application, 20 km/h maximum for aerial",
+          "rain": "Avoid intense rainfall soon after application"
+        },
+        "withholdingHarvest": [
+          {
+            "label": "General",
+            "value": "Not applicable -- non-food/forestry use"
+          }
+        ],
+        "firstAid": "If poisoning occurs, contact a doctor or Poisons Information Centre (13 11 26)."
+      },
+      "csheet_30": {
+        "manufacturer": "Conquest Crop Protection Pty Ltd",
+        "apvmaNo": "81222/143772",
+        "formulation": "Water dispersible granule, 750 g/kg isoxaflutole",
+        "formulationCode": "WG",
+        "activeConstituent": "750 g/kg Isoxaflutole",
+        "groupNumber": "27",
+        "signalWord": "Caution",
+        "registeredFor": "Sugarcane (Qld/NSW/WA), chickpeas, summer fallow (post-sowing pre-emergent use only)",
+        "ppePoints": [
+          "Cotton overalls",
+          "Washable hat",
+          "Elbow-length chemical-resistant gloves",
+          "Face shield or goggles",
+          "No entry for 12 hours"
+        ],
+        "storagePoints": [
+          "Store in the closed container in a dry, cool, well-ventilated area out of direct sunlight"
+        ],
+        "spray": {
+          "rain": "Needs rainfall or irrigation to activate; heavy rain on some soils risks crop damage"
+        },
+        "applicationLimits": [
+          "Sugarcane: 200g/ha at minimum 250L/ha",
+          "Chickpeas: 100g/ha at minimum 50L/ha"
+        ],
+        "withholdingHarvest": [
+          {
+            "label": "Sugarcane",
+            "value": "19 weeks"
+          },
+          {
+            "label": "Chickpeas",
+            "value": "Not required"
+          }
+        ],
+        "withholdingGrazing": [
+          {
+            "label": "Sugarcane",
+            "value": "Do not graze"
+          },
+          {
+            "label": "Chickpeas",
+            "value": "6 weeks"
+          },
+          {
+            "label": "Fallow",
+            "value": "Do not graze treated weeds or stubble"
+          }
+        ],
+        "firstAid": "If poisoning occurs, contact a doctor or Poisons Information Centre (13 11 26)."
+      },
+      "csheet_35": {
+        "manufacturer": "Caltex Australia Petroleum Pty Ltd (registrant); marketed by FMC -- CHECK CURRENCY: one source flagged this registration as possibly lapsed, confirm against a current APVMA search",
+        "apvmaNo": "60215/108203",
+        "formulation": "Emulsifiable oil, 778 g/L paraffinic oil",
+        "formulationCode": "EC",
+        "activeConstituent": "778 g/L Paraffinic oil",
+        "hazardClass": "Caution",
+        "registeredFor": "Cotton, canola, pulses, oilseeds, lucerne, lupins; also used as a ULV carrier / defoliation adjuvant",
+        "ppePoints": [
+          "Elbow-length PVC gloves",
+          "Face shield or goggles when mixing/loading"
+        ],
+        "storagePoints": [
+          "Store in the closed, original container in a cool, well-ventilated area out of direct sunlight"
+        ],
+        "withholdingHarvest": [
+          {
+            "label": "General",
+            "value": "1 day"
+          }
+        ],
+        "firstAid": "If poisoning occurs, contact a doctor or Poisons Information Centre (13 11 26). Swallowed: do NOT induce vomiting, give water."
+      },
+      "csheet_45": {
+        "manufacturer": "Alphakem Global Pty Ltd",
+        "apvmaNo": "60607",
+        "formulation": "Liquid, ammonium sulphate 417 g/L + proprietary non-hazardous remainder",
+        "hazardClass": "Not scheduled; not classified as a Dangerous Good",
+        "signalWord": "Not required (unscheduled)",
+        "registeredFor": "Tank-mix adjuvant with glyphosate, 2,4-D amine or glufosinate -- reduces hard-water antagonism, not a standalone pesticide",
+        "ppePoints": [
+          "Eye/face protection",
+          "Chemical-resistant gloves",
+          "Coveralls"
+        ],
+        "storagePoints": [
+          "Store in the original sealed container, secure, dry, cool, well-ventilated, away from sunlight, food, fertiliser and seed"
+        ],
+        "applicationLimits": [
+          "Rate: 2L per 100L spray solution"
+        ],
+        "firstAid": "If poisoning occurs, contact a doctor or Poisons Information Centre (13 11 26)."
+      },
+      "csheet_50": {
+        "manufacturer": "ADAMA (registration currency not independently confirmed -- one archive flags this registration as possibly expired/lapsed; verify with a current APVMA search before relying on the label directions below)",
+        "apvmaNo": "59453",
+        "formulation": "Water dispersible granule -- 440 g/kg prometryn + 440 g/kg fluometuron",
+        "formulationCode": "WG",
+        "activeConstituent": "440 g/kg Prometryn + 440 g/kg Fluometuron",
+        "groupNumber": "C / 5",
+        "registeredFor": "Cotton (Qld/NSW only)",
+        "firstAid": "If poisoning occurs, contact a doctor or Poisons Information Centre (13 11 26)."
+      },
+      "csheet_54": {
+        "manufacturer": "FMC Australasia Pty Ltd (historically sold as Cheminova; Cheminova was acquired by FMC in 2015 -- matches the farm record's brand attribution)",
+        "apvmaNo": "65190 (label revisions 65190/127156, 65190/145282)",
+        "formulation": "Capsule suspension/EC, 250 g/L lambda-cyhalothrin",
+        "activeConstituent": "250 g/L Lambda-cyhalothrin",
+        "groupNumber": "3A",
+        "signalWord": "Poison",
+        "hazardClass": "Schedule 6",
+        "registeredFor": "Barley, wheat, cotton, canola, chickpeas, faba beans, field peas, lentils, vetch, brassicas, lemons, oranges, lucerne, lupins, mung/navy beans, onions, pasture, potatoes, sorghum, soybeans, sunflowers, tomatoes",
+        "ppePoints": [
+          "Cotton overalls",
+          "Washable hat",
+          "Elbow-length PVC gloves",
+          "Face shield",
+          "No entry until spray has dried, or PPE if entering sooner"
+        ],
+        "storagePoints": [
+          "Store in the closed container in a cool, well-ventilated area, avoid prolonged direct sunlight"
+        ],
+        "spray": {
+          "rain": "No rain within 6 hours",
+          "bees": "Toxic to bees -- spray early morning or late evening"
+        },
+        "applicationLimits": [
+          "Onions: maximum 4 applications per crop, minimum 7-day interval"
+        ],
+        "withholdingHarvest": [
+          {
+            "label": "Tomatoes, green mung/navy beans",
+            "value": "1 day"
+          },
+          {
+            "label": "Brassicas",
+            "value": "2 days"
+          },
+          {
+            "label": "Canola, chickpeas, faba beans, field peas, lentils, potatoes, vetch",
+            "value": "7 days"
+          },
+          {
+            "label": "Barley, lucerne, lupins, onions, pasture, sorghum, wheat, dry mung/navy beans",
+            "value": "14 days"
+          },
+          {
+            "label": "Cotton, soybeans",
+            "value": "21 days"
+          },
+          {
+            "label": "Citrus, sunflowers",
+            "value": "28 days"
+          }
+        ],
+        "withholdingGrazing": [
+          {
+            "label": "Green mung/navy beans",
+            "value": "1 day"
+          },
+          {
+            "label": "Forage brassicas",
+            "value": "2 days"
+          },
+          {
+            "label": "Canola, chickpeas, faba beans, field peas, lentils, vetch",
+            "value": "7 days"
+          },
+          {
+            "label": "Barley, lucerne, lupins, onions, pasture, sorghum, wheat",
+            "value": "14 days"
+          },
+          {
+            "label": "Soybeans",
+            "value": "21 days"
+          }
+        ],
+        "firstAid": "If poisoning occurs, contact a doctor or Poisons Information Centre (13 11 26). Eyes: hold open and flood with water for 15+ minutes."
+      },
+      "csheet_62": {
+        "manufacturer": "Sipcam Australia",
+        "apvmaNo": "65044",
+        "formulation": "Emulsifiable concentrate -- 200 g/L quizalofop-p-ethyl + 759 g/L hydrocarbon co-formulant",
+        "formulationCode": "EC",
+        "activeConstituent": "200 g/L Quizalofop-P-ethyl",
+        "groupNumber": "A",
+        "registeredFor": "Post-emergent grass-weed control in red beet, cabbage, canola, carrots, cauliflower, chickpeas, clover/pasture, cucurbits, beans, peas, lentils, lucerne, lupins, mung/navy beans, onions, potatoes, radishes, tomatoes, vetch, peanuts, pineapples, soybeans, sunflowers, grapes"
+      },
+      "csheet_96": {
+        "manufacturer": "Nufarm Australia Ltd -- DATA-ENTRY CORRECTION: the real product is \"Hornet 500SC\", 500 g/L tebuconazole (not \"430\" -- also unrelated to the US \"Hornet\" herbicide brand). Check your container to confirm.",
+        "apvmaNo": "62227/51414",
+        "formulation": "Suspension concentrate, 500 g/L tebuconazole",
+        "formulationCode": "SC",
+        "activeConstituent": "500 g/L Tebuconazole",
+        "groupNumber": "3",
+        "hazardClass": "Caution -- \"Harmful if swallowed\"",
+        "signalWord": "Caution",
+        "dangerousGoods": "UN 3082, Class 9, Packing Group III, Hazchem 2Z",
+        "registeredFor": "Bananas, peanuts, beans, peas, wheat, oats, barley, onions, pawpaw, pyrethrum, ryegrass and fescue seed crops",
+        "ppePoints": [
+          "Cotton overalls",
+          "Washable hat",
+          "Elbow-length PVC gloves",
+          "No entry until spray has dried"
+        ],
+        "storagePoints": [
+          "Store in the closed container in a cool, well-ventilated area"
+        ],
+        "applicationLimits": [
+          "Bananas: limited to 6 sprays per 12-month period"
+        ],
+        "withholdingHarvest": [
+          {
+            "label": "General",
+            "value": "1-21 days depending on crop -- refer to label for the specific crop"
+          }
+        ],
+        "withholdingGrazing": [
+          {
+            "label": "General",
+            "value": "14-21 days depending on crop -- refer to label"
+          }
+        ],
+        "firstAid": "If poisoning occurs, contact a doctor or Poisons Information Centre (13 11 26)."
+      },
+      "csheet_97": {
+        "manufacturer": "Titan Ag Pty Ltd",
+        "apvmaNo": "67735/56757",
+        "formulation": "Water dispersible granule, 700 g/kg imazapic",
+        "formulationCode": "WG",
+        "activeConstituent": "700 g/kg Imazapic",
+        "groupNumber": "2",
+        "signalWord": "Caution",
+        "dangerousGoods": "Not a Dangerous Good (ADG Code)",
+        "registeredFor": "Fallow before wheat/barley/chickpea (Qld and northern NSW); pre-emergent sugarcane (variety Q124 only, Qld/NSW/WA)",
+        "ppePoints": [
+          "Elbow-length PVC gloves and face shield/goggles when mixing"
+        ],
+        "storagePoints": [
+          "Store in the closed container in a cool, dry, well-ventilated area"
+        ],
+        "spray": {
+          "windSpeed": "Do not spray within 50m of wetlands/waterways"
+        },
+        "applicationLimits": [
+          "Maximum 70g/ha per season",
+          "Maximum 2 successive seasons on cropland"
+        ],
+        "withholdingHarvest": [
+          {
+            "label": "Registered uses",
+            "value": "Not required"
+          }
+        ],
+        "withholdingGrazing": [
+          {
+            "label": "General",
+            "value": "Do not graze treated stubble/weeds within 5 weeks"
+          }
+        ],
+        "firstAid": "If poisoning occurs, contact a doctor or Poisons Information Centre (13 11 26)."
+      },
+      "csheet_98": {
+        "manufacturer": "Imtrade Australia Pty Ltd -- generic active; \"Imtrade Imidacloprid 350 SC\" used here as a widely-stocked example brand -- check your container for the actual brand name",
+        "apvmaNo": "63795",
+        "formulation": "Suspension concentrate, 350 g/L imidacloprid",
+        "formulationCode": "SC",
+        "activeConstituent": "350 g/L Imidacloprid",
+        "hazardClass": "Schedule 6",
+        "signalWord": "Warning",
+        "dangerousGoods": "Class 9, UN 3082",
+        "registeredFor": "Sugarcane (greyback/childers canegrub, soil-applied); vegetable crops (silverleaf whitefly)",
+        "storagePoints": [
+          "Store in the closed container in a dry, cool, well-ventilated area, protected from light"
+        ],
+        "withholdingHarvest": [
+          {
+            "label": "General",
+            "value": "Not required as directed"
+          }
+        ],
+        "withholdingGrazing": [
+          {
+            "label": "Sugarcane",
+            "value": "21 weeks"
+          }
+        ],
+        "firstAid": "If swallowed, do NOT induce vomiting. Wash mouth with water and contact a Poisons Information Centre (13 11 26)."
+      },
+      "csheet_99": {
+        "manufacturer": "ADAMA Australia -- distinct formulation from the generic \"Imazapic 700 WDG\" entry elsewhere on this register",
+        "apvmaNo": "63563/133079",
+        "formulation": "Soluble liquid, 240 g/L imazapic (ammonium salt)",
+        "formulationCode": "SL",
+        "activeConstituent": "240 g/L Imazapic (ammonium salt)",
+        "groupNumber": "2",
+        "registeredFor": "Fallow (before winter crops, Qld/northern NSW), sugarcane (Qld/NSW/WA), peanuts (Qld/NSW/NT)",
+        "ppePoints": [
+          "Elbow-length PVC gloves when opening/mixing; wash hands after use",
+          "12hr re-entry when tank-mixed with pendimethalin"
+        ],
+        "storagePoints": [
+          "Store in the closed container in a cool, well-ventilated area out of direct sunlight"
+        ],
+        "spray": {
+          "windSpeed": "Wind 3-20km/h",
+          "rain": "Avoid if rain within 2 hours (peanuts)",
+          "heavyDew": "Avoid heavy dew"
+        },
+        "applicationLimits": [
+          "Maximum 200mL/ha per season on cropland",
+          "Maximum 2 successive seasons"
+        ],
+        "withholdingHarvest": [
+          {
+            "label": "General",
+            "value": "Not required as directed"
+          }
+        ],
+        "withholdingGrazing": [
+          {
+            "label": "Wheat/barley/chickpea/peanuts",
+            "value": "4 weeks"
+          },
+          {
+            "label": "Sugarcane",
+            "value": "6 weeks"
+          }
+        ],
+        "firstAid": "If poisoning occurs, contact a doctor or Poisons Information Centre (13 11 26)."
+      },
+      "csheet_102": {
+        "manufacturer": "Nufarm Australia Ltd -- CORRECTION: Nufarm Invader 600 Herbicide is 600 g/L TRICLOPYR, not 2,4-D as the farm record guessed -- there is no Nufarm \"Invader\" 2,4-D product",
+        "apvmaNo": "49998/51463",
+        "formulation": "Liquid, 600 g/L triclopyr",
+        "activeConstituent": "600 g/L Triclopyr",
+        "groupNumber": "I",
+        "signalWord": "Poison",
+        "registeredFor": "Non-crop/industrial areas, forests, pastures, rights-of-way, fallow, stubble, firebreaks, sorghum (4-6 leaf stage)",
+        "ppePoints": [
+          "Cotton overalls",
+          "Washable hat",
+          "Elbow-length rubber gloves"
+        ],
+        "storagePoints": [
+          "Store in the closed container in a dry, cool, well-ventilated area away from children, animals, food, feed, seed and fertiliser"
+        ],
+        "spray": {
+          "windSpeed": "Wind not above 10km/h",
+          "rain": "No rain within 1 hour, or foliage not wet (6 hours if tank-mixed with glyphosate)",
+          "dropletSize": "250-350 micron"
+        },
+        "withholdingHarvest": [
+          {
+            "label": "Pasture/sorghum",
+            "value": "Not required as directed"
+          }
+        ],
+        "firstAid": "If poisoning occurs, contact a doctor or Poisons Information Centre (13 11 26)."
+      },
+      "csheet_104": {
+        "manufacturer": "Crop Care Australasia Pty Ltd -- CORRECTION: Jab242 Herbicide is 420 g/L MCPA + 26 g/L picloram, both as POTASSIUM SALTS, not MCPA-ester as the farm record guessed",
+        "apvmaNo": "58848/54291",
+        "formulation": "Soluble concentrate (potassium salts) -- 420 g/L MCPA + 26 g/L picloram",
+        "activeConstituent": "420 g/L MCPA + 26 g/L Picloram (potassium salts)",
+        "groupNumber": "I",
+        "signalWord": "Caution",
+        "registeredFor": "Broadleaf weed control in barley, canary grass, oats, triticale, wheat, linseed, linola",
+        "ppePoints": [
+          "Cotton overalls",
+          "Washable hat",
+          "Elbow-length PVC gloves",
+          "Face shield or goggles"
+        ],
+        "storagePoints": [
+          "Store in a cool, well-ventilated area, protect from sunlight, keep below 40°C"
+        ],
+        "spray": {
+          "windSpeed": "Avoid high wind",
+          "rain": "No rain within 4 hours"
+        },
+        "withholdingHarvest": [
+          {
+            "label": "General",
+            "value": "Not required"
+          }
+        ],
+        "withholdingGrazing": [
+          {
+            "label": "General",
+            "value": "7 days before grazing or cutting"
+          }
+        ],
+        "firstAid": "If poisoning occurs, contact a doctor or Poisons Information Centre (13 11 26)."
+      },
+      "csheet_107": {
+        "manufacturer": "Kenso Corporation (M) Sdn Bhd / Kenso Agcare Australia -- CORRECTION: this is a Kenso brand, not Nufarm",
+        "apvmaNo": "55080/115598",
+        "formulation": "Soluble concentrate -- 450 g/L glyphosate (isopropylamine salt) + 144 g/L POEA(15) surfactant",
+        "activeConstituent": "450 g/L Glyphosate (isopropylamine salt)",
+        "groupNumber": "9",
+        "signalWord": "Caution",
+        "registeredFor": "Tree/vine crops (avocado, citrus, nuts), southern-cropping fallow, pasture management, cotton, sorghum, sugar cane, rice",
+        "ppePoints": [
+          "Elbow-length PVC gloves and face shield/goggles when preparing",
+          "Waterproof clothing and impervious footwear for CDA use"
+        ],
+        "storagePoints": [
+          "Store as cool as possible, closed container, avoid prolonged direct sun"
+        ],
+        "spray": {
+          "windSpeed": "Avoid near-zero wind or above 8km/h",
+          "rain": "Rain within 2 hours may reduce efficacy"
+        },
+        "applicationLimits": [
+          "Up to 7.2L/ha for sugar cane"
+        ],
+        "withholdingGrazing": [
+          {
+            "label": "Annual weeds",
+            "value": "1 day before grazing/cultivation"
+          },
+          {
+            "label": "Perennial weeds",
+            "value": "7 days"
+          }
+        ],
+        "firstAid": "Poisons Information Centre 13 11 26. Flush eyes 15+ minutes. Seek medical attention if ingested."
+      },
+      "csheet_108": {
+        "manufacturer": "SST Australia Pty Ltd -- this is a decontaminant/tank-and-equipment cleaner, NOT a crop-protection product",
+        "apvmaNo": "HSR002526",
+        "formulation": "Granular -- available chlorine 80g/kg, sodium carbonate 380g/kg, sodium hydroxide 125g/kg, sodium metasilicate pentahydrate 125g/kg",
+        "hazardClass": "Schedule 6",
+        "signalWord": "Danger",
+        "dangerousGoods": "UN 1759, Class 8 (Corrosive Solid), Packing Group II, Hazchem 2X",
+        "registeredFor": "Decontaminating pesticide spray/implement equipment (sulfonylurea, phenoxy-herbicide, general residue removal) -- not applied to crops",
+        "ppePoints": [
+          "Elbow-length neoprene gloves",
+          "Face shield or goggles when preparing/using the solution"
+        ],
+        "storagePoints": [
+          "Store in the closed, original container in a cool, well-ventilated area out of direct sunlight"
+        ],
+        "withholdingHarvest": [
+          {
+            "label": "General",
+            "value": "Not applicable -- not applied to crops"
+          }
+        ],
+        "firstAid": "If poisoning occurs, contact a doctor or Poisons Information Centre (13 11 26). (NZ 0800 764 766)"
+      },
+      "csheet_109": {
+        "manufacturer": "Alphakem Global Pty Ltd -- tank-mix adjuvant, not a scheduled pesticide",
+        "apvmaNo": "87019/117391",
+        "formulation": "Water soluble powder -- ammonium sulphate 796-800g/kg + citric acid 150g/kg, plus carbohydrate polymer and wetting/defoaming agents",
+        "formulationCode": "WSP",
+        "hazardClass": "Not scheduled",
+        "signalWord": "Warning",
+        "dangerousGoods": "Not a Dangerous Good",
+        "registeredFor": "Tank-mix additive with glyphosate -- water conditioner/softener, acidifier, penetrant, drift-mitigation, defoaming; not a standalone pesticide",
+        "ppePoints": [
+          "Protective glasses or goggles",
+          "Impervious elbow-length gloves",
+          "Face protection",
+          "Dust mask if dust is generated"
+        ],
+        "storagePoints": [
+          "Store cool (below 30°C), tightly closed, dry, well-ventilated"
+        ],
+        "spray": {
+          "windSpeed": "Minimum 4 Bar pressure, minimum 70cm boom height; higher water rates (80-100L/ha) for fine grasses"
+        },
+        "applicationLimits": [
+          "250-500g per 100L (up to 500g/100L for drift mitigation)"
+        ],
+        "firstAid": "Skin: wash gently for 5 minutes. Eyes: flush for 5 minutes. Ingestion: do NOT induce vomiting."
+      },
+      "csheet_111": {
+        "manufacturer": "Adama Australia -- IDENTITY CORRECTION: the active constituent is PYRIPROXYFEN, not lambda-cyhalothrin as the farm record's category note might suggest -- \"100\" refers to the 100 g/L concentration",
+        "apvmaNo": "68692/105185",
+        "formulation": "Emulsifiable concentrate, 100 g/L pyriproxyfen",
+        "formulationCode": "EC",
+        "activeConstituent": "100 g/L Pyriproxyfen (insect growth regulator)",
+        "groupNumber": "7C",
+        "signalWord": "Caution",
+        "dangerousGoods": "UN 3082, Environmentally Hazardous Substance Liquid N.O.S., Packing Group III, Hazchem 3Z",
+        "registeredFor": "Cotton, rockmelon/tomato/capsicum, citrus, mango, olives -- whitefly and scale",
+        "ppePoints": [
+          "Cotton overalls",
+          "Elbow-length chemical-resistant gloves",
+          "Face shield or goggles",
+          "No entry until spray has dried unless PPE worn"
+        ],
+        "storagePoints": [
+          "Store in a dry, cool, well-ventilated area out of direct sunlight"
+        ],
+        "spray": {
+          "rain": "No rain-runoff risk within 48 hours"
+        },
+        "applicationLimits": [
+          "Maximum 2 applications per season"
+        ],
+        "withholdingHarvest": [
+          {
+            "label": "Cotton",
+            "value": "28 days"
+          },
+          {
+            "label": "Rockmelon/tomato/capsicum",
+            "value": "1 day"
+          },
+          {
+            "label": "Citrus/olives",
+            "value": "7 days"
+          },
+          {
+            "label": "Mangoes",
+            "value": "4 weeks"
+          }
+        ],
+        "firstAid": "If poisoning occurs, contact a doctor or Poisons Information Centre (13 11 26)."
+      },
+      "csheet_112": {
+        "manufacturer": "Adama Australia. NOTE: a voluntary recall (18 July 2025) affected specific 20L-pack batches of this product in NSW/VIC/SA due to crystal formation/handling issues (no crop-safety concern) -- check batch numbers if relevant",
+        "apvmaNo": "68000/108485",
+        "formulation": "Emulsifiable concentrate, 200 g/L quizalofop-P-ethyl",
+        "formulationCode": "EC",
+        "activeConstituent": "200 g/L Quizalofop-P-ethyl",
+        "groupNumber": "A",
+        "signalWord": "Poison",
+        "dangerousGoods": "Not a Dangerous Good",
+        "registeredFor": "Wide range of broadleaf crops/pastures (canola, chickpeas, faba beans, legumes, vegetables, cotton, grapes etc.) -- grass weed control",
+        "ppePoints": [
+          "Cotton overalls",
+          "Washable hat",
+          "Elbow-length PVC gloves",
+          "No entry until spray has dried"
+        ],
+        "storagePoints": [
+          "Store in a cool, well-ventilated area out of direct sunlight"
+        ],
+        "spray": {
+          "rain": "No rain within 3 hours",
+          "windSpeed": "Only apply to actively-growing non-stressed weeds/crops; minimum 50L/ha"
+        },
+        "withholdingHarvest": [
+          {
+            "label": "Beetroot, cauliflower, cucumbers",
+            "value": "14 days"
+          },
+          {
+            "label": "Onions",
+            "value": "18 weeks"
+          }
+        ],
+        "withholdingGrazing": [
+          {
+            "label": "Clover/medic pastures",
+            "value": "14 days"
+          },
+          {
+            "label": "Peanuts, sunflower",
+            "value": "11 weeks"
+          }
+        ],
+        "firstAid": "If poisoning occurs, contact a doctor or Poisons Information Centre (13 11 26)."
+      },
+      "csheet_113": {
+        "manufacturer": "Nufarm Australia Limited -- tank-mix adjuvant (water conditioner), not a scheduled pesticide",
+        "apvmaNo": "41510",
+        "formulation": "Liquid, ammonium sulphate 417 g/L",
+        "hazardClass": "Not scheduled; not classified as hazardous under GHS; not classified as a Dangerous Good",
+        "signalWord": "Not required (unscheduled)",
+        "registeredFor": "Minimises water hardness antagonism when tank-mixing glyphosate, particularly flowable herbicides",
+        "ppePoints": [
+          "Safety glasses with face shield",
+          "Impervious gloves",
+          "Cotton overalls or chemical-resistant apron for bulk handling"
+        ],
+        "storagePoints": [
+          "Store cool, dry, well-ventilated, out of direct sunlight, sealed labelled containers, protect from freezing"
+        ],
+        "firstAid": "For advice in an emergency, contact a Poisons Information Centre (13 11 26) or a doctor at once."
+      },
+      "csheet_114": {
+        "manufacturer": "Nufarm Australia Limited -- FLAG: Nufarm's own site lists this product as \"Maestro 200SC (Discontinued)\"; appears no longer actively manufactured though at least one reseller had stock listed -- verify current stock/registration before relying on this",
+        "apvmaNo": "70280/132346",
+        "formulation": "Suspension concentrate, 200 g/L fipronil",
+        "formulationCode": "SC",
+        "activeConstituent": "200 g/L Fipronil",
+        "groupNumber": "2B",
+        "registeredFor": "Asparagus, bananas, brassicas, cotton, forestry (locusts/grasshoppers), ginger, wine grapes, mushrooms, pasture/sorghum, potatoes/sweet potato, sugarcane, swede/turnip",
+        "ppePoints": [
+          "Cotton overalls",
+          "Elbow-length PVC gloves",
+          "Goggles",
+          "No entry until spray has dried"
+        ],
+        "storagePoints": [
+          "Store in a cool, well-ventilated area in the original closed container, avoid prolonged direct sunlight"
+        ],
+        "spray": {
+          "bees": "Dangerous to bees -- 28-day protection period (7 days for pasture/sorghum)",
+          "rain": "Rainfast 1 hour after drying; not on wet foliage"
+        },
+        "applicationLimits": [
+          "Asparagus: maximum 6 sprays per season",
+          "Diamondback moth control: maximum 4 sprays per year"
+        ],
+        "withholdingHarvest": [
+          {
+            "label": "Asparagus",
+            "value": "1 day"
+          },
+          {
+            "label": "Brassicas",
+            "value": "7 days"
+          },
+          {
+            "label": "Cotton",
+            "value": "4 weeks"
+          },
+          {
+            "label": "Sugarcane",
+            "value": "12 weeks (varies)"
+          }
+        ],
+        "withholdingGrazing": [
+          {
+            "label": "Pasture/sorghum",
+            "value": "14 days"
+          },
+          {
+            "label": "Sugarcane",
+            "value": "12 weeks"
+          }
+        ]
+      },
+      "csheet_106": {
+        "manufacturer": "Sinochem Australia Pty Ltd",
+        "apvmaNo": "67370/141736",
+        "formulation": "450 g/L glyphosate (isopropylamine salt) + 100 g/L POEA surfactant",
+        "activeConstituent": "450 g/L Glyphosate (isopropylamine salt)",
+        "groupNumber": "9",
+        "registeredFor": "Fallow, pastures, tree/vine crops, rice, cotton, sugar cane, sorghum, non-agricultural areas",
+        "ppePoints": [
+          "Elbow-length PVC gloves and face shield/goggles when preparing",
+          "Waterproof clothing and impervious footwear for CDA use"
+        ],
+        "storagePoints": [
+          "Store in the closed container in a dry, cool, well-ventilated area out of direct sun"
+        ],
+        "spray": {
+          "windSpeed": "Wind 3-20km/h",
+          "rain": "Avoid if rain within 6 hours"
+        }
+      },
+      "csheet_117": {
+        "manufacturer": "Nufarm Australia Ltd -- generic active; \"Nufarm MCPA Amine 750\" used here as a widely-stocked example brand -- check your container for the actual brand name",
+        "apvmaNo": "60505/134311",
+        "formulation": "Soluble liquid, 750 g/L MCPA (dimethylamine salt)",
+        "formulationCode": "SL",
+        "activeConstituent": "750 g/L MCPA (dimethylamine salt)",
+        "groupNumber": "I",
+        "signalWord": "Danger",
+        "hazardClass": "Schedule 6",
+        "dangerousGoods": "Road/rail exempt (Special Provision AU01); Marine/Air Class 9, UN3082",
+        "registeredFor": "Wheat, barley, oats, triticale, linseed, sugar cane, rice, grass pastures, turf, field peas (Vic/NSW/SA/Tas, tank-mixed with diflufenican)",
+        "ppePoints": [
+          "Cotton overalls",
+          "Washable hat",
+          "Elbow-length PVC gloves",
+          "Goggles",
+          "Hand-weeding not for 7 days after spraying unless PPE worn"
+        ],
+        "storagePoints": [
+          "Store in the closed container in a cool, well-ventilated area out of direct sunlight"
+        ],
+        "spray": {
+          "windSpeed": "Wind 3-20km/h",
+          "rain": "Not if rain likely within 6 hours"
+        },
+        "withholdingHarvest": [
+          {
+            "label": "Cereals",
+            "value": "Not required as directed"
+          },
+          {
+            "label": "Oilseed poppies",
+            "value": "5 weeks"
+          }
+        ],
+        "withholdingGrazing": [
+          {
+            "label": "General",
+            "value": "Do not graze or cut for 7 days after application"
+          }
+        ],
+        "firstAid": "If poisoning occurs, contact a doctor or Poisons Information Centre (13 11 26). (NZ 0800 764 766)"
+      },
+      "csheet_118": {
+        "manufacturer": "Rutec Pty Ltd -- generic blended foliar fertiliser, not a scheduled pesticide",
+        "formulation": "Chelated N-P-K + micronutrient liquid foliar fertiliser (N13% P10% K15%, EDTA-chelated Mg/Cu/Fe/Mn/Zn, boron, molybdenum)",
+        "hazardClass": "Not scheduled -- fertiliser blend",
+        "ppePoints": [
+          "Mask, gloves and eyewear recommended -- not for consumption"
+        ],
+        "applicationLimits": [
+          "Foliar, root-drench or soil application, 1-50L/ha depending on crop"
+        ]
+      },
+      "csheet_120": {
+        "manufacturer": "Syngenta Australia",
+        "apvmaNo": "67695",
+        "formulation": "Dispersible concentrate, 250 g/L trinexapac-ethyl",
+        "formulationCode": "DC",
+        "activeConstituent": "250 g/L Trinexapac-ethyl",
+        "registeredFor": "Winter/spring barley (BBCH 30-39), oats (BBCH 30-32), winter wheat (BBCH 30-32)",
+        "spray": {
+          "rain": "Rainfast within 2 hours; requires good growing conditions with adequate soil moisture, not to stressed crops"
+        },
+        "applicationLimits": [
+          "Boom 100-200L/ha, aerial 20-30L/ha"
+        ],
+        "withholdingHarvest": [
+          {
+            "label": "General",
+            "value": "Not required as directed"
+          }
+        ],
+        "withholdingGrazing": [
+          {
+            "label": "General",
+            "value": "Do not graze or cut for stock food for 6 weeks after application"
+          }
+        ]
+      },
+      "csheet_121": {
+        "manufacturer": "Sumitomo Chemical Australia",
+        "apvmaNo": "66094/102356",
+        "formulation": "Suspension concentrate, 500 g/L carbendazim",
+        "formulationCode": "SC",
+        "activeConstituent": "500 g/L Carbendazim",
+        "groupNumber": "1",
+        "hazardClass": "Label wording \"Dangerous Poison\"/\"VERY DANGEROUS particularly the concentrate\" -- exact SUSMP schedule number not independently confirmed from the label excerpt sighted, likely high (e.g. Schedule 7) -- verify against the full e-label",
+        "registeredFor": "Chickpeas, faba beans, lentils, vetch (chocolate spot, grey mould); macadamia nuts (husk spot)",
+        "ppePoints": [
+          "Cotton overalls",
+          "Washable hat",
+          "Elbow-length chemical-resistant gloves",
+          "Face shield",
+          "No entry until spray deposits have dried"
+        ],
+        "storagePoints": [
+          "Store in a locked room away from children/animals/food; closed container, cool, well-ventilated, avoid prolonged sunlight"
+        ],
+        "spray": {
+          "bees": "Low toxicity to bees",
+          "windSpeed": "Avoid drift onto susceptible plants"
+        },
+        "applicationLimits": [
+          "Macadamia: maximum 2 per season",
+          "Legumes: maximum 2 consecutive applications at 14-day intervals"
+        ],
+        "withholdingHarvest": [
+          {
+            "label": "Macadamia",
+            "value": "14 days"
+          },
+          {
+            "label": "Legumes",
+            "value": "4 weeks"
+          }
+        ],
+        "withholdingGrazing": [
+          {
+            "label": "Legumes and macadamia",
+            "value": "4 weeks"
+          }
+        ],
+        "firstAid": "Contact a doctor or Poisons Information Centre (13 11 26). (NZ 0800 764 766)"
+      },
+      "csheet_123": {
+        "manufacturer": "BASF Crop Solutions Australia",
+        "formulation": "Peat-based rhizobium inoculant, >1 billion live rhizobia cells/g -- ten strain-specific \"Nodulaid\" variants (Groups N, G, E, F etc.) matched to different legume types; confirm which strain-specific variant matches your crop",
+        "hazardClass": "Not scheduled -- biological inoculant, no poison schedule/DG/withholding period applies",
+        "registeredFor": "Clovers, lucerne, pasture legumes, pulses (chickpeas, faba beans, lupins, peas, etc -- strain-specific)",
+        "storagePoints": [
+          "Sow within 24 hours of slurry treatment, or keep up to 3 days in a cool, dark place; dry-coated seed lasts up to 7 days"
+        ]
+      },
+      "csheet_125": {
+        "manufacturer": "AgBiTech Pty Ltd -- this is a spray adjuvant/optimiser used WITH biopesticides (e.g. Vivus Max/Vivus Armigen/Fawligen), not itself an insecticide",
+        "apvmaNo": "64627/56720",
+        "formulation": "600 g/L sugars + 175 g/L petroleum oil (molasses/sugar + petroleum-oil blend)",
+        "hazardClass": "Not stated -- consistent with an unscheduled adjuvant",
+        "registeredFor": "Tank-mix additive with Vivus Max/Vivus Armigen/Fawligen -- improves spray coverage, droplet retention and infection/larval mortality rates, especially in hot/dry conditions or low-volume aerial work",
+        "storagePoints": [
+          "Keep out of reach of children; closed container, cool, well-ventilated, avoid prolonged direct sunlight"
+        ],
+        "withholdingHarvest": [
+          {
+            "label": "General",
+            "value": "Not required when used as directed"
+          }
+        ],
+        "firstAid": "If poisoning occurs, contact a doctor or Poisons Information Centre (13 11 26). Swallowed: do not induce vomiting, give water."
+      },
+      "csheet_126": {
+        "manufacturer": "ADAMA -- genuinely separate branded product from Bounty/Balance (also isoxaflutole)",
+        "apvmaNo": "68600",
+        "formulation": "Water dispersible granule, 750 g/kg isoxaflutole",
+        "formulationCode": "WG",
+        "activeConstituent": "750 g/kg Isoxaflutole",
+        "groupNumber": "H",
+        "registeredFor": "Sugarcane (200g/ha; Qld/NSW/WA), chickpeas (100g/ha; Qld/NSW/ACT/Vic/SA/WA)",
+        "ppePoints": [
+          "Cotton overalls and chemical-resistant gloves for early re-entry",
+          "No entry for 12 hours"
+        ],
+        "spray": {
+          "rain": "Requires rainfall or irrigation to activate; deep-germinating weeds may escape control if rainfall is under 15mm"
+        },
+        "withholdingHarvest": [
+          {
+            "label": "Sugarcane",
+            "value": "19 weeks"
+          },
+          {
+            "label": "Chickpeas",
+            "value": "Not required"
+          }
+        ],
+        "withholdingGrazing": [
+          {
+            "label": "Sugarcane",
+            "value": "Grazing prohibited"
+          },
+          {
+            "label": "Chickpeas",
+            "value": "4 weeks"
+          }
+        ]
+      },
+      "csheet_127": {
+        "manufacturer": "ATaMS Pty Ltd (registrant); distributed by FMC Australasia -- confirms the farm record's \"Paraffinic Oil\" note",
+        "apvmaNo": "87694/125727",
+        "formulation": "788 g/L paraffinic oil",
+        "activeConstituent": "788 g/L Paraffinic oil",
+        "signalWord": "Caution",
+        "registeredFor": "Cotton (Helicoverpa, aphids, mirids, silverleaf whitefly, defoliation aid), canola (with Dipel for diamondback moth), pulses/oilseeds, herbicide spray adjuvant",
+        "ppePoints": [
+          "Elbow-length PVC gloves",
+          "Face shield or goggles when handling/mixing"
+        ],
+        "storagePoints": [
+          "Store in the closed container in a cool, well-ventilated area"
+        ],
+        "applicationLimits": [
+          "1-5% v/v depending on target/crop"
+        ],
+        "withholdingHarvest": [
+          {
+            "label": "General",
+            "value": "1 day after application"
+          }
+        ],
+        "firstAid": "If poisoning occurs, contact a doctor or Poisons Information Centre (13 11 26)."
+      },
+      "csheet_128": {
+        "manufacturer": "Kenso Corporation (M) Sdn Bhd / Kenso Agcare Australia -- CONFIRMED paraquat product",
+        "apvmaNo": "64430/114792",
+        "formulation": "334 g/L paraquat dichloride",
+        "activeConstituent": "334 g/L Paraquat (as the dichloride salt)",
+        "groupNumber": "22 (L)",
+        "signalWord": "Dangerous Poison",
+        "hazardClass": "Dangerous Poison",
+        "registeredFor": "Cereals, cultivation aid, rice, fallows, pastures, perennial grass seed crops, spray-topping (chickpeas/faba beans/field peas/lentils/lupins), hops, orchards, vineyards, peanuts, potatoes, row crops/vegetables, sugar cane",
+        "ppePoints": [
+          "Elbow-length PVC gloves and face shield/goggles for mixing",
+          "Waterproof clothing, gauntlet gloves, goggles and respirator where mist exposure is likely"
+        ],
+        "storagePoints": [
+          "Store in the closed container in a dry, cool, well-ventilated area, locked, away from children, animals, food, feed, seed and fertiliser"
+        ],
+        "spray": {
+          "heavyDew": "Do NOT spray on heavy dew",
+          "rain": "Light rain after spraying is OK",
+          "dropletSize": "200-250µm VMD low-volume"
+        },
+        "applicationLimits": [
+          "300mL-2.4L/ha depending on weed/situation"
+        ],
+        "withholdingHarvest": [
+          {
+            "label": "Chickpeas, faba beans, field peas, lentils, lupins",
+            "value": "7 days"
+          }
+        ],
+        "withholdingGrazing": [
+          {
+            "label": "General",
+            "value": "Do not graze/cut for at least 1 day"
+          },
+          {
+            "label": "Horses",
+            "value": "7 days"
+          },
+          {
+            "label": "Slaughter",
+            "value": "Remove stock 3 days before slaughter"
+          }
+        ],
+        "firstAid": "If poisoning occurs get to a doctor or hospital quickly. If in eyes, hold eyes open, flood with water for at least 15 minutes and see a doctor."
+      },
+      "csheet_129": {
+        "manufacturer": "Titan Ag Pty Ltd (Titan Paraquat 250 Herbicide) -- straight paraquat-only product, NOT paraquat+diquat; a Genfarm Paraquat 250 Herbicide equivalent also exists (Nutrien Ag Solutions). Also see csheet_90/csheet_158 (Gramoxone 250 / Spray Seed 250) elsewhere on this register, already flagged there as a genuinely different paraquat+diquat combination product -- do not assume the two are the same drum",
+        "apvmaNo": "61869/0507",
+        "formulation": "250 g/L paraquat",
+        "activeConstituent": "250 g/L Paraquat",
+        "groupNumber": "22 (L)",
+        "signalWord": "Dangerous Poison",
+        "hazardClass": "Dangerous Poison",
+        "dangerousGoods": "UN 3016, Bipyridilium pesticide liquid toxic, Packing Group III, Hazchem 2X",
+        "registeredFor": "Cereals, pastures, legumes, rice, sugar cane, potatoes, peanuts, orchards, vineyards, non-agricultural areas",
+        "ppePoints": [
+          "Elbow-length PVC gloves and face shield/goggles",
+          "Waterproof clothing, gauntlet gloves and AS1716 respirator where mist is likely"
+        ],
+        "storagePoints": [
+          "Store in the closed container in a cool, well-ventilated, locked area"
+        ],
+        "spray": {
+          "heavyDew": "Avoid waterlogged/stressed plants and heavy dew"
+        },
+        "withholdingHarvest": [
+          {
+            "label": "Legume crops",
+            "value": "14 days"
+          }
+        ],
+        "withholdingGrazing": [
+          {
+            "label": "General",
+            "value": "1 day minimum"
+          },
+          {
+            "label": "Horses",
+            "value": "7 days"
+          }
+        ],
+        "firstAid": "Get to a doctor or hospital quickly. If poisoning occurs, contact a doctor or Poisons Information Centre (13 11 26)."
+      },
+      "csheet_130": {
+        "manufacturer": "Titan Ag Pty Ltd",
+        "apvmaNo": "92067/134346",
+        "formulation": "Suspension concentrate, 600 g/L chlorantraniliprole",
+        "formulationCode": "SC",
+        "activeConstituent": "600 g/L Chlorantraniliprole",
+        "groupNumber": "28",
+        "dangerousGoods": "Not a Dangerous Good (ADG Code)",
+        "registeredFor": "Cotton (Helicoverpa armigera/punctigera, Spodoptera litura, Earias spp.); chickpea and winter/summer pulse crops (Helicoverpa, Maruca spp.)",
+        "storagePoints": [
+          "Store in the closed container in a dry, well-ventilated, cool area out of direct sunlight"
+        ],
+        "spray": {
+          "windSpeed": "Wind 3-20km/h; not during temperature inversion",
+          "bees": "Not while bees foraging",
+          "rain": "Not if rain within 2 hours or heavy dew present"
+        },
+        "applicationLimits": [
+          "Cotton: maximum 3 per season (maximum 2 consecutive)",
+          "Pulses: maximum 2 per season, at least 7 days apart"
+        ],
+        "withholdingHarvest": [
+          {
+            "label": "Cotton",
+            "value": "28 days"
+          },
+          {
+            "label": "Pulses",
+            "value": "14 days"
+          }
+        ],
+        "withholdingGrazing": [
+          {
+            "label": "Cotton",
+            "value": "No grazing on treated cotton"
+          },
+          {
+            "label": "Pulses",
+            "value": "14 days"
+          }
+        ],
+        "firstAid": "First aid is not generally required. If in doubt, contact a Poisons Information Centre (13 11 26)."
+      },
+      "csheet_134": {
+        "manufacturer": "Adama Australia Pty Ltd -- CORRECTION: \"Plethodim\" is a misspelling of CLETHODIM",
+        "apvmaNo": "85360",
+        "formulation": "360 g/L clethodim",
+        "activeConstituent": "360 g/L Clethodim",
+        "signalWord": "Warning",
+        "hazardClass": "Schedule 5",
+        "dangerousGoods": "Class 9, UN3082",
+        "ppePoints": [
+          "Protective gloves (PVC/nitrile/butyl rubber)",
+          "Protective clothing",
+          "Eye/face protection"
+        ],
+        "storagePoints": [
+          "Store locked up, well-ventilated cool place, protect from sunlight"
+        ],
+        "spray": {
+          "bees": "Practically non-toxic to honeybees"
+        },
+        "firstAid": "If swallowed, do NOT induce vomiting. Wash mouth with water and contact a Poisons Information Centre, or call a doctor."
+      },
+      "csheet_135": {
+        "manufacturer": "Adama Australia -- matches the farm record's \"Aphids\" note",
+        "apvmaNo": "67071/127346",
+        "formulation": "Soluble liquid, 200 g/L acetamiprid",
+        "formulationCode": "SL",
+        "activeConstituent": "200 g/L Acetamiprid",
+        "groupNumber": "4A",
+        "signalWord": "Poison",
+        "registeredFor": "Cotton (cotton aphid, green mirid, jassids, silverleaf whitefly, green vegetable bug), potatoes (green peach aphid)",
+        "ppePoints": [
+          "Cotton overalls",
+          "Elbow-length chemical-resistant gloves",
+          "Face shield or goggles",
+          "No entry until spray deposits have dried"
+        ],
+        "storagePoints": [
+          "Store in the closed container, well-ventilated, avoid prolonged direct sunlight"
+        ],
+        "spray": {
+          "windSpeed": "Wind 3-20km/h; not under hazardous inversion",
+          "rain": "Not if heavy rain/storms forecast within 3 days",
+          "bees": "Moderately toxic to bees, harmful to bee brood"
+        },
+        "applicationLimits": [
+          "Cotton aphid: maximum 2 sprays per crop",
+          "Green peach aphid (potatoes): maximum 3 sprays per crop"
+        ],
+        "withholdingHarvest": [
+          {
+            "label": "Cotton",
+            "value": "10 days"
+          },
+          {
+            "label": "Potatoes",
+            "value": "7 days"
+          }
+        ],
+        "withholdingGrazing": [
+          {
+            "label": "Both crops",
+            "value": "Do not graze or cut for stock food"
+          }
+        ],
+        "firstAid": "Contact a doctor or Poisons Information Centre (13 11 26). Swallowed: do NOT induce vomiting."
+      },
+      "csheet_136": {
+        "manufacturer": "Adama Australia -- FLAG: Adama's own site marks this \"Prometrex -- No longer available\" (likely discontinued, verify stock). Distinct legal registration from the separate \"Prometryn\" entry on this register (different manufacturer, different APVMA number) though materially similar directions",
+        "apvmaNo": "59704/110843",
+        "formulation": "Water dispersible granule, 900 g/kg prometryn",
+        "formulationCode": "WG",
+        "activeConstituent": "900 g/kg Prometryn",
+        "groupNumber": "C",
+        "signalWord": "Caution",
+        "registeredFor": "Carrots, celery, chickpeas, cotton, peanuts, pastures, perennial grass/ryegrass seed crops, potatoes",
+        "storagePoints": [
+          "Store in the closed container in a dry, cool, well-ventilated area out of direct sunlight",
+          "No entry until spray has dried"
+        ],
+        "spray": {
+          "rain": "Do not spray when dry conditions prevail"
+        },
+        "applicationLimits": [
+          "Maximum 2.5kg/ha post-emergent per season in cotton"
+        ],
+        "withholdingGrazing": [
+          {
+            "label": "Chickpeas",
+            "value": "Do not graze/cut for stockfeed for 9 weeks"
+          },
+          {
+            "label": "All other crops",
+            "value": "Not required as directed"
+          }
+        ],
+        "firstAid": "If poisoning occurs, contact a doctor or Poisons Information Centre (13 11 26)."
+      },
+      "csheet_137": {
+        "manufacturer": "Nufarm Australia Limited -- distinct from the likely-discontinued \"Prometrex\" entry on this register (different manufacturer, different APVMA number)",
+        "apvmaNo": "46814/0604",
+        "formulation": "Dry flowable, 900 g/kg prometryn",
+        "formulationCode": "DF",
+        "activeConstituent": "900 g/kg Prometryn",
+        "groupNumber": "C",
+        "signalWord": "Caution",
+        "registeredFor": "Carrots, celery, chickpeas, cotton, pastures, peanuts, perennial grass seed crops, potatoes, sunflowers",
+        "storagePoints": [
+          "Store in the closed container in a dry, cool, well-ventilated area out of direct sunlight",
+          "No entry until sprayed area has dried"
+        ],
+        "spray": {
+          "rain": "Do not spray when dry conditions prevail; do not apply by aircraft"
+        },
+        "applicationLimits": [
+          "Maximum 2.5kg/ha post-emergent per season in cotton"
+        ],
+        "withholdingGrazing": [
+          {
+            "label": "Chickpeas",
+            "value": "9 weeks grazing/stockfeed"
+          },
+          {
+            "label": "Other crops",
+            "value": "Not required as directed"
+          }
+        ],
+        "firstAid": "If poisoning occurs, contact a doctor or Poisons Information Centre (13 11 26)."
+      },
+      "csheet_138": {
+        "manufacturer": "Adama Australia -- NOTE: the front-panel product name is \"Promote Plus 900\"; confirm there is no separate plain \"Promote\" (non-Plus) product on the farm",
+        "apvmaNo": "69487/63378",
+        "formulation": "Soluble liquid, 900 g/L ethephon",
+        "formulationCode": "SL",
+        "activeConstituent": "900 g/L Ethephon",
+        "signalWord": "Poison",
+        "registeredFor": "Apples, barley, cherries, table grapes, wine grapes, mandarins, oranges, macadamia nuts, peaches, pineapples, sugarcane, tomatoes, cotton",
+        "ppePoints": [
+          "Elbow-length PVC gloves",
+          "Face shield or goggles"
+        ],
+        "storagePoints": [
+          "Store in the closed container in a dry, cool, well-ventilated area out of direct sunlight"
+        ],
+        "applicationLimits": [
+          "One application for most crops (crop-specific)"
+        ],
+        "withholdingHarvest": [
+          {
+            "label": "Barley",
+            "value": "1 day"
+          },
+          {
+            "label": "Apples/cherries/macadamia/pineapples/tomatoes/wine grapes",
+            "value": "7 days"
+          },
+          {
+            "label": "Table grapes/cotton",
+            "value": "14 days"
+          },
+          {
+            "label": "Peaches/sugarcane",
+            "value": "6 weeks"
+          }
+        ],
+        "firstAid": "Contact a doctor or Poisons Information Centre (13 11 26) (NZ 0800 764 766). Atropine if instructed; activated charcoal may be advised."
+      },
+      "csheet_140": {
+        "manufacturer": "Apparent Herbicides (rural-retailer house brand) -- manufacturer/registrant name and APVMA number NOT VERIFIED; recommend uploading the actual product label/SDS",
+        "formulation": "Aqueous concentrate -- 300 g/L 2,4-D + 75 g/L picloram (TIPA salt)",
+        "activeConstituent": "300 g/L 2,4-D + 75 g/L Picloram (TIPA salt) -- a 2,4-D+picloram combo, NOT straight 2,4-D as the farm record's \"24D\" note implies; comparable to Tordon 75-D",
+        "groupNumber": "I",
+        "hazardClass": "Phenoxy herbicide -- can cause severe damage to native vegetation and susceptible crops such as cotton, grapes, tomatoes, oilseed crop and ornamentals (per retail pages; full label not sighted this round)"
+      },
+      "csheet_141": {
+        "manufacturer": "Adama Australia Pty Ltd -- matches the farm record's \"mites\" note. Registered crops/target pests/rates/re-entry/spray conditions/buffer/withholding not found this round -- only the SDS was reached, which defers to the product label -- see csheet_142 (Receptor Adama) on this register for fuller label detail on this same active constituent",
+        "apvmaNo": "91583",
+        "formulation": "500 g/L diafenthiuron",
+        "formulationCode": "SC",
+        "activeConstituent": "500 g/L Diafenthiuron",
+        "signalWord": "Danger",
+        "hazardClass": "Schedule 5",
+        "dangerousGoods": "Class 6.1 Toxic Substances, UN 2902",
+        "ppePoints": [
+          "Impervious gloves (PVC or butyl rubber)",
+          "Protective clothing/apron",
+          "Eye protection (goggles/glasses)"
+        ],
+        "storagePoints": [
+          "Store in a cool, well-ventilated area below 30°C, closed original container, protected from sunlight"
+        ],
+        "firstAid": "If swallowed, do NOT induce vomiting. Wash mouth with water and contact a Poisons Information Centre, or call a doctor."
+      },
+      "csheet_142": {
+        "manufacturer": "Adama Australia Pty Ltd -- same real product as csheet_141 (Receptor 500 SC), fuller label detail found under this entry",
+        "apvmaNo": "91583/132716",
+        "formulation": "500 g/L diafenthiuron",
+        "formulationCode": "SC",
+        "activeConstituent": "500 g/L Diafenthiuron",
+        "groupNumber": "12A",
+        "signalWord": "Caution -- \"Harmful if swallowed or inhaled\" (schedule number not confirmed on the excerpt sighted)",
+        "registeredFor": "Cotton (Qld, NSW, NT, WA) -- two-spotted mite, cotton aphid, silverleaf whitefly (suppression); canola -- red-legged earth mite, lucerne flea (suppression)",
+        "ppePoints": [
+          "Cotton overalls buttoned to neck and wrist",
+          "Washable hat",
+          "Elbow-length PVC gloves",
+          "Re-entry: 24 hours after treatment"
+        ],
+        "storagePoints": [
+          "Store in the closed, original container in a cool, well-ventilated area"
+        ],
+        "spray": {
+          "windSpeed": "Aerial wind 1-4m/s; avoid above 30°C",
+          "rain": "Not if rain within 6 hours",
+          "bees": "Dangerous to bees"
+        },
+        "applicationLimits": [
+          "Canola: maximum 2 per crop",
+          "Cotton: no more than 1 application per 6 weeks"
+        ],
+        "withholdingHarvest": [
+          {
+            "label": "Canola",
+            "value": "11 weeks"
+          },
+          {
+            "label": "Cotton",
+            "value": "14 days"
+          }
+        ],
+        "withholdingGrazing": [
+          {
+            "label": "Canola",
+            "value": "21 days"
+          },
+          {
+            "label": "Cotton",
+            "value": "Do not feed treated cotton trash/fodder to stock"
+          }
+        ],
+        "firstAid": "If poisoning occurs, contact a doctor or Poisons Information Centre (13 11 26)."
+      },
+      "csheet_144": {
+        "manufacturer": "Dow AgroSciences Australia Ltd (now Corteva)",
+        "apvmaNo": "58562/0206",
+        "formulation": "500 g/L chlorpyrifos-methyl + 30 g/L s-methoprene",
+        "activeConstituent": "500 g/L Chlorpyrifos-methyl + 30 g/L S-methoprene",
+        "groupNumber": "1B and 7A",
+        "signalWord": "Poison",
+        "registeredFor": "Stored cereal grain (excludes malting barley and rice); surface treatment of grain storage structures/bins/machinery",
+        "ppePoints": [
+          "Cotton overalls buttoned to neck and wrist",
+          "Washable hat",
+          "Elbow-length PVC gloves",
+          "Face shield or goggles"
+        ],
+        "storagePoints": [
+          "Store in the closed, original container in a cool, well-ventilated area, avoid prolonged direct sunlight"
+        ],
+        "applicationLimits": [
+          "Grain treatment: 2L/100L water (1L diluted per tonne)",
+          "Structural surface treatment: 20mL/L water"
+        ],
+        "withholdingHarvest": [
+          {
+            "label": "General",
+            "value": "Not required as directed"
+          }
+        ],
+        "firstAid": "Contact Poisons Information Centre (13 11 26) or a doctor immediately."
+      },
+      "csheet_146": {
+        "manufacturer": "ADAMA -- DISCONTINUED: Adama's own product page states \"Reward is no longer available, check out RX-380\" (mepiquat chloride cotton growth regulator, sold under the Farmoz brand originally). No further detail fields recoverable -- label no longer published. If this product appears in current farm stock, it is likely functionally equivalent to RX-380 (csheet_149, same active) but check the physical label before assuming identical strength/registration."
+      },
+      "csheet_149": {
+        "manufacturer": "ADAMA Australia",
+        "apvmaNo": "89031/123463",
+        "formulation": "Soluble liquid, 380 g/L mepiquat (chloride salt)",
+        "formulationCode": "SL",
+        "activeConstituent": "380 g/L Mepiquat (chloride salt)",
+        "signalWord": "Caution -- \"Harmful if inhaled or swallowed\"",
+        "registeredFor": "Cotton only (Qld and NSW)",
+        "ppePoints": [
+          "Preparation: cotton overalls, elbow-length chemical-resistant gloves, half-facepiece respirator",
+          "Re-entry: cotton overalls and chemical-resistant gloves, not until spray deposits have dried"
+        ],
+        "storagePoints": [
+          "Store in the closed, original container in a cool, well-ventilated area, avoid prolonged direct sunlight"
+        ],
+        "spray": {
+          "rain": "Not if rain expected within 8 hours"
+        },
+        "applicationLimits": [
+          "Up to 3 split applications per season"
+        ],
+        "withholdingHarvest": [
+          {
+            "label": "Cotton",
+            "value": "Do not harvest for 4 weeks after application"
+          }
+        ],
+        "withholdingGrazing": [
+          {
+            "label": "Cotton",
+            "value": "Do not graze or cut for stock food"
+          }
+        ],
+        "firstAid": "If poisoning occurs, contact a doctor or Poisons Information Centre (13 11 26)."
+      },
+      "csheet_150": {
+        "manufacturer": "ADAMA (formerly Farmoz) -- registration status uncertain: one archive (AgroBase) lists an earlier APVMA number as expired, while a separate, apparently current label with different approval numbers exists but could not be reached this round -- identity reasonably confident, but treat as unverified for compliance until the current label is sighted directly",
+        "apvmaNo": "81272/126355 (current label reference, not independently verified this round -- an earlier APVMA number, 52318, is flagged elsewhere as expired)",
+        "formulation": "600 g/L triclopyr",
+        "formulationCode": "EC",
+        "activeConstituent": "600 g/L Triclopyr",
+        "groupNumber": "I",
+        "registeredFor": "Pasture/sorghum -- woody weed and melon control"
+      },
+      "csheet_152": {
+        "manufacturer": "Sumitomo Chemical Australia Pty Ltd",
+        "apvmaNo": "60689/131225",
+        "formulation": "200 g/L clothianidin",
+        "activeConstituent": "200 g/L Clothianidin",
+        "groupNumber": "4A",
+        "signalWord": "Caution -- \"Keep out of reach of children\"",
+        "hazardClass": "Schedule 5",
+        "dangerousGoods": "UN 3082, Environmentally Hazardous Substance Liquid N.O.S., Class 9, Packing Group III",
+        "registeredFor": "Cotton (aphids, mirids), bananas (rust thrips, weevil borer), sugarcane (plant and ratoon), eucalypt seedlings/trees, Indian sandalwood and host trees",
+        "ppePoints": [
+          "Gloves (protective/chemical-resistant)",
+          "Eye protection (chemical goggles/safety glasses)",
+          "Respiratory: combined gas/dust mask with appropriate filter"
+        ],
+        "storagePoints": [
+          "Store in the closed, original container in a dry, cool, well-ventilated area away from direct sunlight, locked; keep away from strong acids/bases/oxidisers"
+        ],
+        "spray": {
+          "windSpeed": "Wind 3-20km/h; not under hazardous inversion",
+          "rain": "Not if heavy rain expected within 48 hours",
+          "bees": "Highly toxic to bees -- will kill bees foraging in the crop"
+        },
+        "applicationLimits": [
+          "Cotton: maximum 2 sprays per season",
+          "Sugarcane: maximum 1 soil application per crop per season"
+        ],
+        "withholdingHarvest": [
+          {
+            "label": "Cotton",
+            "value": "5 days"
+          },
+          {
+            "label": "Bananas",
+            "value": "Not required"
+          },
+          {
+            "label": "Sugarcane",
+            "value": "21 weeks"
+          }
+        ],
+        "withholdingGrazing": [
+          {
+            "label": "Eucalypts/sandalwood",
+            "value": "8 weeks"
+          }
+        ],
+        "firstAid": "If poisoning occurs, contact a doctor or Poisons Information Centre (13 11 26)."
+      },
+      "csheet_153": {
+        "manufacturer": "Adama Australia Pty Ltd (formerly Farmoz)",
+        "apvmaNo": "62917/107619",
+        "formulation": "Water dispersible granule, 900 g/kg simazine (ammonium salt)",
+        "formulationCode": "WG",
+        "activeConstituent": "900 g/kg Simazine (ammonium salt)",
+        "groupNumber": "5",
+        "hazardClass": "Not confirmed this round -- no signal word shown in the extracted pages sighted; do not assume",
+        "dangerousGoods": "Not classified as a Dangerous Good (ADG Code)",
+        "registeredFor": "Almonds, asparagus, berry fruits, citrus, gladioli, grapevines, hops, TT-canola, chickpeas, faba beans, lupins, sub clover, lucerne, perennial grass pastures, pome fruit, roses, strawberries, forestry, non-crop areas",
+        "ppePoints": [
+          "Do not enter treated areas without protective clothing until dried"
+        ],
+        "storagePoints": [
+          "Store in the closed container in a dry, cool, well-ventilated area out of direct sunlight"
+        ],
+        "spray": {
+          "rain": "Moist soil needed; rain or irrigation required within 2 weeks of application for activation"
+        },
+        "applicationLimits": [
+          "TT-canola: maximum 2.2kg/ha (acid soils <pH6.5) or 1.1kg/ha (alkaline >pH6.5)"
+        ],
+        "withholdingHarvest": [
+          {
+            "label": "All listed crops",
+            "value": "Not required as directed"
+          }
+        ],
+        "withholdingGrazing": [
+          {
+            "label": "Canola",
+            "value": "15 weeks"
+          },
+          {
+            "label": "Chickpeas",
+            "value": "9 weeks"
+          },
+          {
+            "label": "Faba beans",
+            "value": "8 weeks"
+          },
+          {
+            "label": "Sub clover",
+            "value": "14 days (21 days cutting)"
+          }
+        ],
+        "firstAid": "If poisoning occurs, contact a doctor or Poisons Information Centre (13 11 26)."
+      },
+      "csheet_154": {
+        "manufacturer": "Conquest Ag -- genuinely different manufacturer from Simanex Farmoz (also simazine, elsewhere on this register)",
+        "apvmaNo": "56275 (registration listed with expiry 29 Jun 2026 per retailer catalogue; suffix not independently confirmed)",
+        "formulation": "Water dispersible granule, 900 g/kg simazine",
+        "formulationCode": "WG",
+        "activeConstituent": "900 g/kg Simazine",
+        "registeredFor": "Almonds, asparagus, berries, chickpeas, citrus, faba beans, hops, lucerne, pasture, canola (rates 400g-3.9kg depending on crop)",
+        "withholdingGrazing": [
+          {
+            "label": "Lucerne",
+            "value": "14 days"
+          },
+          {
+            "label": "Pasture",
+            "value": "14 days"
+          }
+        ]
+      },
+      "csheet_156": {
+        "manufacturer": "Landmark Operations Limited (Genfarm) -- widely-stocked generic equivalent of Dual Gold; other AU brands exist (4Farmers, Sabakem) -- check your container for the actual brand",
+        "apvmaNo": "69136/60053",
+        "formulation": "960 g/L EC, s-metolachlor",
+        "formulationCode": "EC",
+        "activeConstituent": "960 g/L S-metolachlor",
+        "groupNumber": "K",
+        "signalWord": "Caution",
+        "registeredFor": "Broccoli, Brussels sprouts, cabbage, cauliflower, canola, cotton, green beans, navy beans, maize, sweet corn, pastures, peanuts, soybeans, sunflowers, Concep-treated sorghum, sugarcane, sweet potatoes, tobacco, wheat/barley/oats/triticale",
+        "ppePoints": [
+          "Cotton overalls",
+          "Hat",
+          "Elbow-length PVC gloves",
+          "Goggles or face shield",
+          "No entry without PPE until spray has dried"
+        ],
+        "storagePoints": [
+          "Store in the closed container in a dry, cool, well-ventilated area out of direct sunlight"
+        ],
+        "spray": {
+          "rain": "Not if heavy rain/storms forecast within 2 days",
+          "windSpeed": "Ground application only (no aircraft); apply to moist non-waterlogged soil"
+        },
+        "applicationLimits": [
+          "Sugarcane: once per year",
+          "Brassicas on specified soils: maximum once per year"
+        ],
+        "withholdingHarvest": [
+          {
+            "label": "Green beans",
+            "value": "8 weeks"
+          },
+          {
+            "label": "Sweet potato",
+            "value": "23 weeks"
+          },
+          {
+            "label": "Most other listed crops",
+            "value": "Not required as directed"
+          }
+        ],
+        "withholdingGrazing": [
+          {
+            "label": "Canola",
+            "value": "10 weeks"
+          },
+          {
+            "label": "Green beans",
+            "value": "10 weeks"
+          },
+          {
+            "label": "Pasture",
+            "value": "13 weeks"
+          },
+          {
+            "label": "Cereals",
+            "value": "8 weeks"
+          },
+          {
+            "label": "General forage",
+            "value": "13 weeks"
+          }
+        ],
+        "firstAid": "If poisoning occurs, contact a doctor or Poisons Information Centre (13 11 26)."
+      },
+      "csheet_157": {
+        "manufacturer": "BASF Australia Ltd (current registration; the older Nufarm/American Cyanobamid-lineage registration, APVMA 58871, is no longer the live one -- use 49625/57716)",
+        "apvmaNo": "49625/57716",
+        "formulation": "Water dispersible granule, 700 g/kg imazethapyr",
+        "formulationCode": "WDG",
+        "activeConstituent": "700 g/kg Imazethapyr",
+        "groupNumber": "B",
+        "signalWord": "Caution",
+        "hazardClass": "Very toxic to aquatic life with long lasting effects",
+        "registeredFor": "Centrosema (Cavalcade), chickpeas, faba beans, field peas, lucerne, mung beans, peanuts, serradella, soybeans, sub clover",
+        "ppePoints": [
+          "Cotton overalls",
+          "Washable hat",
+          "Elbow-length PVC gloves",
+          "Goggles"
+        ],
+        "storagePoints": [
+          "Store in the closed container in a dry, cool, well-ventilated area out of direct sunlight"
+        ],
+        "spray": {
+          "rain": "No application within 2 hours before rain/irrigation",
+          "dropletSize": "Aerial droplet 230-280 microns",
+          "windSpeed": "Avoid dead-calm or excessive wind"
+        },
+        "withholdingGrazing": [
+          {
+            "label": "General",
+            "value": "Do not graze or cut for stock food for 14 days after application"
+          }
+        ],
+        "withholdingHarvest": [
+          {
+            "label": "General",
+            "value": "No harvest withholding period required"
+          }
+        ],
+        "firstAid": "If poisoning occurs, contact a doctor or Poisons Information Centre (13 11 26)."
+      },
+      "csheet_161": {
+        "manufacturer": "Originally DuPont (Australia) Ltd, now FMC Australia -- CONFIRMED same real-world product/active as the register's separate generic \"Indoxacarb\" entry (csheet_100), which reinforces that csheet_100's 150 g/L EC figure is the more likely-correct one",
+        "apvmaNo": "59573/0609",
+        "formulation": "150 g/L indoxacarb",
+        "formulationCode": "EC",
+        "activeConstituent": "150 g/L Indoxacarb",
+        "groupNumber": "22A",
+        "signalWord": "Poison",
+        "hazardClass": "Schedule 6",
+        "registeredFor": "Azuki beans, chickpeas, cotton, faba beans, mungbeans, soybeans",
+        "ppePoints": [
+          "Cotton overalls",
+          "Washable hat",
+          "Elbow-length PVC gloves",
+          "No entry until spray has dried, or PPE if entry required earlier"
+        ],
+        "storagePoints": [
+          "Store in the closed container in a cool, well-ventilated area, avoid prolonged direct sunlight"
+        ],
+        "spray": {
+          "windSpeed": "Wind 3-20km/h; not during inversions",
+          "dropletSize": "150-250 microns VMD, minimum 60 droplets/cm²",
+          "rain": "Not if rain within 2 hours or heavy dew",
+          "bees": "Dangerous to bees; ULV prohibited"
+        },
+        "applicationLimits": [
+          "Cotton: maximum 3 per season, no more than 2 consecutive, minimum 7 days apart",
+          "Other crops: 1 per crop cycle"
+        ],
+        "withholdingHarvest": [
+          {
+            "label": "Cotton",
+            "value": "28 days"
+          },
+          {
+            "label": "Other crops",
+            "value": "21 days"
+          }
+        ],
+        "withholdingGrazing": [
+          {
+            "label": "Cotton",
+            "value": "No grazing"
+          },
+          {
+            "label": "Other crops",
+            "value": "21 days"
+          },
+          {
+            "label": "Export slaughter",
+            "value": "28 days on clean feed"
+          }
+        ],
+        "firstAid": "If poisoning occurs, contact a doctor or Poisons Information Centre (13 11 26). Medical emergency line 1800 674 415 (all hours)."
+      },
+      "csheet_116": {
+        "manufacturer": "⚠ PRODUCT IDENTITY AMBIGUOUS -- please check the physical label/container before relying on any data for this product. Two different, unrelated registered products share the name \"Mandate\": (1) ADAMA Mandate Herbicide -- clodinafop-propargyl 240g/L + safener cloquintocet-mexyl 60g/L, Group A, Schedule 5/WARNING; and (2) Imtrade Mandate 750 WG Selective Herbicide -- triasulfuron 750g/kg, Group B, no schedule allocated/WARNING (APVMA 57054). These are chemically unrelated products -- confirm which one is actually held before treating either as authoritative."
+      },
+      "csheet_132": {
+        "manufacturer": "⚠ PRODUCT IDENTITY AMBIGUOUS -- please check the physical label/container before relying on any data for this product. The farm record's \"Triclopyr/Ester\" note doesn't clearly match a single \"Picloram\" product -- three genuine candidates were found and none should be assumed without confirmation: (1) Access Herbicide (Corteva) -- triclopyr 240g/L + picloram 120g/L, diesel-compatible carrier, for basal bark/cut-stump work on woody weeds; (2) Grazon Extra Herbicide (Corteva) -- aminopyralid 8g/L + picloram 100g/L + triclopyr 300g/L, POISON schedule; (3) Grazon DS (older, Dow AgroSciences) -- triclopyr 300g/L + picloram 100g/L, no aminopyralid, POISON schedule -- the closest match to a plain \"triclopyr+picloram\" record. Confirm which one is actually in the shed."
+      }
+    };
+    (state.chemicals.sds || []).forEach(function(c){
+      var d = sdsWebResearch3[c.id];
+      if(!d) return;
+      Object.keys(d).forEach(function(k){
+        if(k === "spray"){
+          if(!c.spray) c.spray = {};
+          Object.keys(d.spray).forEach(function(sk){
+            var scur = c.spray[sk];
+            var sEmpty = (scur === undefined) || (scur === null) || (scur === "");
+            if(sEmpty){ c.spray[sk] = d.spray[sk]; }
+          });
+          return;
+        }
+        var cur = c[k];
+        var isEmpty = (cur === undefined) || (cur === null) || (cur === "") || (Array.isArray(cur) && cur.length === 0);
+        if(isEmpty){ c[k] = d[k]; }
+      });
+      if(!c.lastReviewed){ c.lastReviewed = "2026-09-29"; }
+    });
+    state.chemicals.sdsWebResearchV3 = true;
     migrated = true;
   }
 
@@ -12362,6 +14637,39 @@ function renderSdsDetail(c){
     '</div>';
   }
   html += '</div>';
+
+  // "Find the current SDS" -- added 2026-09-29 at Maria's request, after a
+  // conversation about WHS compliance: the law requires workers have access
+  // to the CURRENT safety data sheet for a hazardous chemical, and a lot of
+  // product names on this register are genuinely ambiguous (several
+  // different companies sell a "Weedmaster" or a "Tackle" with different
+  // active constituents), so a written summary Claude has researched or
+  // transcribed can never fully substitute for staff being able to look up
+  // the exact product themselves. This card links out to a searchable,
+  // authoritative register (and a per-product web search) instead of (or
+  // alongside) the quick-reference fields below -- shown on every chemical,
+  // not just the ones missing data.
+  //
+  // CORRECTED 2026-09-29 (same day, a few hours after first shipping this):
+  // Maria pointed out Infopest is no longer active -- checked, and she's
+  // right: Infopest (run by QFVG, formerly Growcom) permanently closed on
+  // 31 January 2024 ("all access closed to prevent any liability issues
+  // around unmaintained data" -- QFVG's own closure notice), so the first
+  // version of this button linked to a dead site. Replaced with the
+  // official APVMA PubCRIS product register (portal.apvma.gov.au/pubcris),
+  // confirmed live and free with no login, and currently the resource
+  // government guidance (business.qld.gov.au) actually points growers to.
+  // The second button no longer links to a second static site (nothing
+  // else free/public/current enough was confirmed) -- instead it runs an
+  // actual web search for *this specific product* plus "APVMA label SDS
+  // Australia", which is more useful per-chemical than a second homepage
+  // link and doesn't depend on any one third-party site staying online.
+  html += '<div class="card" style="background:var(--accent-contrast);border:1px solid var(--accent);">' +
+    '<h3 style="margin:0 0 4px;font-size:15px;color:var(--accent-strong);">Find the current SDS</h3>' +
+    '<p style="margin:0 0 12px;font-size:12.5px;color:var(--text-muted);">The details further down this page are a quick reference and may not reflect the latest label revision, or may be for a different branded product with the same active ingredient. For the official, current Safety Data Sheet, search <strong>' + esc(c.productName) + '</strong> on one of these.</p>' +
+    '<a class="btn btn-primary" style="display:block;text-align:center;text-decoration:none;margin-bottom:8px;" href="https://portal.apvma.gov.au/pubcris" target="_blank" rel="noopener">Search the APVMA product register</a>' +
+    '<a class="btn btn-ghost" style="display:block;text-align:center;text-decoration:none;border:1px solid var(--accent);color:var(--accent-strong);" href="https://www.google.com/search?q=' + encodeURIComponent(c.productName + " APVMA label SDS Australia") + '" target="_blank" rel="noopener">Search the web for this product’s label</a>' +
+  '</div>';
 
   // First aid + the two universal emergency numbers -- these two hotlines
   // (Poisons Information Centre, and 000 for a transport incident) are the
