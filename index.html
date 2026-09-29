@@ -1536,7 +1536,7 @@ const DEFAULT_STATE = {
 // change to this file, same as CACHE_NAME in sw.js -- it gives an instant,
 // no-technical-steps-needed way to confirm whether a given device is
 // actually running the latest deploy, without comparing file contents.
-var APP_BUILD = "2026-09-29.10";
+var APP_BUILD = "2026-09-29.11";
 
 /* ======================================================================
    UTILITIES
@@ -14544,6 +14544,7 @@ function renderSdsList(){
     '<div class="toolbar" style="margin:10px 0 0;">' +
       '<input id="sds-search-input" class="search-input" type="text" placeholder="Search safety data sheets…" value="' + escAttr(ui.sdsQuery) + '" oninput="ui.sdsQuery=this.value;render();" />' +
       '<button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="searchWebForSds()" title="Opens a new tab with a web search for this product\'s SDS">Search the web ↗</button>' +
+      '<a class="btn btn-ghost btn-sm" style="width:auto;text-decoration:none;display:inline-block;" href="https://portal.apvma.gov.au/pubcris" target="_blank" rel="noopener" title="Opens the official APVMA product register in a new tab">Search APVMA ↗</a>' +
     '</div>';
   if(ui.openForms.newSds) html += renderSdsForm();
   if(sdsList.length === 0){
