@@ -116,7 +116,14 @@
 // (Bumped again 2026-09-29: added a "Search APVMA" button to the main
 // Safety Data Sheets list page too, at Maria's request, not just the
 // per-chemical detail page.)
-var CACHE_NAME = "bullamon-plains-shell-v22";
+// (Bumped again 2026-09-30: sdsWebResearchV4 fills real sourced hazard/first
+// aid data for 22 more chemicals -- the last "batches 11-14" that were never
+// actually researched, plus gaps in 7 chemicals sdsWebResearchV3 had already
+// partially filled -- corrects a wrong APVMA number for Safari Farmoz
+// (csheet_150), and flags 5 more chemicals as genuinely ambiguous/not-found
+// rather than guessed (Triad, Verno Tanuki, Veteran C Powder, Victory,
+// Wizard Adama).)
+var CACHE_NAME = "bullamon-plains-shell-v23";
 
 var SHELL_ASSETS = [
   "./",
