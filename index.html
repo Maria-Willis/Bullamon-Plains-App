@@ -873,6 +873,9 @@ const DEFAULT_STATE = {
     "updatedAt": null,
     "updatedBy": null
   },
+  "receipts": {
+    "items": []
+  },
   "jobs": [
     {
       "id": "j1",
@@ -1536,7 +1539,7 @@ const DEFAULT_STATE = {
 // change to this file, same as CACHE_NAME in sw.js -- it gives an instant,
 // no-technical-steps-needed way to confirm whether a given device is
 // actually running the latest deploy, without comparing file contents.
-var APP_BUILD = "2026-09-30.1";
+var APP_BUILD = "2026-09-30.2";
 
 /* ======================================================================
    UTILITIES
@@ -8331,6 +8334,13 @@ async function boot(){
     state.bulls = { items: [] };
     migrated = true;
   }
+  // one-time migration: older rows saved before the Receipts section
+  // existed don't have a state.receipts key at all yet -- give them an
+  // empty one so the section has something to render into.
+  if(!state.receipts){
+    state.receipts = { items: [] };
+    migrated = true;
+  }
   // one-time bulk import (2026-09-07) of Maria's real bull-breeding
   // spreadsheet ("Bull Summary Sheet.xlsx"), covering all 34 bulls from the
   // "Bull Summary" sheet (active) and all 56 from "Dead or Sold" (archived),
@@ -11908,6 +11918,7 @@ var NAV = [
   { key: "machinery",   label: "Machinery Maintenance",    icon: "&#9881;" },
   { key: "bulls",       label: "Bulls",        icon: "&#128004;" },
   { key: "maps",        label: "Maps",         icon: "&#128506;" },
+  { key: "receipts",    label: "Receipts",     icon: "&#129534;" },
   { key: "sops",        label: "Operating Procedures", icon: "&#128196;" },
   { key: "sds",         label: "Safety Data Sheets", icon: "&#128203;" },
   { key: "emergency",   label: "Emergency",    icon: "&#9742;" },
@@ -12107,6 +12118,7 @@ function renderSection(){
     case "sds": return renderSds();
     case "emergency": return renderEmergency();
     case "maps": return renderMaps();
+    case "receipts": return renderReceipts();
     case "team": return isAdmin() ? renderTeam() : renderDashboard();
     case "private": return canSeePrivateSection() ? renderPrivate() : renderDashboard();
     default: return renderDashboard();
@@ -16212,6 +16224,152 @@ function removeMap(id){
     });
   }
   removeById(state.maps.items, id);
+  persist();
+}
+
+/* ======================================================================
+   RECEIPTS — snap a photo of a receipt, upload it, and the app emails it
+   on to a fixed address automatically (see api/send-receipt.js and
+   RECEIPT_EMAIL_SETUP.md for the one-time setup this needs). Anyone
+   signed in can add a receipt (not admin-only, unlike Maps) -- the whole
+   point is any staff member can send one through without needing Maria.
+   A simple log is kept in the app (thumbnail, note, amount, who, when,
+   and whether the email actually sent) so it's easy to check later
+   whether something went through, and retry it if it didn't.
+   ====================================================================== */
+function renderReceipts(){
+  var html = pageHead("Receipts", "Snap a photo of a receipt and upload it — it gets emailed on automatically.");
+  html += '<div class="toolbar"><span style="flex:1;"></span>' +
+    '<button type="button" class="btn btn-primary" style="width:auto;" onclick="toggleForm(\'newReceipt\')">' + (ui.openForms.newReceipt ? "Cancel" : "+ Add receipt") + '</button>' +
+  '</div>';
+  if(ui.openForms.newReceipt) html += renderReceiptForm();
+  var items = (state.receipts.items || []).slice().sort(function(a,b){ return (b.uploadedAt||"").localeCompare(a.uploadedAt||""); });
+  if(items.length === 0){ html += '<div class="empty-state">No receipts uploaded yet. Tap "+ Add receipt" above to upload one — it\'ll be emailed on automatically.</div>'; }
+  else {
+    html += '<div class="list-cards">' + items.map(receiptCardHtml).join("") + '</div>';
+  }
+  return html;
+}
+function receiptCardHtml(r){
+  var thumb = '<img src="' + escAttr(r.photoUrl) + '" alt="Receipt" loading="lazy" style="width:100%;max-height:220px;object-fit:cover;border-radius:12px;margin-bottom:10px;cursor:pointer;" onclick="return openStoredFile(\'' + escAttr(r.photoUrl) + '\')" />';
+  var statusHtml;
+  if(r.emailStatus === "sent"){
+    statusHtml = '<span style="color:var(--accent-strong);font-weight:600;">&#10003; Emailed' + (r.emailedAt ? " " + fmtDateTime(r.emailedAt) : "") + '</span>';
+  } else if(r.emailStatus === "failed"){
+    statusHtml = '<span style="color:var(--danger,#c0392b);font-weight:600;">Couldn’t send' + (r.emailError ? ' — ' + esc(r.emailError) : '') + '</span> ' +
+      '<button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="resendReceiptEmail(\'' + r.id + '\')">Retry</button>';
+  } else {
+    statusHtml = '<span class="row-muted">Sending…</span>';
+  }
+  return '<div class="card">' + thumb +
+    '<div class="card-row"><div>' +
+      (r.note ? '<h3 style="margin:0 0 2px;font-size:15px;">' + esc(r.note) + '</h3>' : '') +
+      (r.amount ? '<p style="margin:0 0 2px;font-weight:600;">$' + esc(r.amount) + '</p>' : '') +
+      '<p class="row-muted" style="margin:0;font-size:12px;">' + esc(r.uploadedBy || "Someone") + (r.uploadedAt ? ' — ' + fmtDateTime(r.uploadedAt) : '') + '</p>' +
+    '</div></div>' +
+    '<div class="card-row" style="margin-top:8px;"><div style="font-size:13px;">' + statusHtml + '</div>' +
+    (isAdmin() ? '<button type="button" class="btn btn-danger btn-sm" onclick="removeReceipt(\'' + r.id + '\')">Remove</button>' : '') +
+    '</div></div>';
+}
+function renderReceiptForm(){
+  return '<form class="form-panel" onsubmit="addReceipt(event)">' +
+    '<div class="form-grid">' +
+      '<div class="field span-2"><label>Photo of the receipt</label><input type="file" name="photo" accept="image/*" capture="environment" required /></div>' +
+      '<div class="field"><label>Amount (optional)</label><input type="text" inputmode="decimal" name="amount" placeholder="e.g. 45.90" /></div>' +
+      '<div class="field"><label>What’s it for? (optional)</label><input type="text" name="note" placeholder="e.g. Fuel, parts, vet supplies" /></div>' +
+    '</div>' +
+    '<div class="form-actions"><button type="submit" class="btn btn-primary" style="width:auto;">Upload</button><button type="button" class="btn btn-ghost" onclick="toggleForm(\'newReceipt\')">Cancel</button></div>' +
+  '</form>';
+}
+async function addReceipt(e){
+  e.preventDefault();
+  var f = e.target;
+  var note = f.note.value.trim();
+  var amount = f.amount.value.trim();
+  var file = f.photo && f.photo.files && f.photo.files[0];
+  if(!file){
+    setNotice("err", "Add a photo of the receipt before uploading.");
+    render();
+    return;
+  }
+  if(!supabaseClient){
+    setNotice("err", "Can't upload a receipt right now (not connected to the database). Try again once you're back online.");
+    render();
+    return;
+  }
+  var submitBtn = f.querySelector('button[type="submit"]');
+  if(submitBtn){ submitBtn.disabled = true; submitBtn.textContent = "Uploading…"; }
+  try{
+    var uploadBlob = await compressMapPhoto(file);
+    var path = uid("receipt") + ".jpg";
+    var upRes = await supabaseClient.storage.from("receipts").upload(path, uploadBlob, { cacheControl: "3600", upsert: false, contentType: "image/jpeg" });
+    if(upRes.error) throw upRes.error;
+    var pub = supabaseClient.storage.from("receipts").getPublicUrl(path);
+    var u = currentUser();
+    var item = {
+      id: uid("receipt"),
+      photoUrl: pub.data.publicUrl,
+      storagePath: path,
+      note: note,
+      amount: amount,
+      uploadedBy: u ? u.name : (session.name || ""),
+      uploadedAt: new Date().toISOString(),
+      emailStatus: "pending",
+      emailError: "",
+      emailedAt: null
+    };
+    state.receipts.items.push(item);
+    ui.openForms.newReceipt = false;
+    await persist();
+    sendReceiptEmail(item.id);
+  }catch(err){
+    console.error("[Bullamon Plains] receipt photo upload failed:", err);
+    setNotice("err", "Couldn't upload that photo (" + (err && err.message ? err.message : "unknown error") + "). If you're offline or have a weak signal, try again once you're back in range.");
+    if(submitBtn){ submitBtn.disabled = false; submitBtn.textContent = "Upload"; }
+    render();
+  }
+}
+// Calls the server-side piece (api/send-receipt.js) that actually sends
+// the email -- nothing in the browser can do this on its own without
+// exposing a secret API key to anyone who opens dev tools. Used both
+// right after a fresh upload and from the "Retry" button on a failed one.
+async function sendReceiptEmail(id){
+  var r = (state.receipts.items || []).find(function(x){ return x.id === id; });
+  if(!r) return;
+  r.emailStatus = "pending";
+  r.emailError = "";
+  render();
+  try{
+    var resp = await fetch("/api/send-receipt", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ photoUrl: r.photoUrl, note: r.note, amount: r.amount, uploadedBy: r.uploadedBy, uploadedAt: r.uploadedAt })
+    });
+    var data = {};
+    try{ data = await resp.json(); }catch(parseErr){ /* leave data as {} */ }
+    if(!resp.ok || !data.ok){
+      r.emailStatus = "failed";
+      r.emailError = (data && data.error) ? data.error : ("Couldn't reach the email service (HTTP " + resp.status + ").");
+    } else {
+      r.emailStatus = "sent";
+      r.emailedAt = new Date().toISOString();
+      r.emailError = "";
+    }
+  }catch(err){
+    r.emailStatus = "failed";
+    r.emailError = (err && err.message) ? err.message : "Couldn't reach the email service.";
+  }
+  persist();
+}
+function resendReceiptEmail(id){ sendReceiptEmail(id); }
+function removeReceipt(id){
+  var item = (state.receipts.items || []).find(function(r){ return r.id === id; });
+  if(item && item.storagePath && supabaseClient){
+    supabaseClient.storage.from("receipts").remove([item.storagePath]).catch(function(err){
+      console.error("[Bullamon Plains] couldn't delete the stored receipt photo (it will be left orphaned in storage, but this doesn't affect the app):", err);
+    });
+  }
+  removeById(state.receipts.items, id);
   persist();
 }
 
