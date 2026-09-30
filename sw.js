@@ -123,7 +123,11 @@
 // (csheet_150), and flags 5 more chemicals as genuinely ambiguous/not-found
 // rather than guessed (Triad, Verno Tanuki, Veteran C Powder, Victory,
 // Wizard Adama).)
-var CACHE_NAME = "bullamon-plains-shell-v23";
+// (Bumped again 2026-09-30: new Receipts section -- snap/upload a photo of
+// a receipt, which the app then emails on automatically via a new Vercel
+// serverless function (api/send-receipt.js) and Resend. See
+// RECEIPT_EMAIL_SETUP.md for the one-time setup this needs.)
+var CACHE_NAME = "bullamon-plains-shell-v24";
 
 var SHELL_ASSETS = [
   "./",
