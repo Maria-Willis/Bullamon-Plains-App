@@ -136,7 +136,14 @@
 // Excel file) -- see HARVEST_DOCKET_SETUP.md. SheetJS added to
 // CROSS_ORIGIN_ASSETS below so the export button still loads offline on a
 // device that's used it before.)
-var CACHE_NAME = "bullamon-plains-shell-v25";
+// (Bumped again 2026-10-01, later the same day: Harvest Dockets follow-ups --
+// saved drivers now also remember their usual carrier/rego (auto-filling
+// both when that driver is picked on a docket), Paddock is now a per-
+// property dropdown staff build up over time via "+ Add a new paddock..."
+// instead of free text, and the Harvest Dockets nav icon was changed from
+// a truck to a wheat sheaf, recoloured blue to match the app's accent
+// colour. index.html only -- no shell-asset list changes this time.)
+var CACHE_NAME = "bullamon-plains-shell-v26";
 
 var SHELL_ASSETS = [
   "./",
