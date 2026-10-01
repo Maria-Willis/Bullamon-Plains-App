@@ -1553,7 +1553,7 @@ const DEFAULT_STATE = {
 // change to this file, same as CACHE_NAME in sw.js -- it gives an instant,
 // no-technical-steps-needed way to confirm whether a given device is
 // actually running the latest deploy, without comparing file contents.
-var APP_BUILD = "2026-10-01.2";
+var APP_BUILD = "2026-10-01.3";
 
 /* ======================================================================
    UTILITIES
@@ -16785,11 +16785,15 @@ function renderDriversPanel(){
     '<h3 style="margin:0 0 8px;font-size:15px;">Saved drivers</h3>' +
     (drivers.length === 0 ? '<p class="row-muted" style="margin:0 0 10px;font-size:13px;">No drivers saved yet — choose "+ Add a new driver" on a docket to save one, or add one here.</p>' :
       drivers.map(function(d){
+        if(ui.editing.driver === d.id) return renderDriverEditRow(d);
         return '<div class="card-row" style="padding:4px 0;"><div style="font-size:13px;"><strong>' + esc(d.name) + '</strong>' +
           (d.carrier ? ' — ' + esc(d.carrier) : '') +
           (d.rego ? ' (' + esc(d.rego) + ')' : '') +
           (d.email ? ' — ' + esc(d.email) : ' — <em>no email on file</em>') + '</div>' +
+          '<span style="display:flex;gap:6px;flex-shrink:0;">' +
+          '<button type="button" class="btn btn-ghost btn-sm" onclick="ui.editing.driver=\'' + d.id + '\';render();">Edit</button>' +
           (isAdmin() ? '<button type="button" class="btn btn-danger btn-sm" onclick="removeDriver(\'' + d.id + '\')">Remove</button>' : '') +
+          '</span>' +
         '</div>';
       }).join("")
     ) +
@@ -16801,6 +16805,33 @@ function renderDriversPanel(){
       '<button type="submit" class="btn btn-ghost" style="width:auto;">+ Add driver</button>' +
     '</form>' +
   '</div>';
+}
+// Inline edit row for an existing saved driver -- same "replace the row with
+// a small form" pattern used throughout the app (jobs, machinery, bulls,
+// SOPs: ui.editing.<section> holds the id currently being edited).
+function renderDriverEditRow(d){
+  return '<form onsubmit="saveDriver(event,\'' + d.id + '\')" class="card-row" style="padding:6px 0;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">' +
+    '<input type="text" name="name" value="' + escAttr(d.name) + '" placeholder="Driver name" required style="flex:1;min-width:140px;" />' +
+    '<input type="text" name="carrier" value="' + escAttr(d.carrier || "") + '" placeholder="Carrier" style="flex:1;min-width:140px;" />' +
+    '<input type="text" name="rego" value="' + escAttr(d.rego || "") + '" placeholder="Rego" style="flex:1;min-width:110px;" />' +
+    '<input type="email" name="email" value="' + escAttr(d.email || "") + '" placeholder="Email" style="flex:1;min-width:180px;" />' +
+    '<button type="submit" class="btn btn-primary btn-sm" style="width:auto;">Save</button>' +
+    '<button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="ui.editing.driver=null;render();">Cancel</button>' +
+  '</form>';
+}
+function saveDriver(e, id){
+  e.preventDefault();
+  var f = e.target;
+  var name = f.name.value.trim();
+  if(!name) return;
+  var d = (state.harvest.drivers || []).find(function(x){ return x.id === id; });
+  if(!d) return;
+  d.name = name;
+  d.carrier = f.carrier.value.trim();
+  d.rego = f.rego.value.trim();
+  d.email = f.email.value.trim();
+  ui.editing.driver = null;
+  persist();
 }
 function addDriver(e){
   e.preventDefault();
@@ -16822,6 +16853,7 @@ function addDriver(e){
 }
 function removeDriver(id){
   removeById(state.harvest.drivers, id);
+  if(ui.editing.driver === id) ui.editing.driver = null;
   persist();
 }
 
