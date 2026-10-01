@@ -147,7 +147,20 @@
 // place (name/carrier/rego/email), not just added/removed -- an inline Edit
 // form on each driver row, same ui.editing.<section> pattern already used
 // for jobs/machinery/bulls/SOPs. index.html only.)
-var CACHE_NAME = "bullamon-plains-shell-v27";
+// (Bumped again 2026-10-01, later still: Property and Commodity are now
+// staff-maintained lists too (same "+ Add a new ..." pattern as Drivers and
+// Paddocks), seeded with the previous hardcoded values so nothing already
+// in use disappears. A driver's Rego is now a LIST, not one fixed value --
+// the same person can turn up in different trucks/trailers on different
+// days, so Rego is picked (or added) per docket from a dropdown scoped to
+// whichever driver is selected, the same cascading pattern as Property ->
+// Paddock. Also: the Harvest Dockets nav icon's wheat-sheaf emoji was
+// rendering as a plain blue circle on at least one real device -- replaced
+// with a small hand-drawn inline SVG icon (coloured via currentColor, so it
+// still goes light/dark correctly when the nav item is active) instead of
+// relying on a colour-emoji font plus a CSS filter, which isn't reliable
+// across browsers/devices. index.html only.)
+var CACHE_NAME = "bullamon-plains-shell-v28";
 
 var SHELL_ASSETS = [
   "./",
