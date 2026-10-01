@@ -316,6 +316,14 @@
      glyph to a solid black silhouette without touching the icon circle's
      own background colour. */
   .icon-force-black{ display:inline-flex; filter:grayscale(1) brightness(0); }
+  /* The Harvest Dockets nav icon is a colour wheat-sheaf emoji by default --
+     Maria asked for it to appear blue (matching --accent, #1870b9) instead,
+     so force its rendered glyph to that flat colour the same way Bulls is
+     forced to black above: start from a solid black silhouette, then tint
+     it with a filter chain solved to land on this exact hex. If the accent
+     colour is ever changed, this filter should be re-solved for the new hex
+     rather than assumed to still match. */
+  .icon-force-blue{ display:inline-flex; filter:grayscale(1) brightness(0) invert(34%) sepia(65%) saturate(637%) hue-rotate(165deg) brightness(102%) contrast(103%); }
   .nav-btn-label{flex:1;min-width:0;}
   .nav-chevron{flex-shrink:0;color:var(--text-muted);font-size:16px;line-height:1;margin-left:2px;}
   .nav-badge{
@@ -879,7 +887,8 @@ const DEFAULT_STATE = {
   },
   "harvest": {
     "items": [],
-    "drivers": []
+    "drivers": [],
+    "paddocks": []
   },
   "jobs": [
     {
@@ -1544,7 +1553,7 @@ const DEFAULT_STATE = {
 // change to this file, same as CACHE_NAME in sw.js -- it gives an instant,
 // no-technical-steps-needed way to confirm whether a given device is
 // actually running the latest deploy, without comparing file contents.
-var APP_BUILD = "2026-10-01.1";
+var APP_BUILD = "2026-10-01.2";
 
 /* ======================================================================
    UTILITIES
@@ -8351,11 +8360,15 @@ async function boot(){
   // one (plus an empty saved-drivers list) so the section has something to
   // render into.
   if(!state.harvest){
-    state.harvest = { items: [], drivers: [] };
+    state.harvest = { items: [], drivers: [], paddocks: [] };
     migrated = true;
   }
   if(state.harvest && !state.harvest.drivers){
     state.harvest.drivers = [];
+    migrated = true;
+  }
+  if(state.harvest && !state.harvest.paddocks){
+    state.harvest.paddocks = [];
     migrated = true;
   }
   // one-time bulk import (2026-09-07) of Maria's real bull-breeding
@@ -11938,7 +11951,7 @@ var NAV = [
   { key: "bulls",       label: "Bulls",        icon: "&#128004;" },
   { key: "maps",        label: "Maps",         icon: "&#128506;" },
   { key: "receipts",    label: "Receipts",     icon: "&#129534;" },
-  { key: "harvest",     label: "Harvest Dockets", icon: "&#128666;" },
+  { key: "harvest",     label: "Harvest Dockets", icon: "&#127806;" },
   { key: "sops",        label: "Operating Procedures", icon: "&#128196;" },
   { key: "sds",         label: "Safety Data Sheets", icon: "&#128203;" },
   { key: "emergency",   label: "Emergency",    icon: "&#9742;" },
@@ -11999,7 +12012,7 @@ function navRowHtml(n){
   if(n.key === "jobs" && openJobsCount() > 0) badge = '<span class="nav-badge">' + openJobsCount() + "</span>";
   if(n.key === "whs" && openIncidentsCount() > 0) badge = '<span class="nav-badge">' + openIncidentsCount() + "</span>";
   return '<button type="button" class="nav-btn' + (ui.section === n.key ? " active" : "") + '" onclick="goTo(\'' + n.key + '\')">' +
-    '<span class="nav-icon-circle">' + (n.key === "bulls" ? '<span class="icon-force-black">' + n.icon + '</span>' : n.icon) + '</span>' +
+    '<span class="nav-icon-circle">' + (n.key === "bulls" ? '<span class="icon-force-black">' + n.icon + '</span>' : n.key === "harvest" ? '<span class="icon-force-blue">' + n.icon + '</span>' : n.icon) + '</span>' +
     '<span class="nav-btn-label">' + esc(n.label) + '</span>' + badge +
     '<span class="nav-chevron">&#8250;</span>' +
   '</button>';
@@ -16519,6 +16532,49 @@ function handleDriverSelectChange(select){
   if(!form) return;
   var show = select.value === "__new";
   Array.prototype.forEach.call(form.querySelectorAll(".new-driver-fields"), function(el){ el.style.display = show ? "" : "none"; });
+  // Picking a saved driver also pulls in their usual carrier/rego, the same
+  // way their name/email already flow through at submit time -- saves
+  // re-typing it every load for a driver who always turns up in the same truck.
+  if(!show && select.value){
+    var dr = (state.harvest.drivers || []).find(function(x){ return x.id === select.value; });
+    if(dr){
+      if(form.carrier && dr.carrier) form.carrier.value = dr.carrier;
+      if(form.rego && dr.rego) form.rego.value = dr.rego;
+    }
+  }
+}
+
+// Paddocks are kept per-property (e.g. "North" means something different on
+// Bullamon than on Nullera), the same staff-maintained-list pattern as
+// Drivers: nothing is pre-loaded, staff build the list up as they go via
+// "+ Add a new paddock...", and it's remembered from then on.
+function paddocksForProperty(property){
+  return (state.harvest.paddocks || []).filter(function(p){ return p.property === property; })
+    .sort(function(a,b){ return a.name.localeCompare(b.name); });
+}
+function paddockOptionsHtml(property){
+  return '<option value="">Choose a paddock…</option>' +
+    paddocksForProperty(property).map(function(p){ return '<option value="' + escAttr(p.id) + '">' + esc(p.name) + '</option>'; }).join("") +
+    '<option value="__new">+ Add a new paddock…</option>';
+}
+function handlePaddockSelectChange(select){
+  var form = select.form;
+  if(!form) return;
+  var show = select.value === "__new";
+  Array.prototype.forEach.call(form.querySelectorAll(".new-paddock-fields"), function(el){ el.style.display = show ? "" : "none"; });
+}
+// Property's own onchange already toggled the "Other" free-text field via
+// handleConditionalSelect -- this wraps that and additionally rebuilds the
+// Paddock dropdown's options to match whichever property was just chosen,
+// via plain DOM (no render()), same no-disturb reasoning as everywhere else
+// in this form.
+function handlePropertySelectChange(select){
+  handleConditionalSelect(select, "property");
+  var form = select.form;
+  if(!form || !form.paddockId) return;
+  form.paddockId.innerHTML = paddockOptionsHtml(select.value);
+  Array.prototype.forEach.call(form.querySelectorAll(".new-paddock-fields"), function(el){ el.style.display = "none"; });
+  if(form.newPaddockName) form.newPaddockName.value = "";
 }
 
 function renderDocketForm(){
@@ -16542,12 +16598,13 @@ function renderDocketForm(){
         '<option value="Wheat">Wheat</option><option value="Chickpeas">Chickpeas</option><option value="Other">Other</option>' +
       '</select></div>' +
       '<div class="field cond-commodity-Other" style="display:none;"><label>What commodity?</label><input type="text" name="commodityOther" /></div>' +
-      '<div class="field"><label>Property</label><select name="property" onchange="handleConditionalSelect(this, \'property\')">' +
+      '<div class="field"><label>Property</label><select name="property" onchange="handlePropertySelectChange(this)">' +
         HARVEST_PROPERTIES.map(function(p){ return '<option value="' + escAttr(p) + '">' + esc(p) + '</option>'; }).join("") +
         '<option value="Other">Other</option>' +
       '</select></div>' +
       '<div class="field cond-property-Other" style="display:none;"><label>Which property?</label><input type="text" name="propertyOther" /></div>' +
-      '<div class="field"><label>Paddock</label><input type="text" name="paddock" /></div>' +
+      '<div class="field"><label>Paddock</label><select name="paddockId" onchange="handlePaddockSelectChange(this)">' + paddockOptionsHtml(HARVEST_PROPERTIES[0]) + '</select></div>' +
+      '<div class="field new-paddock-fields" style="display:none;"><label>New paddock name</label><input type="text" name="newPaddockName" placeholder="e.g. North block" /></div>' +
       '<div class="field"><label>Approximate weight</label><input type="text" name="approxWeight" placeholder="e.g. 24.5t" /></div>' +
       '<div class="field span-2"><label>Delivered to</label><select name="deliveredTo" onchange="handleConditionalSelect(this, \'deliveredTo\')">' +
         '<option value="Graincorp">GrainCorp</option>' +
@@ -16600,6 +16657,27 @@ async function addDocket(e){
     if(dr){ driverId = dr.id; driverName = dr.name; driverEmail = dr.email; }
   }
 
+  var paddockVal = f.paddockId.value;
+  var paddockName = "";
+  if(paddockVal === "__new"){
+    var newPaddockName = f.newPaddockName.value.trim();
+    if(!newPaddockName){
+      setNotice("err", "Enter the new paddock's name (or choose an existing paddock from the list).");
+      render();
+      return;
+    }
+    // Reuse an existing paddock on this same property with the same name rather than saving a duplicate.
+    var existingPaddock = (state.harvest.paddocks || []).find(function(x){ return x.property === f.property.value && x.name.toLowerCase() === newPaddockName.toLowerCase(); });
+    if(existingPaddock){ paddockName = existingPaddock.name; }
+    else {
+      state.harvest.paddocks.push({ id: uid("paddock"), property: f.property.value, name: newPaddockName });
+      paddockName = newPaddockName;
+    }
+  } else if(paddockVal){
+    var pd = (state.harvest.paddocks || []).find(function(x){ return x.id === paddockVal; });
+    if(pd) paddockName = pd.name;
+  }
+
   var item = {
     id: uid("docket"),
     docketNo: nextDocketNumber(),
@@ -16615,7 +16693,7 @@ async function addDocket(e){
     commodityOther: f.commodityOther.value.trim(),
     property: f.property.value,
     propertyOther: f.propertyOther.value.trim(),
-    paddock: f.paddock.value.trim(),
+    paddock: paddockName,
     deliveredTo: f.deliveredTo.value,
     farmType: f.farmType.value,
     siloNumber: f.siloNumber.value.trim(),
@@ -16707,13 +16785,18 @@ function renderDriversPanel(){
     '<h3 style="margin:0 0 8px;font-size:15px;">Saved drivers</h3>' +
     (drivers.length === 0 ? '<p class="row-muted" style="margin:0 0 10px;font-size:13px;">No drivers saved yet — choose "+ Add a new driver" on a docket to save one, or add one here.</p>' :
       drivers.map(function(d){
-        return '<div class="card-row" style="padding:4px 0;"><div style="font-size:13px;"><strong>' + esc(d.name) + '</strong>' + (d.email ? ' — ' + esc(d.email) : ' — <em>no email on file</em>') + '</div>' +
+        return '<div class="card-row" style="padding:4px 0;"><div style="font-size:13px;"><strong>' + esc(d.name) + '</strong>' +
+          (d.carrier ? ' — ' + esc(d.carrier) : '') +
+          (d.rego ? ' (' + esc(d.rego) + ')' : '') +
+          (d.email ? ' — ' + esc(d.email) : ' — <em>no email on file</em>') + '</div>' +
           (isAdmin() ? '<button type="button" class="btn btn-danger btn-sm" onclick="removeDriver(\'' + d.id + '\')">Remove</button>' : '') +
         '</div>';
       }).join("")
     ) +
     '<form onsubmit="addDriver(event)" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">' +
       '<input type="text" name="name" placeholder="Driver name" required style="flex:1;min-width:140px;" />' +
+      '<input type="text" name="carrier" placeholder="Carrier" style="flex:1;min-width:140px;" />' +
+      '<input type="text" name="rego" placeholder="Rego" style="flex:1;min-width:110px;" />' +
       '<input type="email" name="email" placeholder="Email" style="flex:1;min-width:180px;" />' +
       '<button type="submit" class="btn btn-ghost" style="width:auto;">+ Add driver</button>' +
     '</form>' +
@@ -16724,10 +16807,16 @@ function addDriver(e){
   var f = e.target;
   var name = f.name.value.trim();
   var email = f.email.value.trim();
+  var carrier = f.carrier.value.trim();
+  var rego = f.rego.value.trim();
   if(!name) return;
   var existing = (state.harvest.drivers || []).find(function(d){ return d.name.toLowerCase() === name.toLowerCase(); });
-  if(existing){ if(email) existing.email = email; }
-  else { state.harvest.drivers.push({ id: uid("driver"), name: name, email: email }); }
+  if(existing){
+    if(email) existing.email = email;
+    if(carrier) existing.carrier = carrier;
+    if(rego) existing.rego = rego;
+  }
+  else { state.harvest.drivers.push({ id: uid("driver"), name: name, email: email, carrier: carrier, rego: rego }); }
   f.reset();
   persist();
 }
