@@ -797,6 +797,7 @@
 <div id="app"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="./config.js"></script>
 <script>
 "use strict";
@@ -875,6 +876,10 @@ const DEFAULT_STATE = {
   },
   "receipts": {
     "items": []
+  },
+  "harvest": {
+    "items": [],
+    "drivers": []
   },
   "jobs": [
     {
@@ -1539,7 +1544,7 @@ const DEFAULT_STATE = {
 // change to this file, same as CACHE_NAME in sw.js -- it gives an instant,
 // no-technical-steps-needed way to confirm whether a given device is
 // actually running the latest deploy, without comparing file contents.
-var APP_BUILD = "2026-09-30.2";
+var APP_BUILD = "2026-10-01.1";
 
 /* ======================================================================
    UTILITIES
@@ -8341,6 +8346,18 @@ async function boot(){
     state.receipts = { items: [] };
     migrated = true;
   }
+  // one-time migration: older rows saved before the Harvest Dockets section
+  // existed don't have a state.harvest key at all yet -- give them an empty
+  // one (plus an empty saved-drivers list) so the section has something to
+  // render into.
+  if(!state.harvest){
+    state.harvest = { items: [], drivers: [] };
+    migrated = true;
+  }
+  if(state.harvest && !state.harvest.drivers){
+    state.harvest.drivers = [];
+    migrated = true;
+  }
   // one-time bulk import (2026-09-07) of Maria's real bull-breeding
   // spreadsheet ("Bull Summary Sheet.xlsx"), covering all 34 bulls from the
   // "Bull Summary" sheet (active) and all 56 from "Dead or Sold" (archived),
@@ -11500,6 +11517,7 @@ async function boot(){
   subscribeRealtime();
   if(migrated){ persist(); } else { render(); }
   if(hasPendingOfflineEdits()){ attemptOfflineSync(); }
+  retryPendingHarvestEmails();
 }
 
 function bootOffline(){
@@ -11612,6 +11630,7 @@ window.addEventListener("online", function(){
   isOffline = false;
   render();
   if(hasPendingOfflineEdits()) attemptOfflineSync();
+  retryPendingHarvestEmails();
 });
 window.addEventListener("offline", function(){
   isOffline = true;
@@ -11919,6 +11938,7 @@ var NAV = [
   { key: "bulls",       label: "Bulls",        icon: "&#128004;" },
   { key: "maps",        label: "Maps",         icon: "&#128506;" },
   { key: "receipts",    label: "Receipts",     icon: "&#129534;" },
+  { key: "harvest",     label: "Harvest Dockets", icon: "&#128666;" },
   { key: "sops",        label: "Operating Procedures", icon: "&#128196;" },
   { key: "sds",         label: "Safety Data Sheets", icon: "&#128203;" },
   { key: "emergency",   label: "Emergency",    icon: "&#9742;" },
@@ -12119,6 +12139,7 @@ function renderSection(){
     case "emergency": return renderEmergency();
     case "maps": return renderMaps();
     case "receipts": return renderReceipts();
+    case "harvest": return renderHarvest();
     case "team": return isAdmin() ? renderTeam() : renderDashboard();
     case "private": return canSeePrivateSection() ? renderPrivate() : renderDashboard();
     default: return renderDashboard();
@@ -16371,6 +16392,402 @@ function removeReceipt(id){
   }
   removeById(state.receipts.items, id);
   persist();
+}
+
+/* ======================================================================
+   HARVEST DOCKETS — logs each truck load of wheat/chickpeas leaving the
+   paddock, matching the fields on Maria's real paper "Delivery Docket"
+   book (docket number, date/time, driver/carrier/rego, commodity,
+   property/paddock, delivered-to destination, approximate weight). Any
+   signed-in staff member can add one (not admin-only) -- the point is
+   whoever's at the header or on the truck can log it themselves. Two
+   automatic emails come out of this: the docket itself goes straight to
+   the truck driver (picked from a small saved-drivers list so nobody has
+   to retype an email address every load), and the whole log can be
+   exported and emailed as an Excel file to one fixed address, the same
+   way Receipts' email works (api/send-docket.js and
+   api/send-harvest-export.js -- see HARVEST_DOCKET_SETUP.md for the
+   one-time setup, most of which is already done if Receipts' email is
+   already configured).
+
+   OFFLINE BEHAVIOUR (Maria specifically asked for this): a docket can be
+   added with no signal at all -- it's just part of `state`, which this
+   app already queues and syncs automatically once back in range (see the
+   OFFLINE SUPPORT block near the top of this file). The driver email is
+   the part that actually needs a live connection, so a docket's
+   emailStatus sits at "pending" (shown as "Waiting for signal to send")
+   rather than "failed" whenever sendDocketEmail() couldn't even reach the
+   server -- retryPendingHarvestEmails() below re-attempts every such
+   docket the moment the browser fires its 'online' event, on every app
+   load, and every couple of minutes while the tab's open (belt-and-braces
+   for a flaky reconnect that fires 'online' before the connection's
+   actually solid enough to reach Vercel) -- nobody needs to notice and
+   tap Retry themselves, though the button's still there for a genuine
+   send failure (e.g. a typo'd email).
+   ====================================================================== */
+var HARVEST_PROPERTIES = ["Bullamon", "Nullera", "Box Plains", "West Ginnibri", "Coolibah"];
+
+function nextDocketNumber(){
+  var items = (state.harvest && state.harvest.items) || [];
+  var max = items.reduce(function(m, d){ return Math.max(m, d.docketNo || 0); }, 0);
+  return max + 1;
+}
+function docketNoDisplay(n){ return String(n || 0).padStart(3, "0"); }
+function commodityLabel(d){ return d.commodity === "Other" ? (d.commodityOther || "Other") : (d.commodity || "—"); }
+function propertyLabel(d){ return d.property === "Other" ? (d.propertyOther || "Other") : (d.property || "—"); }
+function deliveredToSummary(d){
+  if(d.deliveredTo === "Graincorp") return "GrainCorp";
+  if(d.deliveredTo === "Thallon Grains") return "Thallon Grains";
+  if(d.deliveredTo === "Farm"){
+    if(d.farmType === "Bunker") return "Farm — Bunker" + (d.bunkerLocation ? " (" + d.bunkerLocation + ")" : "");
+    return "Farm — Silo" + (d.siloNumber ? " #" + d.siloNumber : "");
+  }
+  if(d.deliveredTo === "Other"){
+    var bits = [];
+    if(d.otherIsExFarm) bits.push("Ex Farm");
+    if(d.contractNo) bits.push("Contract " + d.contractNo);
+    if(d.buyerMerchant) bits.push(d.buyerMerchant);
+    return bits.length ? bits.join(" — ") : "Other";
+  }
+  return d.deliveredTo || "—";
+}
+
+function renderHarvest(){
+  var html = pageHead("Harvest Dockets", "Log each truck load of wheat or chickpeas leaving the paddock.");
+  html += '<div class="toolbar">' +
+    '<button type="button" class="btn btn-ghost" style="width:auto;" onclick="toggleForm(\'manageDrivers\')">' + (ui.openForms.manageDrivers ? "Hide drivers" : "Manage drivers") + '</button>' +
+    '<button type="button" class="btn btn-ghost" style="width:auto;" onclick="exportHarvestToExcel()">&#8681; Export &amp; email (Excel)</button>' +
+    '<span style="flex:1;"></span>' +
+    '<button type="button" class="btn btn-primary" style="width:auto;" onclick="toggleForm(\'newDocket\')">' + (ui.openForms.newDocket ? "Cancel" : "+ Add docket") + '</button>' +
+  '</div>';
+  if(ui.openForms.manageDrivers) html += renderDriversPanel();
+  if(ui.openForms.newDocket) html += renderDocketForm();
+  var items = (state.harvest.items || []).slice().sort(function(a,b){ return (b.docketNo||0) - (a.docketNo||0); });
+  if(items.length === 0){ html += '<div class="empty-state">No harvest dockets logged yet. Tap "+ Add docket" above to log the first truck load.</div>'; }
+  else { html += '<div class="list-cards">' + items.map(docketCardHtml).join("") + '</div>'; }
+  return html;
+}
+
+function docketCardHtml(d){
+  var statusHtml;
+  if(!d.driverEmail){
+    statusHtml = '<span class="row-muted">No driver email on file — not sent</span>';
+  } else if(d.emailStatus === "sent"){
+    statusHtml = '<span style="color:var(--accent-strong);font-weight:600;">&#10003; Sent to driver' + (d.emailedAt ? " " + fmtDateTime(d.emailedAt) : "") + '</span>';
+  } else if(d.emailStatus === "failed"){
+    statusHtml = '<span style="color:var(--danger,#c0392b);font-weight:600;">Couldn’t send' + (d.emailError ? ' — ' + esc(d.emailError) : '') + '</span> ' +
+      '<button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="resendDocketEmail(\'' + d.id + '\')">Retry</button>';
+  } else {
+    statusHtml = '<span class="row-muted">Waiting for signal to send…</span>';
+  }
+  return '<div class="card">' +
+    '<div class="card-row"><div>' +
+      '<h3 style="margin:0 0 2px;font-size:15px;">Docket #' + docketNoDisplay(d.docketNo) + ' — ' + esc(commodityLabel(d)) + '</h3>' +
+      '<p class="row-muted" style="margin:0;font-size:12px;">' + esc(propertyLabel(d)) + (d.paddock ? " — " + esc(d.paddock) : "") + '</p>' +
+    '</div>' +
+    '<span class="pill" style="margin:0;">' + esc(fmtDate(d.date)) + (d.time ? " " + esc(d.time) : "") + '</span>' +
+    '</div>' +
+    '<div class="card-row" style="margin-top:6px;"><div style="font-size:13px;">' +
+      '<p style="margin:0;"><strong>Driver:</strong> ' + esc(d.driverName || "—") + (d.carrier ? " (" + esc(d.carrier) + ")" : "") + (d.rego ? " — " + esc(d.rego) : "") + '</p>' +
+      '<p style="margin:0;"><strong>Delivered to:</strong> ' + esc(deliveredToSummary(d)) + '</p>' +
+      (d.approxWeight ? '<p style="margin:0;"><strong>Approx weight:</strong> ' + esc(d.approxWeight) + '</p>' : '') +
+      '<p class="row-muted" style="margin:4px 0 0;font-size:12px;">Completed by ' + esc(d.completedBy || "—") + '</p>' +
+    '</div></div>' +
+    '<div class="card-row" style="margin-top:8px;"><div style="font-size:13px;">' + statusHtml + '</div>' +
+    (isAdmin() ? '<button type="button" class="btn btn-danger btn-sm" onclick="removeDocket(\'' + d.id + '\')">Remove</button>' : '') +
+    '</div></div>';
+}
+
+// Plain DOM show/hide (no render()) so the rest of whatever's already been
+// typed into this open form is never disturbed -- same pattern as the
+// machinery issue severity picker (selectSeverityPill) elsewhere in this
+// file. `group` fields are wrapped in either class "field" (shown with
+// display:"") or "field-group" (shown with display:"contents", so its own
+// children keep acting as direct children of the surrounding .form-grid
+// instead of being pushed into one cramped grid cell).
+function handleConditionalSelect(select, group){
+  var form = select.form;
+  if(!form) return;
+  var prefix = "cond-" + group + "-";
+  Array.prototype.forEach.call(form.querySelectorAll('[class*="' + prefix + '"]'), function(el){
+    var show = el.className.indexOf(prefix + select.value) > -1;
+    el.style.display = show ? (el.classList.contains("field-group") ? "contents" : "") : "none";
+  });
+}
+function handleDriverSelectChange(select){
+  var form = select.form;
+  if(!form) return;
+  var show = select.value === "__new";
+  Array.prototype.forEach.call(form.querySelectorAll(".new-driver-fields"), function(el){ el.style.display = show ? "" : "none"; });
+}
+
+function renderDocketForm(){
+  var u = currentUser();
+  var defaultTime = new Date().toTimeString().slice(0,5);
+  var drivers = (state.harvest.drivers || []).slice().sort(function(a,b){ return a.name.localeCompare(b.name); });
+  var driverOptions = '<option value="">Choose a driver…</option>' +
+    drivers.map(function(dr){ return '<option value="' + escAttr(dr.id) + '">' + esc(dr.name) + '</option>'; }).join("") +
+    '<option value="__new">+ Add a new driver…</option>';
+  return '<form class="form-panel" onsubmit="addDocket(event)">' +
+    '<div class="form-grid">' +
+      '<div class="field"><label>Date</label><input type="date" name="date" value="' + escAttr(todayISO()) + '" required /></div>' +
+      '<div class="field"><label>Time</label><input type="time" name="time" value="' + escAttr(defaultTime) + '" required /></div>' +
+      '<div class="field"><label>Driver</label><select name="driverId" onchange="handleDriverSelectChange(this)">' + driverOptions + '</select></div>' +
+      '<div class="field new-driver-fields" style="display:none;"><label>New driver’s name</label><input type="text" name="newDriverName" placeholder="e.g. John Smith" /></div>' +
+      '<div class="field new-driver-fields" style="display:none;"><label>New driver’s email</label><input type="email" name="newDriverEmail" placeholder="e.g. john@carrier.com.au" /></div>' +
+      '<div class="field"><label>Carrier</label><input type="text" name="carrier" placeholder="e.g. Smith Transport" /></div>' +
+      '<div class="field"><label>Rego</label><input type="text" name="rego" /></div>' +
+      '<div class="field"><label>Completed by</label><input type="text" name="completedBy" value="' + escAttr(u ? u.name : "") + '" /></div>' +
+      '<div class="field"><label>Commodity</label><select name="commodity" onchange="handleConditionalSelect(this, \'commodity\')">' +
+        '<option value="Wheat">Wheat</option><option value="Chickpeas">Chickpeas</option><option value="Other">Other</option>' +
+      '</select></div>' +
+      '<div class="field cond-commodity-Other" style="display:none;"><label>What commodity?</label><input type="text" name="commodityOther" /></div>' +
+      '<div class="field"><label>Property</label><select name="property" onchange="handleConditionalSelect(this, \'property\')">' +
+        HARVEST_PROPERTIES.map(function(p){ return '<option value="' + escAttr(p) + '">' + esc(p) + '</option>'; }).join("") +
+        '<option value="Other">Other</option>' +
+      '</select></div>' +
+      '<div class="field cond-property-Other" style="display:none;"><label>Which property?</label><input type="text" name="propertyOther" /></div>' +
+      '<div class="field"><label>Paddock</label><input type="text" name="paddock" /></div>' +
+      '<div class="field"><label>Approximate weight</label><input type="text" name="approxWeight" placeholder="e.g. 24.5t" /></div>' +
+      '<div class="field span-2"><label>Delivered to</label><select name="deliveredTo" onchange="handleConditionalSelect(this, \'deliveredTo\')">' +
+        '<option value="Graincorp">GrainCorp</option>' +
+        '<option value="Thallon Grains">Thallon Grains</option>' +
+        '<option value="Farm">Farm (silo/bunker)</option>' +
+        '<option value="Other">Other</option>' +
+      '</select></div>' +
+      '<div class="field-group cond-deliveredTo-Farm" style="display:none;">' +
+        '<div class="field"><label>Silo or bunker?</label><select name="farmType" onchange="handleConditionalSelect(this, \'farmType\')">' +
+          '<option value="Silo">Silo</option><option value="Bunker">Bunker</option>' +
+        '</select></div>' +
+        '<div class="field cond-farmType-Silo"><label>Silo number</label><input type="text" name="siloNumber" /></div>' +
+        '<div class="field cond-farmType-Bunker" style="display:none;"><label>Bunker location</label><input type="text" name="bunkerLocation" /></div>' +
+      '</div>' +
+      '<div class="field-group cond-deliveredTo-Other" style="display:none;">' +
+        '<div class="field" style="display:flex;align-items:center;gap:8px;"><label style="margin:0;display:flex;align-items:center;gap:6px;"><input type="checkbox" name="otherIsExFarm" style="width:auto;" /> Ex Farm</label></div>' +
+        '<div class="field"><label>Contract no.</label><input type="text" name="contractNo" /></div>' +
+        '<div class="field"><label>Buyer/Merchant</label><input type="text" name="buyerMerchant" /></div>' +
+      '</div>' +
+    '</div>' +
+    '<div class="form-actions"><button type="submit" class="btn btn-primary" style="width:auto;">Save docket</button><button type="button" class="btn btn-ghost" onclick="toggleForm(\'newDocket\')">Cancel</button></div>' +
+  '</form>';
+}
+
+async function addDocket(e){
+  e.preventDefault();
+  var f = e.target;
+  var driverVal = f.driverId.value;
+  var driverId = "", driverName = "", driverEmail = "";
+  if(driverVal === "__new"){
+    var newName = f.newDriverName.value.trim();
+    var newEmail = f.newDriverEmail.value.trim();
+    if(!newName){
+      setNotice("err", "Enter the new driver's name (or choose an existing driver from the list).");
+      render();
+      return;
+    }
+    // Reuse an existing driver with the same name rather than saving a duplicate.
+    var existingDriver = (state.harvest.drivers || []).find(function(x){ return x.name.toLowerCase() === newName.toLowerCase(); });
+    if(existingDriver){
+      if(newEmail) existingDriver.email = newEmail;
+      driverId = existingDriver.id; driverName = existingDriver.name; driverEmail = existingDriver.email;
+    } else {
+      var newDriver = { id: uid("driver"), name: newName, email: newEmail };
+      state.harvest.drivers.push(newDriver);
+      driverId = newDriver.id; driverName = newDriver.name; driverEmail = newDriver.email;
+    }
+  } else if(driverVal){
+    var dr = (state.harvest.drivers || []).find(function(x){ return x.id === driverVal; });
+    if(dr){ driverId = dr.id; driverName = dr.name; driverEmail = dr.email; }
+  }
+
+  var item = {
+    id: uid("docket"),
+    docketNo: nextDocketNumber(),
+    date: f.date.value,
+    time: f.time.value,
+    driverId: driverId,
+    driverName: driverName,
+    driverEmail: driverEmail,
+    carrier: f.carrier.value.trim(),
+    rego: f.rego.value.trim(),
+    completedBy: f.completedBy.value.trim(),
+    commodity: f.commodity.value,
+    commodityOther: f.commodityOther.value.trim(),
+    property: f.property.value,
+    propertyOther: f.propertyOther.value.trim(),
+    paddock: f.paddock.value.trim(),
+    deliveredTo: f.deliveredTo.value,
+    farmType: f.farmType.value,
+    siloNumber: f.siloNumber.value.trim(),
+    bunkerLocation: f.bunkerLocation.value.trim(),
+    otherIsExFarm: !!f.otherIsExFarm.checked,
+    contractNo: f.contractNo.value.trim(),
+    buyerMerchant: f.buyerMerchant.value.trim(),
+    approxWeight: f.approxWeight.value.trim(),
+    createdBy: (currentUser() && currentUser().name) || session.name || "",
+    createdAt: new Date().toISOString(),
+    emailStatus: "pending",
+    emailError: "",
+    emailedAt: null
+  };
+  state.harvest.items.push(item);
+  ui.openForms.newDocket = false;
+  await persist();
+  if(item.driverEmail) sendDocketEmail(item.id);
+}
+
+// Calls the server-side piece (api/send-docket.js) that actually emails the
+// driver -- nothing in the browser can do this on its own without exposing
+// a secret API key to anyone who opens dev tools. See the block comment
+// above this whole HARVEST DOCKETS section for how this stays resilient
+// with no signal.
+async function sendDocketEmail(id){
+  var d = (state.harvest.items || []).find(function(x){ return x.id === id; });
+  if(!d || !d.driverEmail) return;
+  d.emailStatus = "pending";
+  d.emailError = "";
+  render();
+  try{
+    var resp = await fetch("/api/send-docket", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        to: d.driverEmail,
+        docketNo: docketNoDisplay(d.docketNo),
+        date: d.date, time: d.time,
+        driverName: d.driverName, carrier: d.carrier, rego: d.rego, completedBy: d.completedBy,
+        commodity: commodityLabel(d), property: propertyLabel(d), paddock: d.paddock,
+        deliveredTo: deliveredToSummary(d), approxWeight: d.approxWeight
+      })
+    });
+    var data = {};
+    try{ data = await resp.json(); }catch(parseErr){ /* leave data as {} */ }
+    if(!resp.ok || !data.ok){
+      d.emailStatus = "failed";
+      d.emailError = (data && data.error) ? data.error : ("Couldn't reach the email service (HTTP " + resp.status + ").");
+    } else {
+      d.emailStatus = "sent";
+      d.emailedAt = new Date().toISOString();
+      d.emailError = "";
+    }
+  }catch(err){
+    // The request never reached the server at all (almost always no
+    // connection) -- leave this as "pending" rather than "failed" so
+    // retryPendingHarvestEmails() below picks it up automatically once
+    // there's a connection again, rather than it looking like a real error
+    // that needs someone to notice and tap Retry.
+    d.emailStatus = "pending";
+    d.emailError = "";
+  }
+  persist();
+}
+function resendDocketEmail(id){ sendDocketEmail(id); }
+// Re-attempts every docket whose driver email is still "pending" -- called
+// on every app load (boot()), every 'online' event, and (belt-and-braces,
+// for a flaky reconnect that fires 'online' before the connection's
+// actually solid enough to reach Vercel) every couple of minutes while the
+// tab's open.
+function retryPendingHarvestEmails(){
+  if(!state || !state.harvest) return;
+  if(typeof navigator !== "undefined" && "onLine" in navigator && !navigator.onLine) return;
+  (state.harvest.items || []).forEach(function(d){
+    if(d.driverEmail && d.emailStatus === "pending") sendDocketEmail(d.id);
+  });
+}
+setInterval(function(){ retryPendingHarvestEmails(); }, 120000);
+
+function removeDocket(id){
+  removeById(state.harvest.items, id);
+  persist();
+}
+
+function renderDriversPanel(){
+  var drivers = (state.harvest.drivers || []).slice().sort(function(a,b){ return a.name.localeCompare(b.name); });
+  return '<div class="card" style="margin-bottom:14px;">' +
+    '<h3 style="margin:0 0 8px;font-size:15px;">Saved drivers</h3>' +
+    (drivers.length === 0 ? '<p class="row-muted" style="margin:0 0 10px;font-size:13px;">No drivers saved yet — choose "+ Add a new driver" on a docket to save one, or add one here.</p>' :
+      drivers.map(function(d){
+        return '<div class="card-row" style="padding:4px 0;"><div style="font-size:13px;"><strong>' + esc(d.name) + '</strong>' + (d.email ? ' — ' + esc(d.email) : ' — <em>no email on file</em>') + '</div>' +
+          (isAdmin() ? '<button type="button" class="btn btn-danger btn-sm" onclick="removeDriver(\'' + d.id + '\')">Remove</button>' : '') +
+        '</div>';
+      }).join("")
+    ) +
+    '<form onsubmit="addDriver(event)" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">' +
+      '<input type="text" name="name" placeholder="Driver name" required style="flex:1;min-width:140px;" />' +
+      '<input type="email" name="email" placeholder="Email" style="flex:1;min-width:180px;" />' +
+      '<button type="submit" class="btn btn-ghost" style="width:auto;">+ Add driver</button>' +
+    '</form>' +
+  '</div>';
+}
+function addDriver(e){
+  e.preventDefault();
+  var f = e.target;
+  var name = f.name.value.trim();
+  var email = f.email.value.trim();
+  if(!name) return;
+  var existing = (state.harvest.drivers || []).find(function(d){ return d.name.toLowerCase() === name.toLowerCase(); });
+  if(existing){ if(email) existing.email = email; }
+  else { state.harvest.drivers.push({ id: uid("driver"), name: name, email: email }); }
+  f.reset();
+  persist();
+}
+function removeDriver(id){
+  removeById(state.harvest.drivers, id);
+  persist();
+}
+
+// Builds and emails an Excel (.xlsx) copy of the whole harvest docket log to
+// one fixed address (HARVEST_EXPORT_EMAIL, set server-side in Vercel --
+// see api/send-harvest-export.js / HARVEST_DOCKET_SETUP.md), the same
+// one-fixed-address pattern Receipts uses. Built client-side with SheetJS
+// (loaded as a plain script tag near the top of this file, window.XLSX) and
+// sent to the server as base64 so the server never needs to touch Supabase
+// Storage for this -- it's a point-in-time export, not a stored file.
+var HARVEST_EXPORT_COLUMNS = ["Docket No","Date","Time","Driver","Carrier","Rego","Completed By","Commodity","Property","Paddock","Delivered To","Approx Weight","Email Status"];
+function harvestExportRows(){
+  var items = (state.harvest.items || []).slice().sort(function(a,b){ return (a.docketNo||0) - (b.docketNo||0); });
+  return items.map(function(d){
+    return [
+      docketNoDisplay(d.docketNo), d.date || "", d.time || "", d.driverName || "", d.carrier || "", d.rego || "",
+      d.completedBy || "", commodityLabel(d), propertyLabel(d), d.paddock || "", deliveredToSummary(d),
+      d.approxWeight || "", d.emailStatus || ""
+    ];
+  });
+}
+async function exportHarvestToExcel(){
+  if(typeof XLSX === "undefined"){
+    setNotice("err", "The Excel export tool hasn't finished loading yet (it needs a connection the first time this device uses it) -- try again in a moment.");
+    render();
+    return;
+  }
+  if((state.harvest.items || []).length === 0){
+    setNotice("err", "There are no harvest dockets to export yet.");
+    render();
+    return;
+  }
+  var ws = XLSX.utils.aoa_to_sheet([HARVEST_EXPORT_COLUMNS].concat(harvestExportRows()));
+  var wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Harvest Dockets");
+  var base64 = XLSX.write(wb, { type: "base64", bookType: "xlsx" });
+  var filename = "harvest-dockets-" + todayISO() + ".xlsx";
+  setNotice("ok", "Generating the export and emailing it…");
+  try{
+    var resp = await fetch("/api/send-harvest-export", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ filename: filename, base64: base64 })
+    });
+    var data = {};
+    try{ data = await resp.json(); }catch(parseErr){ /* leave data as {} */ }
+    if(!resp.ok || !data.ok){
+      setNotice("err", "Couldn't email the export (" + ((data && data.error) || ("HTTP " + resp.status)) + "). Try again once you're back online.");
+    } else {
+      setNotice("ok", "Export emailed.");
+    }
+  }catch(err){
+    setNotice("err", "Couldn't reach the email service (" + ((err && err.message) || "no connection") + "). Try again once you're back online.");
+  }
+  render();
 }
 
 /* ======================================================================
