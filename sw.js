@@ -127,7 +127,16 @@
 // a receipt, which the app then emails on automatically via a new Vercel
 // serverless function (api/send-receipt.js) and Resend. See
 // RECEIPT_EMAIL_SETUP.md for the one-time setup this needs.)
-var CACHE_NAME = "bullamon-plains-shell-v24";
+// (Bumped again 2026-10-01: new Harvest Dockets section -- logs each truck
+// load of wheat/chickpeas leaving the paddock (matching Maria's real paper
+// docket book), auto-emails a copy to the truck driver (picked from a saved
+// drivers list), and can export/email the whole log as Excel. Two new
+// Vercel serverless functions (api/send-docket.js, api/send-harvest-
+// export.js) and a new client-side library (SheetJS, for building the
+// Excel file) -- see HARVEST_DOCKET_SETUP.md. SheetJS added to
+// CROSS_ORIGIN_ASSETS below so the export button still loads offline on a
+// device that's used it before.)
+var CACHE_NAME = "bullamon-plains-shell-v25";
 
 var SHELL_ASSETS = [
   "./",
@@ -143,9 +152,11 @@ var SHELL_ASSETS = [
 // The Supabase client library itself, so it's still available to load
 // offline -- without this, a device with no cached copy of it yet would
 // see window.supabase as undefined and have no way to even try syncing
-// once back in range.
+// once back in range. SheetJS (window.XLSX) is here for the same reason --
+// it's what builds the Excel file for the Harvest Dockets export button.
 var CROSS_ORIGIN_ASSETS = [
-  "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"
+  "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2",
+  "https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"
 ];
 
 self.addEventListener("install", function(event){
