@@ -316,14 +316,6 @@
      glyph to a solid black silhouette without touching the icon circle's
      own background colour. */
   .icon-force-black{ display:inline-flex; filter:grayscale(1) brightness(0); }
-  /* The Harvest Dockets nav icon is a colour wheat-sheaf emoji by default --
-     Maria asked for it to appear blue (matching --accent, #1870b9) instead,
-     so force its rendered glyph to that flat colour the same way Bulls is
-     forced to black above: start from a solid black silhouette, then tint
-     it with a filter chain solved to land on this exact hex. If the accent
-     colour is ever changed, this filter should be re-solved for the new hex
-     rather than assumed to still match. */
-  .icon-force-blue{ display:inline-flex; filter:grayscale(1) brightness(0) invert(34%) sepia(65%) saturate(637%) hue-rotate(165deg) brightness(102%) contrast(103%); }
   .nav-btn-label{flex:1;min-width:0;}
   .nav-chevron{flex-shrink:0;color:var(--text-muted);font-size:16px;line-height:1;margin-left:2px;}
   .nav-badge{
@@ -888,7 +880,18 @@ const DEFAULT_STATE = {
   "harvest": {
     "items": [],
     "drivers": [],
-    "paddocks": []
+    "paddocks": [],
+    "properties": [
+      { "id": "property_bullamon", "name": "Bullamon" },
+      { "id": "property_nullera", "name": "Nullera" },
+      { "id": "property_boxplains", "name": "Box Plains" },
+      { "id": "property_westginnibri", "name": "West Ginnibri" },
+      { "id": "property_coolibah", "name": "Coolibah" }
+    ],
+    "commodities": [
+      { "id": "commodity_wheat", "name": "Wheat" },
+      { "id": "commodity_chickpeas", "name": "Chickpeas" }
+    ]
   },
   "jobs": [
     {
@@ -1553,7 +1556,7 @@ const DEFAULT_STATE = {
 // change to this file, same as CACHE_NAME in sw.js -- it gives an instant,
 // no-technical-steps-needed way to confirm whether a given device is
 // actually running the latest deploy, without comparing file contents.
-var APP_BUILD = "2026-10-01.3";
+var APP_BUILD = "2026-10-01.4";
 
 /* ======================================================================
    UTILITIES
@@ -8360,7 +8363,7 @@ async function boot(){
   // one (plus an empty saved-drivers list) so the section has something to
   // render into.
   if(!state.harvest){
-    state.harvest = { items: [], drivers: [], paddocks: [] };
+    state.harvest = deepClone(DEFAULT_STATE.harvest);
     migrated = true;
   }
   if(state.harvest && !state.harvest.drivers){
@@ -8369,6 +8372,22 @@ async function boot(){
   }
   if(state.harvest && !state.harvest.paddocks){
     state.harvest.paddocks = [];
+    migrated = true;
+  }
+  // one-time migration: older rows saved before Property/Commodity became
+  // staff-maintained lists -- seed them with the same values that used to be
+  // hardcoded (DEFAULT_STATE.harvest carries the same seed), so nothing
+  // Maria already relies on disappears from the dropdown. Anything she's
+  // already typed into old dockets stays exactly as it was
+  // (commodityLabel()/propertyLabel() still read old "Other" +
+  // commodityOther/propertyOther records correctly -- this only affects
+  // what shows up as pickable options going forward).
+  if(state.harvest && !state.harvest.properties){
+    state.harvest.properties = deepClone(DEFAULT_STATE.harvest.properties);
+    migrated = true;
+  }
+  if(state.harvest && !state.harvest.commodities){
+    state.harvest.commodities = deepClone(DEFAULT_STATE.harvest.commodities);
     migrated = true;
   }
   // one-time bulk import (2026-09-07) of Maria's real bull-breeding
@@ -11951,7 +11970,7 @@ var NAV = [
   { key: "bulls",       label: "Bulls",        icon: "&#128004;" },
   { key: "maps",        label: "Maps",         icon: "&#128506;" },
   { key: "receipts",    label: "Receipts",     icon: "&#129534;" },
-  { key: "harvest",     label: "Harvest Dockets", icon: "&#127806;" },
+  { key: "harvest",     label: "Harvest Dockets", icon: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="9" y="18" width="6" height="2.5" rx="1.25" fill="currentColor"/><path d="M12 19 L7 5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M12 19 L12 3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M12 19 L17 5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="8.3" cy="10" r="1" fill="currentColor"/><circle cx="7.6" cy="7.5" r="1" fill="currentColor"/><circle cx="9.3" cy="12.5" r="1" fill="currentColor"/><circle cx="12" cy="9" r="1" fill="currentColor"/><circle cx="12" cy="6" r="1" fill="currentColor"/><circle cx="12" cy="12.5" r="1" fill="currentColor"/><circle cx="15.7" cy="10" r="1" fill="currentColor"/><circle cx="16.4" cy="7.5" r="1" fill="currentColor"/><circle cx="14.7" cy="12.5" r="1" fill="currentColor"/></svg>' },
   { key: "sops",        label: "Operating Procedures", icon: "&#128196;" },
   { key: "sds",         label: "Safety Data Sheets", icon: "&#128203;" },
   { key: "emergency",   label: "Emergency",    icon: "&#9742;" },
@@ -12012,7 +12031,7 @@ function navRowHtml(n){
   if(n.key === "jobs" && openJobsCount() > 0) badge = '<span class="nav-badge">' + openJobsCount() + "</span>";
   if(n.key === "whs" && openIncidentsCount() > 0) badge = '<span class="nav-badge">' + openIncidentsCount() + "</span>";
   return '<button type="button" class="nav-btn' + (ui.section === n.key ? " active" : "") + '" onclick="goTo(\'' + n.key + '\')">' +
-    '<span class="nav-icon-circle">' + (n.key === "bulls" ? '<span class="icon-force-black">' + n.icon + '</span>' : n.key === "harvest" ? '<span class="icon-force-blue">' + n.icon + '</span>' : n.icon) + '</span>' +
+    '<span class="nav-icon-circle">' + (n.key === "bulls" ? '<span class="icon-force-black">' + n.icon + '</span>' : n.icon) + '</span>' +
     '<span class="nav-btn-label">' + esc(n.label) + '</span>' + badge +
     '<span class="nav-chevron">&#8250;</span>' +
   '</button>';
@@ -16438,7 +16457,11 @@ function removeReceipt(id){
    tap Retry themselves, though the button's still there for a genuine
    send failure (e.g. a typo'd email).
    ====================================================================== */
-var HARVEST_PROPERTIES = ["Bullamon", "Nullera", "Box Plains", "West Ginnibri", "Coolibah"];
+// Property and Commodity are staff-maintained lists (state.harvest.properties
+// / .commodities), seeded from DEFAULT_STATE.harvest the first time (see the
+// boot() migration above). Staff grow both lists themselves from here on via
+// "+ Add a new property/commodity..." on the docket form, the same pattern
+// already used for Drivers and Paddocks.
 
 function nextDocketNumber(){
   var items = (state.harvest && state.harvest.items) || [];
@@ -16532,22 +16555,71 @@ function handleDriverSelectChange(select){
   if(!form) return;
   var show = select.value === "__new";
   Array.prototype.forEach.call(form.querySelectorAll(".new-driver-fields"), function(el){ el.style.display = show ? "" : "none"; });
-  // Picking a saved driver also pulls in their usual carrier/rego, the same
-  // way their name/email already flow through at submit time -- saves
-  // re-typing it every load for a driver who always turns up in the same truck.
-  if(!show && select.value){
-    var dr = (state.harvest.drivers || []).find(function(x){ return x.id === select.value; });
-    if(dr){
-      if(form.carrier && dr.carrier) form.carrier.value = dr.carrier;
-      if(form.rego && dr.rego) form.rego.value = dr.rego;
-    }
+  var dr = (!show && select.value) ? (state.harvest.drivers || []).find(function(x){ return x.id === select.value; }) : null;
+  // Picking a saved driver also pulls in their usual carrier, the same way
+  // their name/email already flow through at submit time -- saves re-typing
+  // it every load for a driver who always turns up with the same carrier.
+  if(dr && form.carrier && dr.carrier) form.carrier.value = dr.carrier;
+  // Rego is kept PER DRIVER as a list, not a single value, since the same
+  // person can turn up in different trucks/trailers on different days --
+  // rebuild the Rego dropdown to match whichever driver was just chosen,
+  // the same cascading-dropdown pattern used for Property -> Paddock.
+  if(form.regoValue){
+    form.regoValue.innerHTML = regoOptionsHtml(dr);
+    Array.prototype.forEach.call(form.querySelectorAll(".new-rego-fields"), function(el){ el.style.display = "none"; });
+    if(form.newRegoValue) form.newRegoValue.value = "";
   }
 }
+// A driver's regos list, as dropdown options -- "driver" may be null (no
+// driver chosen yet, or "+ Add a new driver..." selected), in which case
+// there's nothing to list but the add-new option still makes sense (the
+// rego just gets saved onto whichever driver this docket ends up with).
+function regoOptionsHtml(driver){
+  var regos = (driver && driver.regos) || [];
+  return '<option value="">Choose a rego…</option>' +
+    regos.slice().sort().map(function(r){ return '<option value="' + escAttr(r) + '">' + esc(r) + '</option>'; }).join("") +
+    '<option value="__new">+ Add a new rego…</option>';
+}
+function handleRegoSelectChange(select){
+  var form = select.form;
+  if(!form) return;
+  var show = select.value === "__new";
+  Array.prototype.forEach.call(form.querySelectorAll(".new-rego-fields"), function(el){ el.style.display = show ? "" : "none"; });
+}
 
-// Paddocks are kept per-property (e.g. "North" means something different on
-// Bullamon than on Nullera), the same staff-maintained-list pattern as
-// Drivers: nothing is pre-loaded, staff build the list up as they go via
-// "+ Add a new paddock...", and it's remembered from then on.
+// Property and Commodity are simple staff-maintained lists -- nothing
+// pre-loaded beyond the original seed values (see DEFAULT_STATE.harvest),
+// staff build them up as they go via "+ Add a new property/commodity...",
+// same pattern as Drivers. Paddocks are kept per-property (e.g. "North"
+// means something different on Bullamon than on Nullera), so that list
+// filters by the chosen property's NAME (paddocks are tagged by name, not
+// id, since they're never looked up any other way).
+function propertiesForHarvest(){
+  return (state.harvest.properties || []).slice().sort(function(a,b){ return a.name.localeCompare(b.name); });
+}
+function propertyOptionsHtml(){
+  return '<option value="">Choose a property…</option>' +
+    propertiesForHarvest().map(function(p){ return '<option value="' + escAttr(p.id) + '">' + esc(p.name) + '</option>'; }).join("") +
+    '<option value="__new">+ Add a new property…</option>';
+}
+function propertyNameById(id){
+  var p = (state.harvest.properties || []).find(function(x){ return x.id === id; });
+  return p ? p.name : "";
+}
+function commoditiesForHarvest(){
+  return (state.harvest.commodities || []).slice().sort(function(a,b){ return a.name.localeCompare(b.name); });
+}
+function commodityOptionsHtml(){
+  return '<option value="">Choose a commodity…</option>' +
+    commoditiesForHarvest().map(function(c){ return '<option value="' + escAttr(c.id) + '">' + esc(c.name) + '</option>'; }).join("") +
+    '<option value="__new">+ Add a new commodity…</option>';
+}
+function handleCommoditySelectChange(select){
+  var form = select.form;
+  if(!form) return;
+  var show = select.value === "__new";
+  Array.prototype.forEach.call(form.querySelectorAll(".new-commodity-fields"), function(el){ el.style.display = show ? "" : "none"; });
+}
 function paddocksForProperty(property){
   return (state.harvest.paddocks || []).filter(function(p){ return p.property === property; })
     .sort(function(a,b){ return a.name.localeCompare(b.name); });
@@ -16563,16 +16635,19 @@ function handlePaddockSelectChange(select){
   var show = select.value === "__new";
   Array.prototype.forEach.call(form.querySelectorAll(".new-paddock-fields"), function(el){ el.style.display = show ? "" : "none"; });
 }
-// Property's own onchange already toggled the "Other" free-text field via
-// handleConditionalSelect -- this wraps that and additionally rebuilds the
-// Paddock dropdown's options to match whichever property was just chosen,
-// via plain DOM (no render()), same no-disturb reasoning as everywhere else
-// in this form.
+// Picking (or adding) a Property rebuilds the Paddock dropdown's options to
+// match, via plain DOM (no render()), same no-disturb reasoning as
+// everywhere else in this form. "__new" (property not resolved yet) clears
+// Paddock back to empty, since there's nothing to filter by until that new
+// property is actually saved on submit.
 function handlePropertySelectChange(select){
-  handleConditionalSelect(select, "property");
   var form = select.form;
-  if(!form || !form.paddockId) return;
-  form.paddockId.innerHTML = paddockOptionsHtml(select.value);
+  if(!form) return;
+  var show = select.value === "__new";
+  Array.prototype.forEach.call(form.querySelectorAll(".new-property-fields"), function(el){ el.style.display = show ? "" : "none"; });
+  if(!form.paddockId) return;
+  var propName = show ? "" : propertyNameById(select.value);
+  form.paddockId.innerHTML = paddockOptionsHtml(propName);
   Array.prototype.forEach.call(form.querySelectorAll(".new-paddock-fields"), function(el){ el.style.display = "none"; });
   if(form.newPaddockName) form.newPaddockName.value = "";
 }
@@ -16592,18 +16667,14 @@ function renderDocketForm(){
       '<div class="field new-driver-fields" style="display:none;"><label>New driver’s name</label><input type="text" name="newDriverName" placeholder="e.g. John Smith" /></div>' +
       '<div class="field new-driver-fields" style="display:none;"><label>New driver’s email</label><input type="email" name="newDriverEmail" placeholder="e.g. john@carrier.com.au" /></div>' +
       '<div class="field"><label>Carrier</label><input type="text" name="carrier" placeholder="e.g. Smith Transport" /></div>' +
-      '<div class="field"><label>Rego</label><input type="text" name="rego" /></div>' +
+      '<div class="field"><label>Rego</label><select name="regoValue" onchange="handleRegoSelectChange(this)">' + regoOptionsHtml(null) + '</select></div>' +
+      '<div class="field new-rego-fields" style="display:none;"><label>New rego</label><input type="text" name="newRegoValue" placeholder="e.g. ABC123" /></div>' +
       '<div class="field"><label>Completed by</label><input type="text" name="completedBy" value="' + escAttr(u ? u.name : "") + '" /></div>' +
-      '<div class="field"><label>Commodity</label><select name="commodity" onchange="handleConditionalSelect(this, \'commodity\')">' +
-        '<option value="Wheat">Wheat</option><option value="Chickpeas">Chickpeas</option><option value="Other">Other</option>' +
-      '</select></div>' +
-      '<div class="field cond-commodity-Other" style="display:none;"><label>What commodity?</label><input type="text" name="commodityOther" /></div>' +
-      '<div class="field"><label>Property</label><select name="property" onchange="handlePropertySelectChange(this)">' +
-        HARVEST_PROPERTIES.map(function(p){ return '<option value="' + escAttr(p) + '">' + esc(p) + '</option>'; }).join("") +
-        '<option value="Other">Other</option>' +
-      '</select></div>' +
-      '<div class="field cond-property-Other" style="display:none;"><label>Which property?</label><input type="text" name="propertyOther" /></div>' +
-      '<div class="field"><label>Paddock</label><select name="paddockId" onchange="handlePaddockSelectChange(this)">' + paddockOptionsHtml(HARVEST_PROPERTIES[0]) + '</select></div>' +
+      '<div class="field"><label>Commodity</label><select name="commodityId" onchange="handleCommoditySelectChange(this)">' + commodityOptionsHtml() + '</select></div>' +
+      '<div class="field new-commodity-fields" style="display:none;"><label>New commodity name</label><input type="text" name="newCommodityName" placeholder="e.g. Barley" /></div>' +
+      '<div class="field"><label>Property</label><select name="propertyId" onchange="handlePropertySelectChange(this)">' + propertyOptionsHtml() + '</select></div>' +
+      '<div class="field new-property-fields" style="display:none;"><label>New property name</label><input type="text" name="newPropertyName" placeholder="e.g. Riverview" /></div>' +
+      '<div class="field"><label>Paddock</label><select name="paddockId" onchange="handlePaddockSelectChange(this)">' + paddockOptionsHtml("") + '</select></div>' +
       '<div class="field new-paddock-fields" style="display:none;"><label>New paddock name</label><input type="text" name="newPaddockName" placeholder="e.g. North block" /></div>' +
       '<div class="field"><label>Approximate weight</label><input type="text" name="approxWeight" placeholder="e.g. 24.5t" /></div>' +
       '<div class="field span-2"><label>Delivered to</label><select name="deliveredTo" onchange="handleConditionalSelect(this, \'deliveredTo\')">' +
@@ -16633,7 +16704,7 @@ async function addDocket(e){
   e.preventDefault();
   var f = e.target;
   var driverVal = f.driverId.value;
-  var driverId = "", driverName = "", driverEmail = "";
+  var driverId = "", driverName = "", driverEmail = "", driverObj = null;
   if(driverVal === "__new"){
     var newName = f.newDriverName.value.trim();
     var newEmail = f.newDriverEmail.value.trim();
@@ -16646,15 +16717,56 @@ async function addDocket(e){
     var existingDriver = (state.harvest.drivers || []).find(function(x){ return x.name.toLowerCase() === newName.toLowerCase(); });
     if(existingDriver){
       if(newEmail) existingDriver.email = newEmail;
-      driverId = existingDriver.id; driverName = existingDriver.name; driverEmail = existingDriver.email;
+      driverObj = existingDriver;
     } else {
-      var newDriver = { id: uid("driver"), name: newName, email: newEmail };
+      var newDriver = { id: uid("driver"), name: newName, email: newEmail, regos: [] };
       state.harvest.drivers.push(newDriver);
-      driverId = newDriver.id; driverName = newDriver.name; driverEmail = newDriver.email;
+      driverObj = newDriver;
     }
+    driverId = driverObj.id; driverName = driverObj.name; driverEmail = driverObj.email;
   } else if(driverVal){
     var dr = (state.harvest.drivers || []).find(function(x){ return x.id === driverVal; });
-    if(dr){ driverId = dr.id; driverName = dr.name; driverEmail = dr.email; }
+    if(dr){ driverObj = dr; driverId = dr.id; driverName = dr.name; driverEmail = dr.email; }
+  }
+
+  var commodityVal = f.commodityId.value;
+  var commodityName = "";
+  if(commodityVal === "__new"){
+    var newCommodityName = f.newCommodityName.value.trim();
+    if(!newCommodityName){
+      setNotice("err", "Enter the new commodity's name (or choose an existing commodity from the list).");
+      render();
+      return;
+    }
+    var existingCommodity = (state.harvest.commodities || []).find(function(x){ return x.name.toLowerCase() === newCommodityName.toLowerCase(); });
+    if(existingCommodity){ commodityName = existingCommodity.name; }
+    else {
+      state.harvest.commodities.push({ id: uid("commodity"), name: newCommodityName });
+      commodityName = newCommodityName;
+    }
+  } else if(commodityVal){
+    var cm = (state.harvest.commodities || []).find(function(x){ return x.id === commodityVal; });
+    if(cm) commodityName = cm.name;
+  }
+
+  var propertyVal = f.propertyId.value;
+  var propertyName = "";
+  if(propertyVal === "__new"){
+    var newPropertyName = f.newPropertyName.value.trim();
+    if(!newPropertyName){
+      setNotice("err", "Enter the new property's name (or choose an existing property from the list).");
+      render();
+      return;
+    }
+    var existingProperty = (state.harvest.properties || []).find(function(x){ return x.name.toLowerCase() === newPropertyName.toLowerCase(); });
+    if(existingProperty){ propertyName = existingProperty.name; }
+    else {
+      state.harvest.properties.push({ id: uid("property"), name: newPropertyName });
+      propertyName = newPropertyName;
+    }
+  } else if(propertyVal){
+    var pr = (state.harvest.properties || []).find(function(x){ return x.id === propertyVal; });
+    if(pr) propertyName = pr.name;
   }
 
   var paddockVal = f.paddockId.value;
@@ -16667,15 +16779,33 @@ async function addDocket(e){
       return;
     }
     // Reuse an existing paddock on this same property with the same name rather than saving a duplicate.
-    var existingPaddock = (state.harvest.paddocks || []).find(function(x){ return x.property === f.property.value && x.name.toLowerCase() === newPaddockName.toLowerCase(); });
+    var existingPaddock = (state.harvest.paddocks || []).find(function(x){ return x.property === propertyName && x.name.toLowerCase() === newPaddockName.toLowerCase(); });
     if(existingPaddock){ paddockName = existingPaddock.name; }
     else {
-      state.harvest.paddocks.push({ id: uid("paddock"), property: f.property.value, name: newPaddockName });
+      state.harvest.paddocks.push({ id: uid("paddock"), property: propertyName, name: newPaddockName });
       paddockName = newPaddockName;
     }
   } else if(paddockVal){
     var pd = (state.harvest.paddocks || []).find(function(x){ return x.id === paddockVal; });
     if(pd) paddockName = pd.name;
+  }
+
+  // Rego is scoped per driver (the same person can turn up in different
+  // trucks/trailers on different days) -- resolve it the same "pick or add"
+  // way as Paddock/Property/Commodity, saving a new one onto whichever
+  // driver this docket ends up with so it's there to pick next time.
+  var regoVal = f.regoValue.value;
+  var regoName = "";
+  if(regoVal === "__new"){
+    var newRegoValue = f.newRegoValue.value.trim();
+    if(newRegoValue){
+      regoName = newRegoValue;
+      if(driverObj){
+        driverObj.regos = parseRegosInput((driverObj.regos || []).concat([newRegoValue]).join(", "));
+      }
+    }
+  } else if(regoVal){
+    regoName = regoVal;
   }
 
   var item = {
@@ -16687,12 +16817,10 @@ async function addDocket(e){
     driverName: driverName,
     driverEmail: driverEmail,
     carrier: f.carrier.value.trim(),
-    rego: f.rego.value.trim(),
+    rego: regoName,
     completedBy: f.completedBy.value.trim(),
-    commodity: f.commodity.value,
-    commodityOther: f.commodityOther.value.trim(),
-    property: f.property.value,
-    propertyOther: f.propertyOther.value.trim(),
+    commodity: commodityName,
+    property: propertyName,
     paddock: paddockName,
     deliveredTo: f.deliveredTo.value,
     farmType: f.farmType.value,
@@ -16788,7 +16916,7 @@ function renderDriversPanel(){
         if(ui.editing.driver === d.id) return renderDriverEditRow(d);
         return '<div class="card-row" style="padding:4px 0;"><div style="font-size:13px;"><strong>' + esc(d.name) + '</strong>' +
           (d.carrier ? ' — ' + esc(d.carrier) : '') +
-          (d.rego ? ' (' + esc(d.rego) + ')' : '') +
+          ((d.regos && d.regos.length) ? ' (' + esc(d.regos.join(", ")) + ')' : '') +
           (d.email ? ' — ' + esc(d.email) : ' — <em>no email on file</em>') + '</div>' +
           '<span style="display:flex;gap:6px;flex-shrink:0;">' +
           '<button type="button" class="btn btn-ghost btn-sm" onclick="ui.editing.driver=\'' + d.id + '\';render();">Edit</button>' +
@@ -16800,7 +16928,7 @@ function renderDriversPanel(){
     '<form onsubmit="addDriver(event)" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">' +
       '<input type="text" name="name" placeholder="Driver name" required style="flex:1;min-width:140px;" />' +
       '<input type="text" name="carrier" placeholder="Carrier" style="flex:1;min-width:140px;" />' +
-      '<input type="text" name="rego" placeholder="Rego" style="flex:1;min-width:110px;" />' +
+      '<input type="text" name="rego" placeholder="Rego(s), e.g. ABC123, XYZ999" style="flex:1;min-width:170px;" />' +
       '<input type="email" name="email" placeholder="Email" style="flex:1;min-width:180px;" />' +
       '<button type="submit" class="btn btn-ghost" style="width:auto;">+ Add driver</button>' +
     '</form>' +
@@ -16813,11 +16941,26 @@ function renderDriverEditRow(d){
   return '<form onsubmit="saveDriver(event,\'' + d.id + '\')" class="card-row" style="padding:6px 0;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">' +
     '<input type="text" name="name" value="' + escAttr(d.name) + '" placeholder="Driver name" required style="flex:1;min-width:140px;" />' +
     '<input type="text" name="carrier" value="' + escAttr(d.carrier || "") + '" placeholder="Carrier" style="flex:1;min-width:140px;" />' +
-    '<input type="text" name="rego" value="' + escAttr(d.rego || "") + '" placeholder="Rego" style="flex:1;min-width:110px;" />' +
+    '<input type="text" name="rego" value="' + escAttr((d.regos || []).join(", ")) + '" placeholder="Rego(s), e.g. ABC123, XYZ999" style="flex:1;min-width:170px;" />' +
     '<input type="email" name="email" value="' + escAttr(d.email || "") + '" placeholder="Email" style="flex:1;min-width:180px;" />' +
     '<button type="submit" class="btn btn-primary btn-sm" style="width:auto;">Save</button>' +
     '<button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="ui.editing.driver=null;render();">Cancel</button>' +
   '</form>';
+}
+// A driver can turn up in different trucks/trailers on different days, so
+// each saved driver keeps a LIST of regos (d.regos), not one fixed value --
+// entered/edited here as a plain comma-separated list for convenience, and
+// picked (or added to) per-docket from a dropdown on the docket form itself
+// (see regoOptionsHtml()/handleRegoSelectChange() below).
+function parseRegosInput(text){
+  var seen = {}, out = [];
+  (text || "").split(",").forEach(function(part){
+    var r = part.trim();
+    if(!r || seen[r.toLowerCase()]) return;
+    seen[r.toLowerCase()] = true;
+    out.push(r);
+  });
+  return out;
 }
 function saveDriver(e, id){
   e.preventDefault();
@@ -16828,7 +16971,7 @@ function saveDriver(e, id){
   if(!d) return;
   d.name = name;
   d.carrier = f.carrier.value.trim();
-  d.rego = f.rego.value.trim();
+  d.regos = parseRegosInput(f.rego.value);
   d.email = f.email.value.trim();
   ui.editing.driver = null;
   persist();
@@ -16839,15 +16982,20 @@ function addDriver(e){
   var name = f.name.value.trim();
   var email = f.email.value.trim();
   var carrier = f.carrier.value.trim();
-  var rego = f.rego.value.trim();
+  var newRegos = parseRegosInput(f.rego.value);
   if(!name) return;
   var existing = (state.harvest.drivers || []).find(function(d){ return d.name.toLowerCase() === name.toLowerCase(); });
   if(existing){
     if(email) existing.email = email;
     if(carrier) existing.carrier = carrier;
-    if(rego) existing.rego = rego;
+    // Add to the existing list rather than replacing it -- using this form
+    // to top up a driver with one more rego shouldn't erase the ones
+    // already saved.
+    if(newRegos.length){
+      existing.regos = parseRegosInput((existing.regos || []).concat(newRegos).join(", "));
+    }
   }
-  else { state.harvest.drivers.push({ id: uid("driver"), name: name, email: email, carrier: carrier, rego: rego }); }
+  else { state.harvest.drivers.push({ id: uid("driver"), name: name, email: email, carrier: carrier, regos: newRegos }); }
   f.reset();
   persist();
 }
