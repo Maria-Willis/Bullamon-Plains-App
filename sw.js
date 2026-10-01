@@ -143,7 +143,11 @@
 // instead of free text, and the Harvest Dockets nav icon was changed from
 // a truck to a wheat sheaf, recoloured blue to match the app's accent
 // colour. index.html only -- no shell-asset list changes this time.)
-var CACHE_NAME = "bullamon-plains-shell-v26";
+// (Bumped again 2026-10-01, later still: saved drivers can now be edited in
+// place (name/carrier/rego/email), not just added/removed -- an inline Edit
+// form on each driver row, same ui.editing.<section> pattern already used
+// for jobs/machinery/bulls/SOPs. index.html only.)
+var CACHE_NAME = "bullamon-plains-shell-v27";
 
 var SHELL_ASSETS = [
   "./",
