@@ -853,6 +853,7 @@ const DEFAULT_STATE = {
       "team": "people", "private": "people"
     },
     "sectionOrder": ["item:dashboard", "item:chemreg", "heading:daily-work", "heading:safety-compliance", "heading:people"],
+    "itemLabel": {},
     "updatedAt": null,
     "updatedBy": null
   },
@@ -891,7 +892,10 @@ const DEFAULT_STATE = {
     "commodities": [
       { "id": "commodity_wheat", "name": "Wheat" },
       { "id": "commodity_chickpeas", "name": "Chickpeas" }
-    ]
+    ],
+    "docketYear": "2026",
+    "docketSeq": 0,
+    "archives": []
   },
   "jobs": [
     {
@@ -1556,7 +1560,7 @@ const DEFAULT_STATE = {
 // change to this file, same as CACHE_NAME in sw.js -- it gives an instant,
 // no-technical-steps-needed way to confirm whether a given device is
 // actually running the latest deploy, without comparing file contents.
-var APP_BUILD = "2026-10-01.4";
+var APP_BUILD = "2026-10-02.1";
 
 /* ======================================================================
    UTILITIES
@@ -8390,6 +8394,36 @@ async function boot(){
     state.harvest.commodities = deepClone(DEFAULT_STATE.harvest.commodities);
     migrated = true;
   }
+  // one-time migration: docket numbers now carry a year prefix (e.g.
+  // "2026-001"), at Maria's request, so she can edit the year forward
+  // ("2026" -> "2027") each new season. docketSeq is a counter kept
+  // separately from whatever's currently in state.harvest.items -- it
+  // deliberately does NOT get recomputed from that array on every load,
+  // because archiving a season (see archiveHarvestSeason() below) empties
+  // that array on purpose, and numbering must not jump backwards just
+  // because older dockets were archived away. Back-fill it once here from
+  // whatever's already logged, then leave it alone from then on.
+  if(state.harvest && !state.harvest.docketYear){
+    state.harvest.docketYear = "2026";
+    migrated = true;
+  }
+  if(state.harvest && state.harvest.docketSeq === undefined){
+    var existingMaxDocketNo = (state.harvest.items || []).reduce(function(m, d){ return Math.max(m, d.docketNo || 0); }, 0);
+    state.harvest.docketSeq = existingMaxDocketNo;
+    migrated = true;
+  }
+  if(state.harvest && !state.harvest.archives){
+    state.harvest.archives = [];
+    migrated = true;
+  }
+  if(state.harvest && state.harvest.items && state.harvest.items.length){
+    state.harvest.items.forEach(function(d){
+      if(!d.docketYear){
+        d.docketYear = state.harvest.docketYear;
+        migrated = true;
+      }
+    });
+  }
   // one-time bulk import (2026-09-07) of Maria's real bull-breeding
   // spreadsheet ("Bull Summary Sheet.xlsx"), covering all 34 bulls from the
   // "Bull Summary" sheet (active) and all 56 from "Dead or Sold" (archived),
@@ -12032,7 +12066,7 @@ function navRowHtml(n){
   if(n.key === "whs" && openIncidentsCount() > 0) badge = '<span class="nav-badge">' + openIncidentsCount() + "</span>";
   return '<button type="button" class="nav-btn' + (ui.section === n.key ? " active" : "") + '" onclick="goTo(\'' + n.key + '\')">' +
     '<span class="nav-icon-circle">' + (n.key === "bulls" ? '<span class="icon-force-black">' + n.icon + '</span>' : n.icon) + '</span>' +
-    '<span class="nav-btn-label">' + esc(n.label) + '</span>' + badge +
+    '<span class="nav-btn-label">' + esc(navLabel(n)) + '</span>' + badge +
     '<span class="nav-chevron">&#8250;</span>' +
   '</button>';
 }
@@ -12080,7 +12114,7 @@ function renderMobileBackBar(){
   var current = NAV.filter(function(n){ return n.key === ui.section; })[0];
   return '<div class="mobile-back-bar">' +
     '<button type="button" class="mobile-back-btn" onclick="showMobileMenu()">&larr; Menu</button>' +
-    (current ? '<span class="mobile-back-title">' + esc(current.label) + '</span>' : '') +
+    (current ? '<span class="mobile-back-title">' + esc(navLabel(current)) + '</span>' : '') +
   '</div>';
 }
 
@@ -16463,12 +16497,34 @@ function removeReceipt(id){
 // "+ Add a new property/commodity..." on the docket form, the same pattern
 // already used for Drivers and Paddocks.
 
+// Docket numbers are "<year>-<sequence>" (e.g. "2026-001"), at Maria's
+// request. The sequence lives in state.harvest.docketSeq, a plain counter
+// that only ever goes up -- it is NOT derived from the max docketNo
+// currently sitting in state.harvest.items, because archiving a season (see
+// archiveHarvestSeason() below) empties that array on purpose, and the
+// count must keep climbing from where it was, not reset just because
+// older dockets got archived away. The year itself is a separate setting
+// (state.harvest.docketYear, see renderDocketNumberingCard()/setDocketYear())
+// she can move forward to "2027" whenever the new season starts -- doing
+// that resets the sequence back to 1, since a new year's numbering should
+// start clean.
 function nextDocketNumber(){
-  var items = (state.harvest && state.harvest.items) || [];
-  var max = items.reduce(function(m, d){ return Math.max(m, d.docketNo || 0); }, 0);
-  return max + 1;
+  state.harvest.docketSeq = (state.harvest.docketSeq || 0) + 1;
+  return state.harvest.docketSeq;
 }
 function docketNoDisplay(n){ return String(n || 0).padStart(3, "0"); }
+function docketNumberDisplay(d){
+  var year = d.docketYear || state.harvest.docketYear || "";
+  return (year ? (year + "-") : "") + docketNoDisplay(d.docketNo);
+}
+// Descending (newest first): by year, then by sequence within that year --
+// never just by raw docketNo, since a fresh year's numbering restarts at 1
+// and would otherwise sort before a prior year's #050.
+function compareDockets(a, b){
+  var ay = parseInt(a.docketYear, 10) || 0, by = parseInt(b.docketYear, 10) || 0;
+  if(ay !== by) return by - ay;
+  return (b.docketNo || 0) - (a.docketNo || 0);
+}
 function commodityLabel(d){ return d.commodity === "Other" ? (d.commodityOther || "Other") : (d.commodity || "—"); }
 function propertyLabel(d){ return d.property === "Other" ? (d.propertyOther || "Other") : (d.property || "—"); }
 function deliveredToSummary(d){
@@ -16492,19 +16548,196 @@ function renderHarvest(){
   var html = pageHead("Harvest Dockets", "Log each truck load of wheat or chickpeas leaving the paddock.");
   html += '<div class="toolbar">' +
     '<button type="button" class="btn btn-ghost" style="width:auto;" onclick="toggleForm(\'manageDrivers\')">' + (ui.openForms.manageDrivers ? "Hide drivers" : "Manage drivers") + '</button>' +
+    (isAdmin() ? '<button type="button" class="btn btn-ghost" style="width:auto;" onclick="toggleForm(\'managePaddocks\')">' + (ui.openForms.managePaddocks ? "Hide paddocks" : "Manage paddocks") + '</button>' : '') +
     '<button type="button" class="btn btn-ghost" style="width:auto;" onclick="exportHarvestToExcel()">&#8681; Export &amp; email (Excel)</button>' +
     '<span style="flex:1;"></span>' +
     '<button type="button" class="btn btn-primary" style="width:auto;" onclick="toggleForm(\'newDocket\')">' + (ui.openForms.newDocket ? "Cancel" : "+ Add docket") + '</button>' +
   '</div>';
+  if(isAdmin()){
+    html += '<div class="toolbar" style="margin-top:-6px;">' +
+      '<button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="toggleForm(\'docketNumbering\')">' + (ui.openForms.docketNumbering ? "Hide docket numbering" : "Docket numbering") + '</button>' +
+      '<button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="toggleForm(\'harvestArchives\')">' + (ui.openForms.harvestArchives ? "Hide archived seasons" : ("Archived seasons" + ((state.harvest.archives||[]).length ? " (" + state.harvest.archives.length + ")" : ""))) + '</button>' +
+      '<button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="archiveHarvestSeason()">Archive this season&hellip;</button>' +
+    '</div>';
+  }
   if(ui.openForms.manageDrivers) html += renderDriversPanel();
+  if(isAdmin() && ui.openForms.managePaddocks) html += renderPaddocksPanel();
+  if(isAdmin() && ui.openForms.docketNumbering) html += renderDocketNumberingCard();
+  if(isAdmin() && ui.openForms.harvestArchives) html += renderHarvestArchivesPanel();
   if(ui.openForms.newDocket) html += renderDocketForm();
-  var items = (state.harvest.items || []).slice().sort(function(a,b){ return (b.docketNo||0) - (a.docketNo||0); });
+  var items = (state.harvest.items || []).slice().sort(compareDockets);
   if(items.length === 0){ html += '<div class="empty-state">No harvest dockets logged yet. Tap "+ Add docket" above to log the first truck load.</div>'; }
-  else { html += '<div class="list-cards">' + items.map(docketCardHtml).join("") + '</div>'; }
+  else { html += '<div class="list-cards">' + items.map(function(d){ return docketCardHtml(d, false); }).join("") + '</div>'; }
   return html;
 }
 
-function docketCardHtml(d){
+// Admin-only docket-numbering settings -- the year prefix used on new
+// docket numbers (e.g. "2026" -> "2026-001", "2026-002"...). Changing it
+// resets the sequence back to 1 since a new year's numbering should start
+// clean; it's deliberately a separate, anytime-editable setting from
+// archiving a season below -- the two usually happen together but don't
+// have to (she might want to bump the year without archiving yet, or vice
+// versa).
+function renderDocketNumberingCard(){
+  var year = state.harvest.docketYear || "";
+  var seq = state.harvest.docketSeq || 0;
+  return '<div class="card">' +
+    '<h3 style="margin-bottom:6px;">Docket numbering</h3>' +
+    '<p class="row-muted" style="margin:0 0 12px;font-size:12.5px;">The next docket logged will be numbered "' + esc(year || "—") + '-' + docketNoDisplay(seq + 1) + '". Changing the year resets the count back to 1 -- use this when a new season starts.</p>' +
+    '<div class="form-grid" style="margin-bottom:0;">' +
+      '<div class="field" style="max-width:160px;"><label>Docket year</label><input type="text" value="' + escAttr(year) + '" onchange="setDocketYear(this.value)" /></div>' +
+    '</div>' +
+    '<p class="row-muted" style="margin:10px 0 0;font-size:12px;">Last docket logged so far this year: ' + (seq ? ("#" + docketNoDisplay(seq)) : "none yet") + '.</p>' +
+  '</div>';
+}
+function setDocketYear(value){
+  var newYear = (value || "").trim();
+  if(!newYear || newYear === (state.harvest.docketYear || "")){ render(); return; }
+  if(!confirm('Change the docket year to "' + newYear + '"? New dockets will be numbered "' + newYear + '-001" onward. This does not touch any docket already logged -- it only resets the counter for new ones.')){
+    render();
+    return;
+  }
+  state.harvest.docketYear = newYear;
+  state.harvest.docketSeq = 0;
+  persist();
+}
+
+// Archiving moves every docket currently logged into a dated, read-only
+// snapshot (state.harvest.archives) and empties the active list, "so I can
+// start fresh with a new year later" -- at Maria's request. Nothing is
+// deleted: reinstateHarvestArchive() below brings a whole archived season's
+// dockets straight back into the active list if she ever needs to.
+// Drivers, properties, commodities and paddocks are untouched by this --
+// those staff-maintained lists carry on being reused season to season,
+// only the docket entries themselves get archived.
+function archiveHarvestSeason(){
+  var items = state.harvest.items || [];
+  if(items.length === 0){ alert("There's nothing to archive -- no dockets logged yet."); return; }
+  var year = state.harvest.docketYear || "this season";
+  if(!confirm('Archive all ' + items.length + ' docket' + (items.length === 1 ? "" : "s") + ' logged for ' + year + '? They will move to "Archived seasons" and the active list will be empty, ready for new dockets. You can reinstate them later if you need to.')) return;
+  var u = currentUser();
+  state.harvest.archives = state.harvest.archives || [];
+  state.harvest.archives.unshift({
+    id: uid("harvestarchive"),
+    year: year,
+    archivedAt: new Date().toISOString(),
+    archivedBy: u ? u.name : null,
+    items: deepClone(items)
+  });
+  state.harvest.items = [];
+  ui.openForms.harvestArchives = true;
+  persist();
+}
+function reinstateHarvestArchive(archiveId){
+  var archive = byId(state.harvest.archives, archiveId);
+  if(!archive) return;
+  if(!confirm('Bring the ' + archive.items.length + ' docket' + (archive.items.length === 1 ? "" : "s") + ' from "' + archive.year + '" back into the active list? They will be added alongside whatever is there now.')) return;
+  state.harvest.items = (state.harvest.items || []).concat(deepClone(archive.items));
+  removeById(state.harvest.archives, archiveId);
+  persist();
+}
+function renderHarvestArchivesPanel(){
+  var archives = state.harvest.archives || [];
+  var html = '<div class="card"><h3 style="margin-bottom:6px;">Archived seasons</h3>';
+  if(archives.length === 0){
+    html += '<div class="empty-state">Nothing archived yet. Use "Archive this season&hellip;" above when you\'re ready to start a new year fresh.</div>';
+  } else {
+    html += archives.map(function(a){
+      var open = ui.openForms["harvestArchiveView_" + a.id];
+      return '<div style="margin-bottom:14px;padding-bottom:14px;border-bottom:1px solid var(--border);">' +
+        '<div class="card-row"><div>' +
+          '<h4 style="margin:0 0 2px;font-size:14px;">' + esc(a.year) + ' season &mdash; ' + a.items.length + ' docket' + (a.items.length === 1 ? "" : "s") + '</h4>' +
+          '<p class="row-muted" style="margin:0;font-size:12px;">Archived ' + fmtDateTime(a.archivedAt) + (a.archivedBy ? (" by " + esc(a.archivedBy)) : "") + '</p></div>' +
+          '<div style="display:flex;gap:6px;">' +
+            '<button type="button" class="btn btn-ghost btn-sm" onclick="ui.openForms[\'harvestArchiveView_' + a.id + '\']=!ui.openForms[\'harvestArchiveView_' + a.id + '\'];render();">' + (open ? "Hide" : "View") + '</button>' +
+            '<button type="button" class="btn btn-primary btn-sm" onclick="reinstateHarvestArchive(\'' + a.id + '\')">Reinstate</button>' +
+          '</div>' +
+        '</div>' +
+        (open ? '<div class="list-cards" style="margin-top:10px;">' + a.items.slice().sort(compareDockets).map(function(d){ return docketCardHtml(d, true); }).join("") + '</div>' : '') +
+      '</div>';
+    }).join("");
+  }
+  html += '</div>';
+  return html;
+}
+
+// Admin-only "Manage paddocks" panel -- lists every saved paddock grouped
+// under the property it is linked to, with a rename field and a select to
+// move it to a different property, at Maria's request ("a button that is
+// admin only on the harvest dockets that allows me to correlate the
+// paddock to the property selected. I also need to be able to edit
+// this."). Paddocks are tagged by property NAME not id (see
+// paddocksForProperty() above), so renaming/re-linking just rewrites that
+// one string on the paddock record -- it never touches any docket already
+// logged against the old name/property.
+function renderPaddocksPanel(){
+  var paddocks = (state.harvest.paddocks || []).slice().sort(function(a,b){ return a.name.localeCompare(b.name); });
+  var properties = propertiesForHarvest();
+  var propOptionsFor = function(current){
+    return properties.map(function(p){ return '<option value="' + escAttr(p.name) + '"' + (p.name === current ? " selected" : "") + '>' + esc(p.name) + '</option>'; }).join("");
+  };
+  var html = '<div class="card"><h3 style="margin-bottom:6px;">Manage paddocks</h3>' +
+    '<p class="row-muted" style="margin:0 0 12px;font-size:12.5px;">Rename a paddock or move it under a different property. Dockets already logged keep whatever paddock/property name they were logged with.</p>';
+  if(paddocks.length === 0){
+    html += '<div class="empty-state">No paddocks saved yet -- they get added from the docket form\'s "+ Add a new paddock…" option, or below.</div>';
+  } else {
+    html += paddocks.map(function(p){
+      var linked = properties.some(function(pr){ return pr.name === p.property; });
+      return '<div class="card-row" style="padding:7px 0;border-bottom:1px solid var(--border);gap:8px;flex-wrap:wrap;">' +
+        '<input type="text" value="' + escAttr(p.name) + '" style="flex:1;min-width:120px;font-size:13.5px;" onchange="renamePaddockAdmin(\'' + p.id + '\',this.value)" />' +
+        '<select style="width:auto;" onchange="reassignPaddockProperty(\'' + p.id + '\',this.value)">' +
+          (linked ? '' : '<option value="' + escAttr(p.property || "") + '" selected>' + esc(p.property || "(none)") + ' &mdash; not a current property</option>') +
+          propOptionsFor(p.property) +
+        '</select>' +
+        '<button type="button" class="btn btn-danger btn-sm" style="width:auto;" onclick="removePaddockAdmin(\'' + p.id + '\')">Remove</button>' +
+      '</div>';
+    }).join("");
+  }
+  html += '<h4 style="margin:16px 0 8px;font-size:13px;">Add a paddock directly</h4>' +
+    '<form class="form-grid" style="margin-bottom:0;" onsubmit="addPaddockAdmin(event)">' +
+      '<div class="field"><label>Property</label><select name="property" required><option value="">Choose a property…</option>' + propOptionsFor("") + '</select></div>' +
+      '<div class="field"><label>Paddock name</label><input type="text" name="name" placeholder="e.g. North block" required /></div>' +
+      '<button type="submit" class="btn btn-primary btn-sm" style="width:auto;align-self:end;">Add</button>' +
+    '</form>' +
+  '</div>';
+  return html;
+}
+function addPaddockAdmin(e){
+  e.preventDefault();
+  var f = e.target;
+  var property = f.property.value;
+  var name = f.name.value.trim();
+  if(!property || !name) return;
+  var dup = (state.harvest.paddocks || []).find(function(p){ return p.property === property && p.name.toLowerCase() === name.toLowerCase(); });
+  if(dup){ alert('"' + name + '" already exists under ' + property + '.'); return; }
+  state.harvest.paddocks = state.harvest.paddocks || [];
+  state.harvest.paddocks.push({ id: uid("paddock"), property: property, name: name });
+  f.reset();
+  persist();
+}
+function renamePaddockAdmin(id, value){
+  var p = byId(state.harvest.paddocks, id);
+  if(!p) return;
+  var name = (value || "").trim();
+  if(!name){ render(); return; }
+  p.name = name;
+  persist();
+}
+function reassignPaddockProperty(id, property){
+  var p = byId(state.harvest.paddocks, id);
+  if(!p || !property) return;
+  p.property = property;
+  persist();
+}
+function removePaddockAdmin(id){
+  var p = byId(state.harvest.paddocks, id);
+  if(!p) return;
+  if(!confirm('Remove paddock "' + p.name + '"? Dockets already logged against it keep showing its name -- this only removes it from the pick list.')) return;
+  removeById(state.harvest.paddocks, id);
+  persist();
+}
+
+function docketCardHtml(d, readOnly){
   var statusHtml;
   if(!d.driverEmail){
     statusHtml = '<span class="row-muted">No driver email on file — not sent</span>';
@@ -16518,7 +16751,7 @@ function docketCardHtml(d){
   }
   return '<div class="card">' +
     '<div class="card-row"><div>' +
-      '<h3 style="margin:0 0 2px;font-size:15px;">Docket #' + docketNoDisplay(d.docketNo) + ' — ' + esc(commodityLabel(d)) + '</h3>' +
+      '<h3 style="margin:0 0 2px;font-size:15px;">Docket #' + docketNumberDisplay(d) + ' — ' + esc(commodityLabel(d)) + '</h3>' +
       '<p class="row-muted" style="margin:0;font-size:12px;">' + esc(propertyLabel(d)) + (d.paddock ? " — " + esc(d.paddock) : "") + '</p>' +
     '</div>' +
     '<span class="pill" style="margin:0;">' + esc(fmtDate(d.date)) + (d.time ? " " + esc(d.time) : "") + '</span>' +
@@ -16530,7 +16763,7 @@ function docketCardHtml(d){
       '<p class="row-muted" style="margin:4px 0 0;font-size:12px;">Completed by ' + esc(d.completedBy || "—") + '</p>' +
     '</div></div>' +
     '<div class="card-row" style="margin-top:8px;"><div style="font-size:13px;">' + statusHtml + '</div>' +
-    (isAdmin() ? '<button type="button" class="btn btn-danger btn-sm" onclick="removeDocket(\'' + d.id + '\')">Remove</button>' : '') +
+    (isAdmin() && !readOnly ? '<button type="button" class="btn btn-danger btn-sm" onclick="removeDocket(\'' + d.id + '\')">Remove</button>' : '') +
     '</div></div>';
 }
 
@@ -16811,6 +17044,7 @@ async function addDocket(e){
   var item = {
     id: uid("docket"),
     docketNo: nextDocketNumber(),
+    docketYear: state.harvest.docketYear || "",
     date: f.date.value,
     time: f.time.value,
     driverId: driverId,
@@ -16859,7 +17093,7 @@ async function sendDocketEmail(id){
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         to: d.driverEmail,
-        docketNo: docketNoDisplay(d.docketNo),
+        docketNo: docketNumberDisplay(d),
         date: d.date, time: d.time,
         driverName: d.driverName, carrier: d.carrier, rego: d.rego, completedBy: d.completedBy,
         commodity: commodityLabel(d), property: propertyLabel(d), paddock: d.paddock,
@@ -17014,10 +17248,10 @@ function removeDriver(id){
 // Storage for this -- it's a point-in-time export, not a stored file.
 var HARVEST_EXPORT_COLUMNS = ["Docket No","Date","Time","Driver","Carrier","Rego","Completed By","Commodity","Property","Paddock","Delivered To","Approx Weight","Email Status"];
 function harvestExportRows(){
-  var items = (state.harvest.items || []).slice().sort(function(a,b){ return (a.docketNo||0) - (b.docketNo||0); });
+  var items = (state.harvest.items || []).slice().sort(function(a,b){ return compareDockets(b,a); });
   return items.map(function(d){
     return [
-      docketNoDisplay(d.docketNo), d.date || "", d.time || "", d.driverName || "", d.carrier || "", d.rego || "",
+      docketNumberDisplay(d), d.date || "", d.time || "", d.driverName || "", d.carrier || "", d.rego || "",
       d.completedBy || "", commodityLabel(d), propertyLabel(d), d.paddock || "", deliveredToSummary(d),
       d.approxWeight || "", d.emailStatus || ""
     ];
@@ -17124,7 +17358,32 @@ function ensureSidebarConfig(){
   if(!state.sidebarConfig.headings) state.sidebarConfig.headings = [];
   if(!state.sidebarConfig.itemHeading) state.sidebarConfig.itemHeading = {};
   if(!state.sidebarConfig.sectionOrder) state.sidebarConfig.sectionOrder = [];
+  if(!state.sidebarConfig.itemLabel) state.sidebarConfig.itemLabel = {};
   return state.sidebarConfig;
+}
+// The name a NAV entry actually displays as -- its own default label,
+// unless an admin has renamed it in the "Menu items" list below
+// (state.sidebarConfig.itemLabel), at Maria's request ("I also need to be
+// able to edit the headings in the main menu"). Only the sidebar's own
+// button/label text follows this -- a section's own page heading (e.g. the
+// "Harvest Dockets" title at the top of that page) is unaffected, since
+// that's a separate, more involved change she hasn't asked for.
+function navLabel(n){
+  var cfg = state.sidebarConfig || {};
+  var override = cfg.itemLabel && cfg.itemLabel[n.key];
+  return (override && override.trim()) ? override : n.label;
+}
+function setItemLabel(key, value){
+  var cfg = ensureSidebarConfig();
+  var nav = NAV.filter(function(n){ return n.key === key; })[0];
+  var trimmed = (value || "").trim();
+  if(!trimmed || (nav && trimmed === nav.label)){
+    delete cfg.itemLabel[key];
+  } else {
+    cfg.itemLabel[key] = trimmed;
+  }
+  touchSidebarConfig();
+  persist();
 }
 function touchSidebarConfig(){
   var u = currentUser();
@@ -17197,7 +17456,7 @@ function renderSidebarConfigCard(){
   NAV.forEach(function(n){ byKey[n.key] = n; });
 
   var html = '<div class="card"><h3 style="margin-bottom:6px;">Sidebar menu</h3>' +
-    '<p class="row-muted" style="margin:0 0 14px;font-size:12.5px;">Rename headings, add your own, and choose which heading each menu item sits under. Applies for everyone, straight away.</p>';
+    '<p class="row-muted" style="margin:0 0 14px;font-size:12.5px;">Rename headings, add your own, choose which heading each menu item sits under, and rename the menu items themselves below. Applies for everyone, straight away.</p>';
 
   if(cfg.sectionOrder.length === 0){
     html += '<div class="empty-state">Nothing set up yet.</div>';
@@ -17222,7 +17481,7 @@ function renderSidebarConfigCard(){
       var item = byKey[key];
       if(!item) return "";
       return '<div class="card-row" style="padding:8px 0;border-bottom:1px solid var(--border);">' +
-        '<span style="font-size:13.5px;">' + esc(item.label) + ' <span class="row-muted" style="font-size:11.5px;">(no heading)</span></span>' +
+        '<span style="font-size:13.5px;">' + esc(navLabel(item)) + ' <span class="row-muted" style="font-size:11.5px;">(no heading)</span></span>' +
         moveButtons +
       '</div>';
     }).join("");
@@ -17230,14 +17489,17 @@ function renderSidebarConfigCard(){
 
   html += '<button type="button" class="btn btn-ghost btn-sm" style="margin-top:10px;width:auto;" onclick="addSidebarHeading()">+ Add heading</button>';
 
-  html += '<h4 style="margin:20px 0 10px;font-size:13px;">Menu items</h4>';
+  html += '<h4 style="margin:20px 0 10px;font-size:13px;">Menu items</h4>' +
+    '<p class="row-muted" style="margin:0 0 10px;font-size:12px;">Edit a name below to rename that item in the menu. Leave it blank (or put the original name back) to reset it.</p>';
   html += NAV.map(function(n){
     var currentHeading = cfg.itemHeading[n.key] || "";
     var options = '<option value="">No heading</option>' + cfg.headings.map(function(h){
       return '<option value="' + escAttr(h.id) + '"' + (currentHeading === h.id ? " selected" : "") + '>' + esc(h.name) + '</option>';
     }).join("");
-    return '<div class="card-row" style="padding:5px 0;">' +
-      '<span style="font-size:13.5px;">' + esc(n.label) + '</span>' +
+    var renamed = cfg.itemLabel && cfg.itemLabel[n.key] && cfg.itemLabel[n.key] !== n.label;
+    return '<div class="card-row" style="padding:5px 0;gap:8px;flex-wrap:wrap;">' +
+      '<input type="text" value="' + escAttr(navLabel(n)) + '" style="flex:1;min-width:140px;font-size:13.5px;" onchange="setItemLabel(\'' + n.key + '\',this.value)" />' +
+      (renamed ? '<button type="button" class="btn btn-ghost btn-sm" style="width:auto;" title="Reset to \'' + escAttr(n.label) + '\'" onclick="setItemLabel(\'' + n.key + '\',\'\')">Reset</button>' : '') +
       '<select style="width:auto;" onchange="setItemHeading(\'' + n.key + '\',this.value)">' + options + '</select>' +
     '</div>';
   }).join("");
