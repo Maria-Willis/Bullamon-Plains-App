@@ -23,7 +23,12 @@ module.exports = async function handler(req, res) {
     return;
   }
   try {
-    var subject = "Delivery Docket #" + (body.docketNo || "");
+    // A docket that's been edited since it was first logged gets that said
+    // right in its own name here -- "Delivery Docket #2026-001 - Edited" --
+    // so a corrected docket never looks, in the driver's inbox, identical to
+    // the original one it's replacing.
+    var docketName = "Delivery Docket #" + (body.docketNo || "") + (body.edited ? " - Edited" : "");
+    var subject = docketName;
     var rows = [
       ["Date", body.date], ["Time", body.time], ["Driver", body.driverName], ["Carrier", body.carrier],
       ["Rego", body.rego], ["Completed by", body.completedBy], ["Commodity", body.commodity],
@@ -34,7 +39,7 @@ module.exports = async function handler(req, res) {
       return "<tr><td style=\"padding:4px 10px 4px 0;color:#888;\">" + escapeHtml(r[0]) + "</td><td style=\"padding:4px 0;font-weight:600;\">" + escapeHtml(String(r[1])) + "</td></tr>";
     }).join("");
     var html = "<h2 style=\"margin:0 0 4px;\">Bullamon Plains Pastoral Company</h2>" +
-      "<p style=\"margin:0 0 16px;color:#888;\">Delivery Docket #" + escapeHtml(String(body.docketNo || "")) + "</p>" +
+      "<p style=\"margin:0 0 16px;color:#888;\">" + escapeHtml(docketName) + "</p>" +
       "<table style=\"border-collapse:collapse;font-size:14px;\">" + rowsHtml + "</table>";
     var emailResp = await fetch("https://api.resend.com/emails", {
       method: "POST",
