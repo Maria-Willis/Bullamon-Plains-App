@@ -195,7 +195,17 @@
 // picking a driver already auto-filled their regos/carrier. Picking a
 // driver directly still narrows the Rego list back down to just their own,
 // unchanged. index.html only.)
-var CACHE_NAME = "bullamon-plains-shell-v33";
+// (Bumped again 2026-10-02, a sixth time the same day, three small related
+// changes: (1) the docket form's Paddock field no longer offers "+ Add a
+// new paddock..." -- paddocks are now only ever created via the admin-only
+// "Manage paddocks" panel; (2) an edited docket's re-sent email now says so
+// right in its own name -- subject and body both read "Delivery Docket
+// #2026-001 - Edited" -- so a corrected docket never looks, in the
+// driver's inbox, identical to the original it's replacing; (3) an admin
+// can now Remove a docket even from an already-archived/"completed"
+// season (Archived seasons still never offers Edit there). index.html and
+// api/send-docket.js.)
+var CACHE_NAME = "bullamon-plains-shell-v34";
 
 var SHELL_ASSETS = [
   "./",
