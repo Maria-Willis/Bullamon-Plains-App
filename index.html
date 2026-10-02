@@ -1563,7 +1563,7 @@ const DEFAULT_STATE = {
 // change to this file, same as CACHE_NAME in sw.js -- it gives an instant,
 // no-technical-steps-needed way to confirm whether a given device is
 // actually running the latest deploy, without comparing file contents.
-var APP_BUILD = "2026-10-02.8";
+var APP_BUILD = "2026-10-02.9";
 
 /* ======================================================================
    UTILITIES
@@ -17125,6 +17125,7 @@ function renderDocketForm(){
       '<div class="field"><label>Paddock</label><select name="paddockId" required onchange="handlePaddockSelectChange(this)">' + paddockOptionsHtml("") + '</select></div>' +
       '<div class="field"><label>Approximate weight</label><input type="text" name="approxWeight" placeholder="e.g. 24.5t" required /></div>' +
       '<div class="field span-2"><label>Delivered to</label><select name="deliveredTo" required onchange="handleConditionalSelect(this, \'deliveredTo\')">' +
+        '<option value="" selected disabled>Choose where this is going…</option>' +
         '<option value="Graincorp">GrainCorp</option>' +
         '<option value="Thallon Grains">Thallon Grains</option>' +
         '<option value="Farm">Farm (silo/bunker)</option>' +
@@ -17179,7 +17180,11 @@ function renderDocketEditForm(d){
   var propertyOptions = propertyMatch ? propertyOptionsHtml(propertyMatch.id) : (keepOptionHtml(d.property) + propertyOptionsHtml());
   var paddockOptions = paddockMatch ? paddockOptionsHtml(d.property, paddockMatch.id) : (keepOptionHtml(d.paddock) + paddockOptionsHtml(d.property));
 
-  var deliveredToVal = d.deliveredTo || "Graincorp";
+  // No silent "Graincorp" fallback here -- a docket from before this field
+  // existed (or any other gap in old data) must force a real choice on
+  // Edit, the same as a brand-new docket does, rather than quietly treating
+  // "never set" as "GrainCorp".
+  var deliveredToVal = d.deliveredTo || "";
   var farmTypeVal = d.farmType || "Silo";
   var isFarm = deliveredToVal === "Farm";
   var isOther = deliveredToVal === "Other";
@@ -17209,6 +17214,7 @@ function renderDocketEditForm(d){
       '<div class="field"><label>Paddock</label><select name="paddockId" required onchange="handlePaddockSelectChange(this)">' + paddockOptions + '</select></div>' +
       '<div class="field"><label>Approximate weight</label><input type="text" name="approxWeight" value="' + escAttr(d.approxWeight || "") + '" placeholder="e.g. 24.5t" required /></div>' +
       '<div class="field span-2"><label>Delivered to</label><select name="deliveredTo" required onchange="handleConditionalSelect(this, \'deliveredTo\')">' +
+        (deliveredToVal ? '' : '<option value="" selected disabled>Choose where this is going…</option>') +
         '<option value="Graincorp"' + (deliveredToVal === "Graincorp" ? " selected" : "") + '>GrainCorp</option>' +
         '<option value="Thallon Grains"' + (deliveredToVal === "Thallon Grains" ? " selected" : "") + '>Thallon Grains</option>' +
         '<option value="Farm"' + (deliveredToVal === "Farm" ? " selected" : "") + '>Farm (silo/bunker)</option>' +
@@ -18433,4 +18439,3 @@ boot();
 </script>
 </body>
 </html>
-
