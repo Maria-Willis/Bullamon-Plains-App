@@ -223,7 +223,15 @@
 // app, direct or indirect, that gets them to Machinery, Chemicals, Team,
 // etc. Admin status always overrides the flag, so nobody can accidentally
 // lock an admin out of the rest of the app. index.html only.)
-var CACHE_NAME = "bullamon-plains-shell-v36";
+// (Bumped again 2026-10-02, a ninth time the same day: the docket form's
+// "Delivered to" field no longer defaults to GrainCorp (or anything else)
+// -- it opens on a blank, disabled placeholder option instead, so the form
+// won't validate until someone actually picks where the load is going. At
+// Maria's request: "Do not let the delivered to section sit on GrainCorp
+// because if they miss this section they could all go through to
+// GrainCorp. Force them to make a selection." Applies to both the Add and
+// Edit docket forms. index.html only.)
+var CACHE_NAME = "bullamon-plains-shell-v37";
 
 var SHELL_ASSETS = [
   "./",
