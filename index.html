@@ -819,6 +819,10 @@ const DEFAULT_STATE = {
       "name": "Sam",
       "canAllocate": false,
       "harvestOnly": false,
+      "canAddParts": false,
+      "machineryAdmin": false,
+      "sopsAdmin": false,
+      "canViewReceipts": false,
       "active": true,
       "isAdmin": false,
       "passcode": ""
@@ -827,6 +831,10 @@ const DEFAULT_STATE = {
       "name": "Maria",
       "canAllocate": true,
       "harvestOnly": false,
+      "canAddParts": false,
+      "machineryAdmin": false,
+      "sopsAdmin": false,
+      "canViewReceipts": false,
       "active": true,
       "isAdmin": true,
       "passcode": ""
@@ -835,6 +843,10 @@ const DEFAULT_STATE = {
       "name": "Milo Morris",
       "canAllocate": false,
       "harvestOnly": false,
+      "canAddParts": false,
+      "machineryAdmin": false,
+      "sopsAdmin": false,
+      "canViewReceipts": false,
       "active": true,
       "isAdmin": false,
       "passcode": ""
@@ -1563,7 +1575,7 @@ const DEFAULT_STATE = {
 // change to this file, same as CACHE_NAME in sw.js -- it gives an instant,
 // no-technical-steps-needed way to confirm whether a given device is
 // actually running the latest deploy, without comparing file contents.
-var APP_BUILD = "2026-10-02.9";
+var APP_BUILD = "2026-10-02.10";
 
 /* ======================================================================
    UTILITIES
@@ -1941,6 +1953,36 @@ function isAdmin(){ var u = currentUser(); return !!(u && u.isAdmin); }
 // every other check (sidebar, section dispatch, post-sign-in landing page)
 // calls this rather than reading u.harvestOnly directly.
 function isHarvestOnly(){ var u = currentUser(); return !!(u && u.harvestOnly && !u.isAdmin); }
+// A team member can be flagged "can add parts" (state.team[].canAddParts,
+// same shape as canAllocate/harvestOnly), at Maria's request ("Give
+// permission to certain people to add parts to the machinery section").
+// Deliberately narrower than admin: it only unlocks ADDING a new part to a
+// machine's Parts tab -- editing or deleting a part already on file stays
+// admin-only, unchanged (see renderMachinePartsSection()'s isAdmin() checks,
+// not touched by this). Admins can always add parts too, same as before.
+function canAddMachineParts(){ var u = currentUser(); return !!(u && (u.isAdmin || u.canAddParts || u.machineryAdmin)); }
+// Two more per-person flags, at Maria's follow-up request ("Allow certain
+// people full access to the machinery maintenance and operating
+// procedures"), each independently settable (ticking one doesn't grant the
+// other) in case she ever wants to hand one out without the other. "Full
+// access" here means exactly what isAdmin() already unlocks inside that one
+// section -- editing/archiving/deleting a machine, its parts, service
+// schedule and issue reports for machineryAdmin; adding/editing/deleting an
+// Operating Procedure (including its photos) for sopsAdmin -- and nothing
+// outside that section (Team, other sections' admin panels, etc. still need
+// real isAdmin()). Every isAdmin() check inside renderMachinery()...saveMachine()
+// (the Machinery section) and renderSops()...renderSopForm() (the Operating
+// Procedures section) was switched to one of these two instead.
+function canAdminMachinery(){ var u = currentUser(); return !!(u && (u.isAdmin || u.machineryAdmin)); }
+function canAdminSops(){ var u = currentUser(); return !!(u && (u.isAdmin || u.sopsAdmin)); }
+// Receipts is the reverse shape from every other flag above: at Maria's
+// request ("only give certain people access to view the receipts that have
+// been uploaded. Everyone can enter a receipt but only certain people can
+// see them"), ADDING a receipt stays open to every signed-in person exactly
+// as before (unchanged, unconditional in renderReceipts()/renderReceiptForm()
+// below) -- this flag only gates being able to see the list of receipts
+// already uploaded, admin or not.
+function canViewReceipts(){ var u = currentUser(); return !!(u && (u.isAdmin || u.canViewReceipts)); }
 // The "Private" section (see renderPrivate()) is visible to admins (so it
 // can always be found and managed, even before anyone's been given access)
 // plus whichever up-to-two people are listed in state.settings.privateAccess.
@@ -12822,7 +12864,7 @@ function renderMachineryList(){
   html += '<div class="toolbar">' +
     '<input id="machinery-search-input" class="search-input" type="text" placeholder="Search machinery…" value="' + escAttr(ui.machineryQuery) + '" oninput="ui.machineryQuery=this.value;render();" />' +
     '<span style="flex:1;"></span>' +
-    (isAdmin() ? '<button type="button" class="btn btn-primary" style="width:auto;" onclick="toggleForm(\'newMachine\')">' + (ui.openForms.newMachine ? "Cancel" : "+ Add machine") + '</button>' : '') +
+    (canAdminMachinery() ? '<button type="button" class="btn btn-primary" style="width:auto;" onclick="toggleForm(\'newMachine\')">' + (ui.openForms.newMachine ? "Cancel" : "+ Add machine") + '</button>' : '') +
   '</div>';
   html += '<div class="filter-pill-row">' +
     ['all', 'due', 'out'].map(function(key){
@@ -12954,13 +12996,13 @@ function renderMachineDetail(m){
     html += '<p class="row-muted" style="margin:10px 0 0;font-size:12px;">' +
       (m.archivedReason ? esc(m.archivedReason) : "No reason given") + (m.archivedDate ? " &middot; " + fmtDate(m.archivedDate) : "") +
     '</p>';
-    if(isAdmin()){
+    if(canAdminMachinery()){
       html += '<div class="job-actions" style="margin:10px 0 0;">' +
         '<button type="button" class="btn btn-ghost btn-sm" onclick="restoreMachine(\'' + m.id + '\')">Restore to active list</button>' +
         '<button type="button" class="btn btn-danger btn-sm" onclick="confirmDeleteMachine(\'' + m.id + '\')">Delete machine entirely</button>' +
       '</div>';
     }
-  } else if(isAdmin()){
+  } else if(canAdminMachinery()){
     html += '<div class="job-actions" style="margin:10px 0 0;">' +
       '<button type="button" class="btn btn-ghost btn-sm" onclick="ui.editing.machine=\'' + m.id + '\';render();">Edit</button>' +
       '<button type="button" class="btn btn-ghost btn-sm" onclick="toggleForm(\'archive_' + m.id + '\')">' + (ui.openForms["archive_" + m.id] ? "Cancel" : "Mark as Sold / Other") + '</button>' +
@@ -13060,7 +13102,7 @@ function renderMachinePartsTab(m){
   var html = '<div class="toolbar">' +
     '<input class="search-input" type="text" placeholder="Search parts or part numbers" value="' + escAttr(ui.machinePartsQuery || "") + '" oninput="ui.machinePartsQuery=this.value;render();" />' +
     '<span style="flex:1;"></span>' +
-    (isAdmin() ? '<button type="button" class="btn btn-primary" style="width:auto;" onclick="toggleForm(\'' + addKey + '\')">' + (ui.openForms[addKey] ? "Cancel" : "+ Add part") + '</button>' : "") +
+    (canAddMachineParts() ? '<button type="button" class="btn btn-primary" style="width:auto;" onclick="toggleForm(\'' + addKey + '\')">' + (ui.openForms[addKey] ? "Cancel" : "+ Add part") + '</button>' : "") +
   '</div>';
   if(ui.openForms[addKey]) html += renderMachinePartForm(m, null);
   html += renderMachinePartsSection(m, q);
@@ -13089,14 +13131,14 @@ function renderMachineServiceScheduleTab(m){
       checklist.map(function(item){ return '<div class="due-checklist-row"><span class="due-checklist-dot"></span>' + esc(item) + '</div>'; }).join("") +
     '</div>';
   }
-  if(isAdmin()){
+  if(canAdminMachinery()){
     html += '<button type="button" class="btn btn-ghost btn-sm" style="margin-top:8px;" onclick="toggleForm(\'checklist_' + m.id + '\')">' + (checklistEditing ? "Cancel" : "Edit service checklist") + '</button>';
     if(checklistEditing) html += renderMachineChecklistForm(m);
   }
 
   html += '<div class="stat-label" style="margin-top:18px;">Schedule &amp; history</div>';
   html += renderMachineServiceHistory(m);
-  if(isAdmin()){
+  if(canAdminMachinery()){
     html += '<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">' +
       '<button type="button" class="btn btn-ghost btn-sm" onclick="toggleForm(\'setSchedule_' + m.id + '\')">' + (ui.openForms["setSchedule_" + m.id] ? "Cancel" : (scheduleConfigured ? "Edit maintenance schedule" : "+ Set maintenance schedule")) + '</button>' +
       ((m.log || []).length ? '<button type="button" class="btn btn-danger btn-sm" onclick="confirmDeleteServiceHistory(\'' + m.id + '\')">Delete all service history</button>' : "") +
@@ -13192,7 +13234,7 @@ function renderMachineIssueDetail(m, iss){
     '</div>' +
   '</form>';
 
-  if(isAdmin()){
+  if(canAdminMachinery()){
     html += '<div style="display:flex;gap:8px;margin-top:14px;border-top:1px solid var(--border);padding-top:10px;">' +
       '<button type="button" class="btn btn-ghost btn-sm" onclick="ui.openForms[\'' + editKey + '\']=' + (editingDesc ? "false" : "true") + ';render();">' + (editingDesc ? "Cancel edit" : "Edit report") + '</button>' +
       '<button type="button" class="btn btn-danger btn-sm" onclick="if(confirm(\'Delete this issue?\')){deleteMachineIssue(\'' + m.id + '\',\'' + iss.id + '\');}">Delete</button>' +
@@ -13426,7 +13468,7 @@ function renderMachinePartsSection(m, q){
         '<td class="row-muted">' + esc(p.partNumber || "—") + (p.partNumber ? ' <button type="button" class="subtle-btn" title="Copy part number" onclick="copyPartNumber(this,\'' + escAttr(p.partNumber) + '\')">&#128203;</button>' : "") + '</td>' +
         '<td class="row-muted">' + esc(p.qty || "—") + '</td>' +
         '<td class="row-muted">' + esc(p.notes || "—") + '</td>' +
-        '<td style="white-space:nowrap;">' + (isAdmin() ?
+        '<td style="white-space:nowrap;">' + (canAdminMachinery() ?
           ('<button type="button" class="btn btn-ghost btn-sm" onclick="ui.openForms[\'' + editKey + '\']=!ui.openForms[\'' + editKey + '\'];render();">' + (editing ? "Cancel" : "Edit") + '</button> ' +
            '<button type="button" class="btn btn-danger btn-sm" onclick="confirmDeleteMachinePart(\'' + m.id + '\',\'' + p.id + '\')">Delete</button>')
           : "") + '</td>' +
@@ -13456,6 +13498,12 @@ function renderMachinePartForm(m, existing){
 }
 function saveMachinePart(e, machineId, partId){
   e.preventDefault();
+  // Defense in depth, matching the button-level gating above: adding a new
+  // part needs canAddMachineParts() (admin, canAddParts, or machineryAdmin);
+  // editing an EXISTING part needs canAdminMachinery() (admin or
+  // machineryAdmin) -- the plain canAddParts flag never unlocks editing an
+  // already-recorded part, only adding new ones, same as its button above.
+  if(partId ? !canAdminMachinery() : !canAddMachineParts()) return;
   var f = e.target;
   var formKey = partId ? ("editpart_" + partId) : ("newPart_" + machineId);
   var name = f.name.value.trim();
@@ -13552,7 +13600,7 @@ function renderArchivedMachineCard(m){
     '<p class="row-muted" style="margin:8px 0 0;font-size:12px;">' +
       (m.archivedReason ? esc(m.archivedReason) : "No reason given") + (m.archivedDate ? " &middot; " + fmtDate(m.archivedDate) : "") +
     '</p>' +
-    (isAdmin() ? '<div class="job-actions" style="margin-top:12px;">' +
+    (canAdminMachinery() ? '<div class="job-actions" style="margin-top:12px;">' +
       '<button type="button" class="btn btn-ghost btn-sm" onclick="restoreMachine(\'' + m.id + '\')">Restore to active list</button>' +
       '<button type="button" class="btn btn-danger btn-sm" onclick="confirmDeleteMachine(\'' + m.id + '\')">Delete machine entirely</button>' +
     '</div>' : '') +
@@ -14056,7 +14104,7 @@ function renderMachineServiceHistory(m){
         '<td class="row-muted">' + whatCell + '</td>' +
         '<td class="row-muted">—</td>' +
         '<td><span class="pill ' + tone + '">' + label + '</span></td>' +
-        '<td style="white-space:nowrap;">' + (isAdmin() ? '<button type="button" class="btn btn-ghost btn-sm" onclick="ui.openForms[\'ms_' + m.id + '_' + key + '\']=!ui.openForms[\'ms_' + m.id + '_' + key + '\'];render();">' + (open ? "Cancel" : "Log this service") + '</button> <button type="button" class="btn btn-ghost btn-sm" onclick="ui.openForms[\'' + reminderFormKey + '\']=!ui.openForms[\'' + reminderFormKey + '\'];render();">' + (reminderOpen ? "Cancel" : (reminderText ? "Edit reminder" : "Set reminder")) + '</button>' : '') + '</td>' +
+        '<td style="white-space:nowrap;">' + (canAdminMachinery() ? '<button type="button" class="btn btn-ghost btn-sm" onclick="ui.openForms[\'ms_' + m.id + '_' + key + '\']=!ui.openForms[\'ms_' + m.id + '_' + key + '\'];render();">' + (open ? "Cancel" : "Log this service") + '</button> <button type="button" class="btn btn-ghost btn-sm" onclick="ui.openForms[\'' + reminderFormKey + '\']=!ui.openForms[\'' + reminderFormKey + '\'];render();">' + (reminderOpen ? "Cancel" : (reminderText ? "Edit reminder" : "Set reminder")) + '</button>' : '') + '</td>' +
       '</tr>';
     }).join("");
   }
@@ -14079,7 +14127,7 @@ function renderMachineServiceHistory(m){
       '<td>' + esc(l.description) + scheduledTag + usedTag + '</td>' +
       '<td>' + esc(l.performedBy) + '</td>' +
       '<td><span class="pill pill-todo">Done</span></td>' +
-      '<td>' + (isAdmin() ? '<button type="button" class="btn btn-ghost btn-sm" onclick="ui.openForms[\'' + editKey + '\']=!ui.openForms[\'' + editKey + '\'];render();">' + (editingLog ? "Cancel" : "Edit") + '</button>' : '') + '</td>' +
+      '<td>' + (canAdminMachinery() ? '<button type="button" class="btn btn-ghost btn-sm" onclick="ui.openForms[\'' + editKey + '\']=!ui.openForms[\'' + editKey + '\'];render();">' + (editingLog ? "Cancel" : "Edit") + '</button>' : '') + '</td>' +
     '</tr>';
   }).join("");
 
@@ -15076,7 +15124,7 @@ function renderSops(){
   html += '<div class="toolbar">' +
     '<input id="sop-search-input" class="search-input" type="text" placeholder="Search Operating Procedures…" value="' + escAttr(ui.sopQuery) + '" oninput="ui.sopQuery=this.value;render();" />' +
     '<span style="flex:1;"></span>' +
-    (isAdmin() ? '<button type="button" class="btn btn-primary" style="width:auto;" onclick="toggleForm(\'newSop\')">' + (ui.openForms.newSop ? "Cancel" : "+ Add Operating Procedure") + '</button>' : '') +
+    (canAdminSops() ? '<button type="button" class="btn btn-primary" style="width:auto;" onclick="toggleForm(\'newSop\')">' + (ui.openForms.newSop ? "Cancel" : "+ Add Operating Procedure") + '</button>' : '') +
   '</div>';
   html += sopHeadingOptionsList();
   if(ui.openForms.newSop) html += renderSopForm();
@@ -15151,7 +15199,7 @@ function renderSopSectionBody(s, opts){
     photosHtml += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">' + photos.map(function(p){
       return '<div style="position:relative;">' +
         '<img src="' + escAttr(p.url) + '" alt="' + escAttr(s.title) + ' photo" loading="lazy" style="width:90px;height:90px;object-fit:cover;border:1px solid var(--border);cursor:pointer;" onclick="return openStoredFile(\'' + escAttr(p.url) + '\')" />' +
-        (isAdmin() ? '<button type="button" class="btn btn-danger btn-sm" style="position:absolute;top:2px;right:2px;padding:0 6px;font-size:11px;line-height:1.6;" onclick="removeSopPhoto(\'' + s.id + '\',\'' + p.id + '\')" title="Remove photo">&times;</button>' : '') +
+        (canAdminSops() ? '<button type="button" class="btn btn-danger btn-sm" style="position:absolute;top:2px;right:2px;padding:0 6px;font-size:11px;line-height:1.6;" onclick="removeSopPhoto(\'' + s.id + '\',\'' + p.id + '\')" title="Remove photo">&times;</button>' : '') +
       '</div>';
     }).join("") + '</div>';
   }
@@ -15160,12 +15208,12 @@ function renderSopSectionBody(s, opts){
     '<div class="card-row"><div><h3 style="margin-bottom:2px;">' + esc(s.machine) + '</h3><p class="row-muted" style="margin:0;font-size:12.5px;">' + esc(s.title) + ' &middot; ' + esc(s.category) + '</p></div>' +
     '<div style="display:flex;gap:6px;">' +
       (opts.collapsible ? '<button type="button" class="btn btn-ghost btn-sm" onclick="ui.openForms[\'' + expandKey + '\']=false;render();">&#9652; Hide</button>' : '') +
-      (isAdmin() ? '<button type="button" class="btn btn-ghost btn-sm" onclick="ui.editing.sop=\'' + s.id + '\';render();">Edit</button><button type="button" class="btn btn-danger btn-sm" onclick="if(confirm(\'Delete this Operating Procedure?\')){removeById(state.sops,\'' + s.id + '\');persist();}">Delete</button>' : '') +
+      (canAdminSops() ? '<button type="button" class="btn btn-ghost btn-sm" onclick="ui.editing.sop=\'' + s.id + '\';render();">Edit</button><button type="button" class="btn btn-danger btn-sm" onclick="if(confirm(\'Delete this Operating Procedure?\')){removeById(state.sops,\'' + s.id + '\');persist();}">Delete</button>' : '') +
     '</div>' +
     '</div>' +
     '<ol class="steps-list">' + (s.steps||[]).map(function(st){ return '<li>' + esc(st) + '</li>'; }).join("") + '</ol>' +
     photosHtml +
-    (isAdmin() ? '<button type="button" class="btn btn-ghost btn-sm" style="margin-top:10px;" onclick="toggleForm(\'' + photoFormKey + '\')">' + (ui.openForms[photoFormKey] ? "Cancel" : "+ Add photo") + '</button>' : '') +
+    (canAdminSops() ? '<button type="button" class="btn btn-ghost btn-sm" style="margin-top:10px;" onclick="toggleForm(\'' + photoFormKey + '\')">' + (ui.openForms[photoFormKey] ? "Cancel" : "+ Add photo") + '</button>' : '') +
     (ui.openForms[photoFormKey] ? renderSopPhotoForm(s) : "") +
     '<p class="row-muted" style="margin:10px 0 0;font-size:11.5px;">Last reviewed ' + fmtDate(s.lastReviewed) + '</p>' +
   '</div>';
@@ -16364,6 +16412,12 @@ function renderReceipts(){
     '<button type="button" class="btn btn-primary" style="width:auto;" onclick="toggleForm(\'newReceipt\')">' + (ui.openForms.newReceipt ? "Cancel" : "+ Add receipt") + '</button>' +
   '</div>';
   if(ui.openForms.newReceipt) html += renderReceiptForm();
+  // Uploading stays open to everyone above, unconditionally -- only seeing
+  // what's already been uploaded is gated, at Maria's request.
+  if(!canViewReceipts()){
+    html += '<div class="empty-state">Receipts you (or anyone else) upload still go out by email right away -- you just don\'t have access to view the list here. Ask an admin if you need that.</div>';
+    return html;
+  }
   var items = (state.receipts.items || []).slice().sort(function(a,b){ return (b.uploadedAt||"").localeCompare(a.uploadedAt||""); });
   if(items.length === 0){ html += '<div class="empty-state">No receipts uploaded yet. Tap "+ Add receipt" above to upload one — it\'ll be emailed on automatically.</div>'; }
   else {
@@ -16584,7 +16638,7 @@ function renderHarvest(){
     '<button type="button" class="btn btn-ghost" style="width:auto;" onclick="toggleForm(\'manageDrivers\')">' + (ui.openForms.manageDrivers ? "Hide drivers" : "Manage drivers") + '</button>' +
     (isAdmin() ? '<button type="button" class="btn btn-ghost" style="width:auto;" onclick="toggleForm(\'manageProperties\')">' + (ui.openForms.manageProperties ? "Hide properties" : "Manage properties") + '</button>' : '') +
     (isAdmin() ? '<button type="button" class="btn btn-ghost" style="width:auto;" onclick="toggleForm(\'managePaddocks\')">' + (ui.openForms.managePaddocks ? "Hide paddocks" : "Manage paddocks") + '</button>' : '') +
-    '<button type="button" class="btn btn-ghost" style="width:auto;" onclick="exportHarvestToExcel()">&#8681; Export &amp; email (Excel)</button>' +
+    (isAdmin() ? '<button type="button" class="btn btn-ghost" style="width:auto;" onclick="exportHarvestToExcel()">&#8681; Export &amp; email (Excel)</button>' : '') +
     '<span style="flex:1;"></span>' +
     '<button type="button" class="btn btn-primary" style="width:auto;" onclick="toggleForm(\'newDocket\')">' + (ui.openForms.newDocket ? "Cancel" : "+ Add docket") + '</button>' +
   '</div>';
@@ -17824,6 +17878,11 @@ function harvestExportRows(){
   });
 }
 async function exportHarvestToExcel(){
+  // Admin-only, at Maria's request ("only admin and export and email
+  // harvest dockets") -- matches the button-level gating below. A defense-
+  // in-depth check here too, since this emails the whole season's data out
+  // to a fixed external address in one go, not just this device's own view.
+  if(!isAdmin()) return;
   if(typeof XLSX === "undefined"){
     setNotice("err", "The Excel export tool hasn't finished loading yet (it needs a connection the first time this device uses it) -- try again in a moment.");
     render();
@@ -17900,6 +17959,10 @@ function renderTeam(){
           (t.isAdmin ? '<span class="pill pill-admin" style="margin:0;">Admin</span>' : '') +
           (t.canAllocate ? '<span>Can allocate jobs</span>' : '') +
           (t.harvestOnly ? '<span>Harvest dockets only</span>' : '') +
+          (t.canAddParts ? '<span>Can add machinery parts</span>' : '') +
+          (t.machineryAdmin ? '<span>Full access: Machinery</span>' : '') +
+          (t.sopsAdmin ? '<span>Full access: Operating Procedures</span>' : '') +
+          (t.canViewReceipts ? '<span>Can view receipts</span>' : '') +
           '<span>Code: ' + (t.passcode ? '<code class="access-code">set</code>' : '<em>none</em>') + '</span>' +
         '</div></div></div>' +
       '<div style="display:flex;gap:6px;">' +
@@ -18087,6 +18150,10 @@ function renderStaffForm(existing){
       '<div class="checkbox-row field"><input type="checkbox" name="isAdmin" id="admin_cb" ' + (existing && existing.isAdmin ? 'checked' : '') + ' /><label for="admin_cb" style="text-transform:none;font-weight:400;">Admin (Team page + edit reference content)</label></div>' +
       '<div class="checkbox-row field"><input type="checkbox" name="canAllocate" id="alloc_cb" ' + (existing && existing.canAllocate ? 'checked' : '') + ' /><label for="alloc_cb" style="text-transform:none;font-weight:400;">Can allocate jobs to others</label></div>' +
       '<div class="checkbox-row field"><input type="checkbox" name="harvestOnly" id="harvestonly_cb" ' + (existing && existing.harvestOnly ? 'checked' : '') + ' /><label for="harvestonly_cb" style="text-transform:none;font-weight:400;">Harvest dockets only (hides every other section)</label></div>' +
+      '<div class="checkbox-row field"><input type="checkbox" name="canAddParts" id="addparts_cb" ' + (existing && existing.canAddParts ? 'checked' : '') + ' /><label for="addparts_cb" style="text-transform:none;font-weight:400;">Can add parts to machinery records</label></div>' +
+      '<div class="checkbox-row field"><input type="checkbox" name="machineryAdmin" id="machineryadmin_cb" ' + (existing && existing.machineryAdmin ? 'checked' : '') + ' /><label for="machineryadmin_cb" style="text-transform:none;font-weight:400;">Full access to Machinery Maintenance</label></div>' +
+      '<div class="checkbox-row field"><input type="checkbox" name="sopsAdmin" id="sopsadmin_cb" ' + (existing && existing.sopsAdmin ? 'checked' : '') + ' /><label for="sopsadmin_cb" style="text-transform:none;font-weight:400;">Full access to Operating Procedures</label></div>' +
+      '<div class="checkbox-row field"><input type="checkbox" name="canViewReceipts" id="viewreceipts_cb" ' + (existing && existing.canViewReceipts ? 'checked' : '') + ' /><label for="viewreceipts_cb" style="text-transform:none;font-weight:400;">Can view uploaded receipts (everyone can still upload one)</label></div>' +
     '</div>' +
     '<div class="form-actions"><button type="submit" class="btn btn-primary" style="width:auto;">Save</button>' +
     '<button type="button" class="btn btn-ghost" onclick="' + (existing ? "ui.editing.staff=null;render();" : "toggleForm('newStaff')") + '">Cancel</button></div>' +
@@ -18097,7 +18164,7 @@ function saveStaff(e, origName){
   var f = e.target;
   var name = f.name.value.trim();
   if(!name) return;
-  var data = { name: name, passcode: f.passcode.value.trim(), active: f.active.checked, isAdmin: f.isAdmin.checked, canAllocate: f.canAllocate.checked, harvestOnly: f.harvestOnly.checked };
+  var data = { name: name, passcode: f.passcode.value.trim(), active: f.active.checked, isAdmin: f.isAdmin.checked, canAllocate: f.canAllocate.checked, harvestOnly: f.harvestOnly.checked, canAddParts: f.canAddParts.checked, machineryAdmin: f.machineryAdmin.checked, sopsAdmin: f.sopsAdmin.checked, canViewReceipts: f.canViewReceipts.checked };
   if(origName){
     var t = findTeam(origName);
     Object.assign(t, data);
