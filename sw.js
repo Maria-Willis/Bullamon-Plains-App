@@ -173,7 +173,29 @@
 // properties" panel added, same shape as "Manage paddocks" -- rename or
 // remove a property, with renames cascading to any paddocks linked to it so
 // they don't turn into orphans. index.html only.)
-var CACHE_NAME = "bullamon-plains-shell-v30";
+// (Bumped again 2026-10-02, a third time the same day: a logged docket can
+// now be edited -- including one already emailed to its driver -- by
+// anyone, not just admins. Editing re-sends the corrected docket to the
+// driver automatically if one's on file, and the docket is permanently
+// marked "Edited" (with when/by whom) everywhere it's shown, including in
+// Archived seasons and the Excel export, so a corrected docket never looks
+// identical to an untouched one. index.html only.)
+// (Bumped again 2026-10-02, a fourth time the same day: every field on the
+// Add/Edit docket form is now mandatory -- including the conditionally
+// shown ones (new driver/commodity/property/paddock/rego name, silo
+// number, bunker location, contract no., buyer/merchant), which only
+// become required once their section is actually shown. Only the "Ex
+// Farm" checkbox stays optional, since a checkbox can't sensibly be forced
+// to a single value. index.html only.)
+// (Bumped again 2026-10-02, a fifth time the same day: the docket form's
+// Rego field now lists every driver's saved regos up front, grouped by
+// driver, so a rego can be picked before a driver's even chosen -- e.g.
+// ticking trucks off as they arrive by plate. Picking one now auto-selects
+// its owning driver (and pulls in their usual carrier), the same way
+// picking a driver already auto-filled their regos/carrier. Picking a
+// driver directly still narrows the Rego list back down to just their own,
+// unchanged. index.html only.)
+var CACHE_NAME = "bullamon-plains-shell-v33";
 
 var SHELL_ASSETS = [
   "./",
