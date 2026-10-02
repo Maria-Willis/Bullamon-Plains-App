@@ -231,7 +231,26 @@
 // because if they miss this section they could all go through to
 // GrainCorp. Force them to make a selection." Applies to both the Add and
 // Edit docket forms. index.html only.)
-var CACHE_NAME = "bullamon-plains-shell-v37";
+// (Bumped again 2026-10-02, a tenth time the same day: five more
+// per-person permission flags on a staff record (Team page), all shipped
+// together. "Can add parts to machinery records" lets someone add a new
+// part/component to a machine's Parts tab without full admin (editing or
+// deleting a part already on file stays admin-only). "Full access to
+// Machinery Maintenance" and "Full access to Operating Procedures" each
+// grant admin-equivalent access, but only inside that one section --
+// nothing else in the app. "Can view uploaded receipts" flips the usual
+// shape: uploading a receipt stays open to every signed-in person exactly
+// as before, but seeing the list of what's already been uploaded is now
+// gated, with a plain-text explanation shown instead for anyone without it.
+// And the Harvest "Export & email (Excel)" button (and the function behind
+// it) is now admin-only, where it was previously open to everyone. At
+// Maria's requests: "Give permission to certain people to add parts to the
+// machinery section", "Allow certain people full access to the machinery
+// maintenance and operating procedures", "only give certain people access
+// to view the receipts that have been uploaded. Everyone can enter a
+// receipt but only certain people can see them", and "only admin and
+// export and email harvest dockets". index.html only.)
+var CACHE_NAME = "bullamon-plains-shell-v38";
 
 var SHELL_ASSETS = [
   "./",
