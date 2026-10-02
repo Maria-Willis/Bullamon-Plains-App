@@ -1560,7 +1560,7 @@ const DEFAULT_STATE = {
 // change to this file, same as CACHE_NAME in sw.js -- it gives an instant,
 // no-technical-steps-needed way to confirm whether a given device is
 // actually running the latest deploy, without comparing file contents.
-var APP_BUILD = "2026-10-02.5";
+var APP_BUILD = "2026-10-02.6";
 
 /* ======================================================================
    UTILITIES
@@ -16846,8 +16846,15 @@ function docketCardHtml(d, readOnly){
       (d.editedAt ? '<p class="row-muted" style="margin:2px 0 0;font-size:12px;">Edited ' + esc(fmtDateTime(d.editedAt)) + (d.editedBy ? (" by " + esc(d.editedBy)) : "") + '</p>' : '') +
     '</div></div>' +
     '<div class="card-row" style="margin-top:8px;"><div style="font-size:13px;">' + statusHtml + '</div>' +
-    (!readOnly ? '<span style="display:flex;gap:6px;">' +
-      '<button type="button" class="btn btn-ghost btn-sm" onclick="ui.editing.docket=\'' + d.id + '\';render();">Edit</button>' +
+    // Edit never shows up on a read-only (Archived seasons) card -- editing
+    // a docket from a closed season isn't on offer. Remove, though, is now
+    // available there too for admins, at Maria's request ("Make the remove
+    // option on the completed dockets available to admin"), so a mistaken
+    // entry can still be cleaned up after its season's been archived --
+    // removeDocket() below knows to look in the archives when a docket
+    // isn't found in the active list.
+    ((!readOnly || isAdmin()) ? '<span style="display:flex;gap:6px;">' +
+      (!readOnly ? '<button type="button" class="btn btn-ghost btn-sm" onclick="ui.editing.docket=\'' + d.id + '\';render();">Edit</button>' : '') +
       (isAdmin() ? '<button type="button" class="btn btn-danger btn-sm" onclick="removeDocket(\'' + d.id + '\')">Remove</button>' : '') +
     '</span>' : '') +
     '</div></div>';
@@ -16879,7 +16886,6 @@ function refreshDocketFormRequired(form){
   if(form.regoValue) setGroupRequired("new-rego-fields", form.regoValue.value === "__new");
   if(form.commodityId) setGroupRequired("new-commodity-fields", form.commodityId.value === "__new");
   if(form.propertyId) setGroupRequired("new-property-fields", form.propertyId.value === "__new");
-  if(form.paddockId) setGroupRequired("new-paddock-fields", form.paddockId.value === "__new");
 
   if(form.deliveredTo){
     var deliveredTo = form.deliveredTo.value;
@@ -17028,16 +17034,18 @@ function paddocksForProperty(property){
   return (state.harvest.paddocks || []).filter(function(p){ return p.property === property; })
     .sort(function(a,b){ return a.name.localeCompare(b.name); });
 }
+// No "+ Add a new paddock…" option here, at Maria's request ("Eliminate the
+// option to add new paddock when entering a docket") -- paddocks are now
+// only ever created/renamed via the admin-only "Manage paddocks" panel, so
+// the docket form's Paddock field is a plain pick-from-the-list, same as any
+// other already-closed dropdown.
 function paddockOptionsHtml(property, selectedId){
   return '<option value="">Choose a paddock…</option>' +
-    paddocksForProperty(property).map(function(p){ return '<option value="' + escAttr(p.id) + '"' + (selectedId && p.id === selectedId ? " selected" : "") + '>' + esc(p.name) + '</option>'; }).join("") +
-    '<option value="__new">+ Add a new paddock…</option>';
+    paddocksForProperty(property).map(function(p){ return '<option value="' + escAttr(p.id) + '"' + (selectedId && p.id === selectedId ? " selected" : "") + '>' + esc(p.name) + '</option>'; }).join("");
 }
 function handlePaddockSelectChange(select){
   var form = select.form;
   if(!form) return;
-  var show = select.value === "__new";
-  Array.prototype.forEach.call(form.querySelectorAll(".new-paddock-fields"), function(el){ el.style.display = show ? "" : "none"; });
   refreshDocketFormRequired(form);
 }
 // Picking (or adding) a Property rebuilds the Paddock dropdown's options to
@@ -17053,8 +17061,6 @@ function handlePropertySelectChange(select){
   if(!form.paddockId) return;
   var propName = show ? "" : propertyNameById(select.value);
   form.paddockId.innerHTML = paddockOptionsHtml(propName);
-  Array.prototype.forEach.call(form.querySelectorAll(".new-paddock-fields"), function(el){ el.style.display = "none"; });
-  if(form.newPaddockName) form.newPaddockName.value = "";
   refreshDocketFormRequired(form);
 }
 
@@ -17083,7 +17089,6 @@ function renderDocketForm(){
       '<div class="field"><label>Property</label><select name="propertyId" required onchange="handlePropertySelectChange(this)">' + propertyOptionsHtml() + '</select></div>' +
       '<div class="field new-property-fields" style="display:none;"><label>New property name</label><input type="text" name="newPropertyName" placeholder="e.g. Riverview" /></div>' +
       '<div class="field"><label>Paddock</label><select name="paddockId" required onchange="handlePaddockSelectChange(this)">' + paddockOptionsHtml("") + '</select></div>' +
-      '<div class="field new-paddock-fields" style="display:none;"><label>New paddock name</label><input type="text" name="newPaddockName" placeholder="e.g. North block" /></div>' +
       '<div class="field"><label>Approximate weight</label><input type="text" name="approxWeight" placeholder="e.g. 24.5t" required /></div>' +
       '<div class="field span-2"><label>Delivered to</label><select name="deliveredTo" required onchange="handleConditionalSelect(this, \'deliveredTo\')">' +
         '<option value="Graincorp">GrainCorp</option>' +
@@ -17168,7 +17173,6 @@ function renderDocketEditForm(d){
       '<div class="field"><label>Property</label><select name="propertyId" required onchange="handlePropertySelectChange(this)">' + propertyOptions + '</select></div>' +
       '<div class="field new-property-fields" style="display:none;"><label>New property name</label><input type="text" name="newPropertyName" placeholder="e.g. Riverview" /></div>' +
       '<div class="field"><label>Paddock</label><select name="paddockId" required onchange="handlePaddockSelectChange(this)">' + paddockOptions + '</select></div>' +
-      '<div class="field new-paddock-fields" style="display:none;"><label>New paddock name</label><input type="text" name="newPaddockName" placeholder="e.g. North block" /></div>' +
       '<div class="field"><label>Approximate weight</label><input type="text" name="approxWeight" value="' + escAttr(d.approxWeight || "") + '" placeholder="e.g. 24.5t" required /></div>' +
       '<div class="field span-2"><label>Delivered to</label><select name="deliveredTo" required onchange="handleConditionalSelect(this, \'deliveredTo\')">' +
         '<option value="Graincorp"' + (deliveredToVal === "Graincorp" ? " selected" : "") + '>GrainCorp</option>' +
@@ -17263,23 +17267,13 @@ async function addDocket(e){
     if(pr) propertyName = pr.name;
   }
 
+  // Paddock is a plain pick-from-the-list -- no "+ Add a new paddock…"
+  // option here, at Maria's request ("Eliminate the option to add new
+  // paddock when entering a docket"); paddocks are now only ever
+  // created/renamed via the admin-only "Manage paddocks" panel.
   var paddockVal = f.paddockId.value;
   var paddockName = "";
-  if(paddockVal === "__new"){
-    var newPaddockName = f.newPaddockName.value.trim();
-    if(!newPaddockName){
-      setNotice("err", "Enter the new paddock's name (or choose an existing paddock from the list).");
-      render();
-      return;
-    }
-    // Reuse an existing paddock on this same property with the same name rather than saving a duplicate.
-    var existingPaddock = (state.harvest.paddocks || []).find(function(x){ return x.property === propertyName && x.name.toLowerCase() === newPaddockName.toLowerCase(); });
-    if(existingPaddock){ paddockName = existingPaddock.name; }
-    else {
-      state.harvest.paddocks.push({ id: uid("paddock"), property: propertyName, name: newPaddockName });
-      paddockName = newPaddockName;
-    }
-  } else if(paddockVal){
+  if(paddockVal){
     var pd = (state.harvest.paddocks || []).find(function(x){ return x.id === paddockVal; });
     if(pd) paddockName = pd.name;
   }
@@ -17430,22 +17424,15 @@ async function saveDocket(e, id){
     propertyName = "";
   }
 
+  // Paddock is a plain pick-from-the-list here too -- no "+ Add a new
+  // paddock…" branch, at Maria's request ("Eliminate the option to add new
+  // paddock when entering a docket"). "__keep" (an orphaned saved value with
+  // nothing current to match it) is still honoured, same as every other
+  // field here.
   var paddockVal = f.paddockId.value;
   var paddockName = item.paddock;
   if(paddockVal === "__keep"){
     // leave paddockName as-is
-  } else if(paddockVal === "__new"){
-    var newPaddockName = f.newPaddockName.value.trim();
-    if(!newPaddockName){
-      setNotice("err", "Enter the new paddock's name (or choose an existing paddock from the list).");
-      return;
-    }
-    var existingPaddock = (state.harvest.paddocks || []).find(function(x){ return x.property === propertyName && x.name.toLowerCase() === newPaddockName.toLowerCase(); });
-    if(existingPaddock){ paddockName = existingPaddock.name; }
-    else {
-      state.harvest.paddocks.push({ id: uid("paddock"), property: propertyName, name: newPaddockName });
-      paddockName = newPaddockName;
-    }
   } else if(paddockVal){
     var pd = (state.harvest.paddocks || []).find(function(x){ return x.id === paddockVal; });
     paddockName = pd ? pd.name : "";
@@ -17524,6 +17511,12 @@ async function sendDocketEmail(id){
       body: JSON.stringify({
         to: d.driverEmail,
         docketNo: docketNumberDisplay(d),
+        // A docket that's ever been edited carries that permanently (see the
+        // "Edited" badge elsewhere) -- the email's own docket name/subject
+        // should say so too, at Maria's request ("rename the docket using
+        // the original name plus edited"), on every send from here on, not
+        // just the one right after the edit.
+        edited: !!d.editedAt,
         date: d.date, time: d.time,
         driverName: d.driverName, carrier: d.carrier, rego: d.rego, completedBy: d.completedBy,
         commodity: commodityLabel(d), property: propertyLabel(d), paddock: d.paddock,
@@ -17566,9 +17559,19 @@ function retryPendingHarvestEmails(){
 }
 setInterval(function(){ retryPendingHarvestEmails(); }, 120000);
 
+// Removes a docket by id -- from the active list if it's there, otherwise
+// from whichever archived season it's sitting in (an admin removing a
+// mistaken entry from an already-archived/"completed" season, at Maria's
+// request). Archived dockets are each their own independent snapshot
+// (state.harvest.archives[].items), not shared with the active list, so
+// removal has to check both places.
 function removeDocket(id){
   if(ui.editing.docket === id) ui.editing.docket = null;
-  removeById(state.harvest.items, id);
+  if((state.harvest.items || []).some(function(x){ return x.id === id; })){
+    removeById(state.harvest.items, id);
+  } else {
+    (state.harvest.archives || []).forEach(function(a){ removeById(a.items, id); });
+  }
   persist();
 }
 
@@ -18302,4 +18305,3 @@ boot();
 </script>
 </body>
 </html>
-
