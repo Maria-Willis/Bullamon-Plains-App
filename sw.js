@@ -205,7 +205,15 @@
 // can now Remove a docket even from an already-archived/"completed"
 // season (Archived seasons still never offers Edit there). index.html and
 // api/send-docket.js.)
-var CACHE_NAME = "bullamon-plains-shell-v34";
+// (Bumped again 2026-10-02, a seventh time the same day: logging, editing
+// and removing a docket are now conflict-safe the same way machinery
+// issues already were -- if two people save at the exact same moment (or
+// 3 people are logging dockets with no signal and reconnect one after
+// another), a save conflict now replays the in-flight change against
+// whatever the team's latest copy turns out to be, instead of silently
+// discarding it. Nothing visible changes day to day; this only matters in
+// that narrow same-moment-save window. index.html only.)
+var CACHE_NAME = "bullamon-plains-shell-v35";
 
 var SHELL_ASSETS = [
   "./",
