@@ -169,7 +169,11 @@
 // Also: the main menu's item names (not just its headings) can now be
 // renamed by an admin from the Sidebar menu card on the Team page.
 // index.html only.)
-var CACHE_NAME = "bullamon-plains-shell-v29";
+// (Bumped again 2026-10-02, later the same day: admin-only "Manage
+// properties" panel added, same shape as "Manage paddocks" -- rename or
+// remove a property, with renames cascading to any paddocks linked to it so
+// they don't turn into orphans. index.html only.)
+var CACHE_NAME = "bullamon-plains-shell-v30";
 
 var SHELL_ASSETS = [
   "./",
