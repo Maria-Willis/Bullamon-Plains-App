@@ -1560,7 +1560,7 @@ const DEFAULT_STATE = {
 // change to this file, same as CACHE_NAME in sw.js -- it gives an instant,
 // no-technical-steps-needed way to confirm whether a given device is
 // actually running the latest deploy, without comparing file contents.
-var APP_BUILD = "2026-10-02.1";
+var APP_BUILD = "2026-10-02.2";
 
 /* ======================================================================
    UTILITIES
@@ -16548,6 +16548,7 @@ function renderHarvest(){
   var html = pageHead("Harvest Dockets", "Log each truck load of wheat or chickpeas leaving the paddock.");
   html += '<div class="toolbar">' +
     '<button type="button" class="btn btn-ghost" style="width:auto;" onclick="toggleForm(\'manageDrivers\')">' + (ui.openForms.manageDrivers ? "Hide drivers" : "Manage drivers") + '</button>' +
+    (isAdmin() ? '<button type="button" class="btn btn-ghost" style="width:auto;" onclick="toggleForm(\'manageProperties\')">' + (ui.openForms.manageProperties ? "Hide properties" : "Manage properties") + '</button>' : '') +
     (isAdmin() ? '<button type="button" class="btn btn-ghost" style="width:auto;" onclick="toggleForm(\'managePaddocks\')">' + (ui.openForms.managePaddocks ? "Hide paddocks" : "Manage paddocks") + '</button>' : '') +
     '<button type="button" class="btn btn-ghost" style="width:auto;" onclick="exportHarvestToExcel()">&#8681; Export &amp; email (Excel)</button>' +
     '<span style="flex:1;"></span>' +
@@ -16561,6 +16562,7 @@ function renderHarvest(){
     '</div>';
   }
   if(ui.openForms.manageDrivers) html += renderDriversPanel();
+  if(isAdmin() && ui.openForms.manageProperties) html += renderPropertiesPanel();
   if(isAdmin() && ui.openForms.managePaddocks) html += renderPaddocksPanel();
   if(isAdmin() && ui.openForms.docketNumbering) html += renderDocketNumberingCard();
   if(isAdmin() && ui.openForms.harvestArchives) html += renderHarvestArchivesPanel();
@@ -16659,6 +16661,79 @@ function renderHarvestArchivesPanel(){
   }
   html += '</div>';
   return html;
+}
+
+// Admin-only "Manage properties" panel -- same shape as "Manage paddocks"
+// below, for the properties themselves, at Maria's request ("I need to
+// manage properties as well"). Renaming a property here CASCADES to every
+// paddock currently linked to it (paddocks are tagged by property NAME,
+// not id -- see paddocksForProperty() above) so they stay correctly linked
+// instead of silently turning into the "not a current property" orphans
+// the Manage Paddocks panel has to call out; a docket already logged,
+// though, keeps showing whatever property name it was logged with, same as
+// every other field here.
+function renderPropertiesPanel(){
+  var properties = propertiesForHarvest();
+  var html = '<div class="card"><h3 style="margin-bottom:6px;">Manage properties</h3>' +
+    '<p class="row-muted" style="margin:0 0 12px;font-size:12.5px;">Rename a property or remove one no longer in use. Renaming updates any paddocks linked to it to match; dockets already logged keep whatever property name they were logged with.</p>';
+  if(properties.length === 0){
+    html += '<div class="empty-state">No properties saved yet -- they get added from the docket form\'s "+ Add a new property…" option, or below.</div>';
+  } else {
+    html += properties.map(function(p){
+      var paddockCount = (state.harvest.paddocks || []).filter(function(pd){ return pd.property === p.name; }).length;
+      return '<div class="card-row" style="padding:7px 0;border-bottom:1px solid var(--border);gap:8px;flex-wrap:wrap;">' +
+        '<input type="text" value="' + escAttr(p.name) + '" style="flex:1;min-width:120px;font-size:13.5px;" onchange="renamePropertyAdmin(\'' + p.id + '\',this.value)" />' +
+        (paddockCount ? '<span class="row-muted" style="font-size:12px;">' + paddockCount + ' paddock' + (paddockCount === 1 ? "" : "s") + '</span>' : '') +
+        '<button type="button" class="btn btn-danger btn-sm" style="width:auto;" onclick="removePropertyAdmin(\'' + p.id + '\')">Remove</button>' +
+      '</div>';
+    }).join("");
+  }
+  html += '<h4 style="margin:16px 0 8px;font-size:13px;">Add a property directly</h4>' +
+    '<form class="form-grid" style="margin-bottom:0;" onsubmit="addPropertyAdmin(event)">' +
+      '<div class="field"><label>Property name</label><input type="text" name="name" placeholder="e.g. Riverview" required /></div>' +
+      '<button type="submit" class="btn btn-primary btn-sm" style="width:auto;align-self:end;">Add</button>' +
+    '</form>' +
+  '</div>';
+  return html;
+}
+function addPropertyAdmin(e){
+  e.preventDefault();
+  var f = e.target;
+  var name = f.name.value.trim();
+  if(!name) return;
+  var dup = (state.harvest.properties || []).find(function(p){ return p.name.toLowerCase() === name.toLowerCase(); });
+  if(dup){ alert('"' + name + '" is already in the list.'); return; }
+  state.harvest.properties = state.harvest.properties || [];
+  state.harvest.properties.push({ id: uid("property"), name: name });
+  f.reset();
+  persist();
+}
+function renamePropertyAdmin(id, value){
+  var p = byId(state.harvest.properties, id);
+  if(!p) return;
+  var name = (value || "").trim();
+  if(!name || name === p.name){ render(); return; }
+  var dup = (state.harvest.properties || []).find(function(x){ return x.id !== id && x.name.toLowerCase() === name.toLowerCase(); });
+  if(dup){ alert('"' + name + '" is already in the list.'); render(); return; }
+  var oldName = p.name;
+  p.name = name;
+  // Keep every paddock currently linked to this property pointed at its new
+  // name, so they don't instantly show up as unlinked in Manage Paddocks.
+  (state.harvest.paddocks || []).forEach(function(pd){
+    if(pd.property === oldName) pd.property = name;
+  });
+  persist();
+}
+function removePropertyAdmin(id){
+  var p = byId(state.harvest.properties, id);
+  if(!p) return;
+  var paddockCount = (state.harvest.paddocks || []).filter(function(pd){ return pd.property === p.name; }).length;
+  var msg = 'Remove property "' + p.name + '"?';
+  if(paddockCount) msg += ' ' + paddockCount + ' paddock' + (paddockCount === 1 ? "" : "s") + ' linked to it will show as "not a current property" in Manage Paddocks until reassigned.';
+  msg += ' Dockets already logged keep showing its name -- this only removes it from the pick list.';
+  if(!confirm(msg)) return;
+  removeById(state.harvest.properties, id);
+  persist();
 }
 
 // Admin-only "Manage paddocks" panel -- lists every saved paddock grouped
