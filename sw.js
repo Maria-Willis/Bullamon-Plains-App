@@ -213,7 +213,17 @@
 // whatever the team's latest copy turns out to be, instead of silently
 // discarding it. Nothing visible changes day to day; this only matters in
 // that narrow same-moment-save window. index.html only.)
-var CACHE_NAME = "bullamon-plains-shell-v35";
+// (Bumped again 2026-10-02, an eighth time the same day: a team member can
+// now be flagged "Harvest dockets only" on their staff record (Team page),
+// at Maria's request ("Can you enable a feature so that there are some
+// people that can only access harvest dockets"). A flagged person's sidebar
+// shows nothing but Harvest Dockets, they land straight on it when they
+// sign in, and the section-rendering logic itself (not just the sidebar)
+// refuses to show them anything else -- so there's no other path in the
+// app, direct or indirect, that gets them to Machinery, Chemicals, Team,
+// etc. Admin status always overrides the flag, so nobody can accidentally
+// lock an admin out of the rest of the app. index.html only.)
+var CACHE_NAME = "bullamon-plains-shell-v36";
 
 var SHELL_ASSETS = [
   "./",
