@@ -160,7 +160,16 @@
 // still goes light/dark correctly when the nav item is active) instead of
 // relying on a colour-emoji font plus a CSS filter, which isn't reliable
 // across browsers/devices. index.html only.)
-var CACHE_NAME = "bullamon-plains-shell-v28";
+// (Bumped again 2026-10-02: admin-only "Manage paddocks" panel added to
+// correlate/edit which property a paddock belongs to. Docket numbers now
+// carry a year prefix ("2026-001"), with an admin-editable "Docket year"
+// setting (resets the count when changed, e.g. to "2027" next season).
+// Harvest Dockets can now be archived as a whole season (admin-only,
+// empties the active list) and reinstated later from "Archived seasons".
+// Also: the main menu's item names (not just its headings) can now be
+// renamed by an admin from the Sidebar menu card on the Team page.
+// index.html only.)
+var CACHE_NAME = "bullamon-plains-shell-v29";
 
 var SHELL_ASSETS = [
   "./",
