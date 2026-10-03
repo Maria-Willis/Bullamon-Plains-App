@@ -265,7 +265,18 @@
 // end of each list; saved data shape is unchanged (still arrays of strings
 // or {label,value} pairs), so every chemical's existing SDS data displays
 // and edits exactly as before. index.html only.)
-var CACHE_NAME = "bullamon-plains-shell-v40";
+// (Bumped again 2026-10-03: SDS section redesign at Maria's request, to
+// match a reference screenshot she sent of a product's "SDS preview" --
+// adds four new optional fields per chemical (Hazard statements,
+// Precautions, Hazard category, GHS pictograms), shown as a new preview
+// card on a chemical's detail page (with "View GHS label"/"View SDS"
+// buttons to chemicalsafety.com) whenever at least one of them is filled
+// in via the Add/Edit SDS form. Also replaces the "Find the current SDS"
+// card's two buttons with a single "Search for SDS" button pointing to
+// https://chemicalsafety.com/sds-search/ (was "Search the APVMA product
+// register" + "Search the web for this product's label", both now
+// removed). index.html only.)
+var CACHE_NAME = "bullamon-plains-shell-v41";
 
 var SHELL_ASSETS = [
   "./",
