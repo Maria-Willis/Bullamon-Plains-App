@@ -250,7 +250,13 @@
 // to view the receipts that have been uploaded. Everyone can enter a
 // receipt but only certain people can see them", and "only admin and
 // export and email harvest dockets". index.html only.)
-var CACHE_NAME = "bullamon-plains-shell-v38";
+// (Bumped 2026-10-03: each machinery icon now sits in a white tile with a
+// solid blue border, instead of the previous faint blue-tinted wash --
+// at Maria's request ("put the machinery icons in a blue box and make the
+// background white"). Pure styling (.machine-photo in the <style> block),
+// same on the fleet-list's small tiles and a machine's own larger detail
+// tile. index.html only.)
+var CACHE_NAME = "bullamon-plains-shell-v39";
 
 var SHELL_ASSETS = [
   "./",
