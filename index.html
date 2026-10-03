@@ -571,8 +571,8 @@
      sitting inside a square rotated 45deg to form the diamond, with the
      glyph itself counter-rotated back upright inside it -- same approach
      used on real GHS labels. */
-  .ghs-pictogram-row{ display:flex; flex-wrap:wrap; gap:14px; margin:4px 0 2px; }
-  .ghs-pictogram{ display:flex; flex-direction:column; align-items:center; width:64px; text-align:center; }
+  .ghs-pictogram-row{ display:flex; flex-wrap:wrap; gap:16px 14px; margin:4px 0 2px; }
+  .ghs-pictogram{ display:flex; flex-direction:column; align-items:center; width:82px; text-align:center; }
   .ghs-diamond{
     width:46px; height:46px;
     border:2px solid #d7271e;
@@ -583,16 +583,33 @@
     flex-shrink:0;
   }
   .ghs-diamond svg{ transform:rotate(-45deg); width:26px; height:26px; }
-  .ghs-pictogram-label{ font-size:10.5px; color:var(--text-muted); margin-top:4px; line-height:1.2; }
+  /* A non-GHS advisory icon (e.g. "Do not induce vomiting") uses the same
+     diamond shape for visual consistency but a blue border instead of red,
+     so it isn't mistaken for one of the 9 official hazard pictograms. */
+  .ghs-diamond.advisory{ border-color:var(--accent); }
+  .ghs-pictogram-label{ font-size:11px; color:var(--text-muted); margin-top:5px; line-height:1.3; }
   /* Same diamond, smaller and unrotated-label-free, for the pictogram
-     picker checkboxes on the Add/Edit SDS form. */
-  .ghs-check-row{ display:flex; flex-wrap:wrap; gap:12px; }
-  .ghs-check{ display:flex; flex-direction:column; align-items:center; width:62px; text-align:center; cursor:pointer; gap:4px; }
+     picker checkboxes on the Add/Edit SDS form. Widened from the original
+     62px (Maria reported the label text looked "squashed") so a two-word
+     label like "Compressed gas" or "Environmental hazard" wraps onto a
+     comfortable two lines instead of a cramped three. */
+  .ghs-check-row{ display:flex; flex-wrap:wrap; gap:16px 12px; }
+  /* This picker sits inside a ".field", and ".field label" (see above) sets
+     display:block, bold, uppercase, letter-spacing on every <label> in a
+     field -- higher specificity than a plain ".ghs-check" rule, so it was
+     silently winning and is what actually caused Maria's reported
+     "squashed" pictogram wording (bold+uppercase+block, not the intended
+     flex column). ".ghs-check-row .ghs-check" (two classes) outranks
+     ".field label" (one class + one element) and restores the intended
+     centered layout and normal-case, normal-weight text. */
+  .ghs-check-row .ghs-check{ display:flex; flex-direction:column; align-items:center; width:78px; text-align:center; cursor:pointer; gap:5px; text-transform:none; font-weight:400; letter-spacing:normal; margin-bottom:0; color:var(--text); font-size:13px; }
   .ghs-check input{ margin:0; }
   .ghs-check .ghs-diamond{ width:38px; height:38px; }
   .ghs-check .ghs-diamond svg{ width:21px; height:21px; }
   .ghs-check.checked .ghs-diamond{ background:#fff5f4; }
+  .ghs-check.checked .ghs-diamond.advisory{ background:var(--accent-contrast); }
   .ghs-check span.ghs-pictogram-label{ margin-top:0; }
+  .ghs-check-group-label{ width:100%; font-size:11px; font-weight:700; color:var(--text-muted); letter-spacing:.04em; margin:2px 0 -4px; }
   .filter-pill-row{ display:flex; gap:8px; flex-wrap:wrap; margin:10px 0 4px; }
   .filter-pill{
     border:1px solid var(--border);
@@ -1605,7 +1622,7 @@ const DEFAULT_STATE = {
 // change to this file, same as CACHE_NAME in sw.js -- it gives an instant,
 // no-technical-steps-needed way to confirm whether a given device is
 // actually running the latest deploy, without comparing file contents.
-var APP_BUILD = "2026-10-03.4";
+var APP_BUILD = "2026-10-03.6";
 
 /* ======================================================================
    UTILITIES
@@ -15623,7 +15640,15 @@ function renderSdsList(){
   var html = pageHead("Safety Data Sheets", "Product safety information for every chemical kept on farm.");
 
   var sdsQ = ui.sdsQuery.trim().toLowerCase();
-  var sdsAll = state.chemicals.sds || [];
+  // Alphabetical by product name, at Maria's request ("order the chemicals
+  // in alphabetical order on the safety data sheets page") -- previously
+  // just whatever order they happened to sit in in state.chemicals.sds
+  // (insertion order from the original bulk import). localeCompare with
+  // numeric:true so e.g. "Glyphosate 540" sorts before "Glyphosate 600"
+  // rather than by raw character codes.
+  var sdsAll = (state.chemicals.sds || []).slice().sort(function(a, b){
+    return (a.productName || "").localeCompare(b.productName || "", undefined, { numeric: true, sensitivity: "base" });
+  });
   var sdsList = sdsAll;
   if(sdsQ) sdsList = sdsList.filter(function(c){
     return (
@@ -15634,20 +15659,37 @@ function renderSdsList(){
   });
   var sdsNeedingReview = sdsAll.filter(sdsNeedsDetails).length;
 
+  // "Call Poisons Info" at the very top of this page too, at Maria's
+  // request ("Also put it on the main Safety Data Sheet page") -- same
+  // fixed national hotline shown in First aid on every chemical's own
+  // detail page, just available here before opening any specific chemical.
+  html += '<div class="card" style="background:var(--danger-contrast);border:1px solid #f3c6bd;">' +
+    '<a class="btn btn-danger" style="display:block;text-align:center;text-decoration:none;" href="tel:131126">Call Poisons Info 13 11 26</a>' +
+  '</div>';
+
+  // A copy of the "Search for SDS" button from a chemical's own detail page
+  // (see renderSdsDetail's "Find the current SDS" card) -- added here too,
+  // at Maria's request ("Move a copy of the Search for Safety Data Sheets
+  // to the safety data sheets page"), so it's available up front on the
+  // list page itself, not just after opening a specific chemical. Same
+  // link (cottonaustralia.com.au/sds), just without a specific product name
+  // in the text since this isn't tied to one chemical.
+  html += '<div class="card" style="background:var(--accent-contrast);border:1px solid var(--accent);">' +
+    '<h3 style="margin:0 0 4px;font-size:15px;color:var(--accent-strong);">Find the current SDS</h3>' +
+    '<p style="margin:0 0 12px;font-size:12.5px;color:var(--text-muted);">The details below are a quick reference and may not reflect the latest label revision. For the official, current Safety Data Sheet for any product, search for it here.</p>' +
+    '<a class="btn btn-primary" style="display:block;text-align:center;text-decoration:none;" href="https://cottonaustralia.com.au/sds" target="_blank" rel="noopener">Search for SDS</a>' +
+  '</div>';
+
   html += '<div class="card"><div class="card-row"><h3 style="margin:0;">Safety data sheets</h3>' +
     (isAdmin() ? '<button type="button" class="btn btn-primary btn-sm" style="width:auto;" onclick="toggleForm(\'newSds\')">' + (ui.openForms.newSds ? "Cancel" : "+ Add SDS") + '</button>' : '') + '</div>' +
     (sdsNeedingReview > 0 ? '<p class="row-muted" style="margin:6px 0 0;font-size:12.5px;color:#991b1b;">⚠ ' + sdsNeedingReview + ' of ' + sdsAll.length + ' chemicals still need their full safety details (hazard class, first aid) added from the real SDS.</p>' : '') +
     '<p class="row-muted" style="margin:6px 0 0;font-size:12px;">Tap a chemical to see its full safety information.</p>' +
     '<div class="toolbar" style="margin:10px 0 0;">' +
       '<input id="sds-search-input" class="search-input" type="text" placeholder="Search safety data sheets…" value="' + escAttr(ui.sdsQuery) + '" oninput="ui.sdsQuery=this.value;render();" />' +
-      '<button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="searchWebForSds()" title="Opens a new tab with a web search for this product\'s SDS">Search the web ↗</button>' +
-      '<a class="btn btn-ghost btn-sm" style="width:auto;text-decoration:none;display:inline-block;" href="https://portal.apvma.gov.au/pubcris" target="_blank" rel="noopener" title="Opens the official APVMA product register in a new tab">Search APVMA ↗</a>' +
     '</div>';
   if(ui.openForms.newSds) html += renderSdsForm();
   if(sdsList.length === 0){
-    html += '<div class="empty-state">No safety data sheets match your search.' +
-      (sdsQ ? ' Not in our list? <button type="button" class="subtle-btn" onclick="searchWebForSds()">Search the web for it instead</button>' : '') +
-    '</div>';
+    html += '<div class="empty-state">No safety data sheets match your search.</div>';
   }
   html += '<div class="list-cards" style="margin-top:8px;">' + sdsList.map(function(c){
     var needsDetails = sdsNeedsDetails(c);
@@ -15663,20 +15705,12 @@ function renderSdsList(){
 
   return html;
 }
-// Doesn't fetch or display anything inside the app -- this app has no
-// backend of its own to run a real web search through, so "search the
-// web" means exactly that: open a new browser tab at a normal web search
-// for this product's SDS, using whatever's currently in the search box.
-function searchWebForSds(){
-  var q = (ui.sdsQuery || "").trim();
-  if(!q){
-    setNotice("err", "Type a chemical or product name in the search box above first, then try again.");
-    render();
-    return;
-  }
-  var url = "https://www.google.com/search?q=" + encodeURIComponent(q + " safety data sheet SDS");
-  window.open(url, "_blank", "noopener");
-}
+// searchWebForSds() (the "Search the web ↗"/"Search APVMA ↗" toolbar
+// buttons and the empty-state "Search the web for it instead" link) was
+// removed 2026-10-03 at Maria's request ("Remove 'search the web' and
+// Search APVMA from the safety data sheets page") -- the "Find the current
+// SDS" card above (cottonaustralia.com.au/sds) is now the one way to look
+// up a product that isn't in this list.
 
 // GHS pictograms -- the 9 standard diamond hazard symbols required on every
 // chemical label/SDS worldwide under the Globally Harmonized System. Drawn
@@ -15695,12 +15729,23 @@ var GHS_PICTOGRAMS = {
   toxic: { label: "Toxic", svg: '<circle cx="12" cy="9" r="5" fill="none" stroke="#000" stroke-width="1.4"/><circle cx="10" cy="8" r="1.1" fill="#000"/><circle cx="14" cy="8" r="1.1" fill="#000"/><path d="M10 12 L12 10.3 L14 12" stroke="#000" stroke-width="1" fill="none"/><line x1="6" y1="17.5" x2="18" y2="21" stroke="#000" stroke-width="1.6"/><line x1="18" y1="17.5" x2="6" y2="21" stroke="#000" stroke-width="1.6"/>' },
   irritant: { label: "Harmful / irritant", svg: '<rect x="10.8" y="3.5" width="2.4" height="11.5" rx="1.2" fill="#000"/><circle cx="12" cy="18.5" r="1.7" fill="#000"/>' },
   health: { label: "Health hazard", svg: '<path fill="#000" d="M8.3 21 C8.3 17 9.2 14 9.2 12 A2.8 2.8 0 0 1 14.8 12 C14.8 14 15.7 17 15.7 21 Z"/><circle cx="12" cy="7.5" r="2.3" fill="#000"/><g stroke="#000" stroke-width="1"><line x1="12" y1="1.5" x2="12" y2="4.3"/><line x1="7.3" y1="3.5" x2="9.3" y2="5.8"/><line x1="16.7" y1="3.5" x2="14.7" y2="5.8"/></g>' },
-  environment: { label: "Environmental hazard", svg: '<g stroke="#000" stroke-width="1.2" fill="none"><line x1="7" y1="21" x2="7" y2="9.5"/><line x1="7" y1="14" x2="4" y2="11"/><line x1="7" y1="13" x2="10" y2="10"/><line x1="7" y1="17.5" x2="4" y2="15.5"/><line x1="7" y1="16.5" x2="10" y2="14.5"/></g><path fill="#000" d="M13 16 C16 12.8 20.5 12.8 22.5 15 C20.5 17.2 16 17.2 13 16 Z"/><line x1="10" y1="21" x2="23" y2="21" stroke="#000" stroke-width="1.2"/>' }
+  environment: { label: "Environmental hazard", svg: '<g stroke="#000" stroke-width="1.2" fill="none"><line x1="7" y1="21" x2="7" y2="9.5"/><line x1="7" y1="14" x2="4" y2="11"/><line x1="7" y1="13" x2="10" y2="10"/><line x1="7" y1="17.5" x2="4" y2="15.5"/><line x1="7" y1="16.5" x2="10" y2="14.5"/></g><path fill="#000" d="M13 16 C16 12.8 20.5 12.8 22.5 15 C20.5 17.2 16 17.2 13 16 Z"/><line x1="10" y1="21" x2="23" y2="21" stroke="#000" stroke-width="1.2"/>' },
+  // "Do not induce vomiting" -- added 2026-10-03 at Maria's request ("it's
+  // missing the vomiting pictogram from the selection"). This is NOT one of
+  // the 9 official GHS hazard diamonds (there is no standard GHS pictogram
+  // for this) -- it's a common first-aid instruction icon on agvet chemical
+  // labels/SDS (a huge number of the real first-aid text already on this
+  // register says exactly "do NOT induce vomiting"). Marked `advisory:true`
+  // so it renders with a blue border instead of red and is listed in its
+  // own "First aid" group on the picker, so it's never mistaken for an
+  // official hazard pictogram -- drawn as a standard circle-and-slash
+  // "prohibited" sign over a simple vomiting-figure glyph.
+  vomiting: { label: "Do not induce vomiting", advisory: true, svg: '<circle cx="12" cy="8" r="3.6" fill="none" stroke="#000" stroke-width="1.2"/><path d="M10.1 11.3 C9.3 13.2 9.7 14.8 10.7 16.2 C9.9 17.8 10.2 19.3 11.2 20.8" stroke="#000" stroke-width="1" fill="none"/><path d="M13.6 11.3 C14.6 12.9 14.4 14.6 13.3 16" stroke="#000" stroke-width="1" fill="none"/><circle cx="12" cy="12" r="10.6" fill="none" stroke="#1870b9" stroke-width="1.8"/><line x1="4.1" y1="19.9" x2="19.9" y2="4.1" stroke="#1870b9" stroke-width="1.8"/>' }
 };
 function ghsDiamondHtml(key, size){
   var p = GHS_PICTOGRAMS[key];
   if(!p) return "";
-  return '<div class="ghs-diamond"' + (size ? ' style="width:' + size + 'px;height:' + size + 'px;"' : '') + '><svg viewBox="0 0 24 24"' + (size ? ' style="width:' + Math.round(size*0.57) + 'px;height:' + Math.round(size*0.57) + 'px;"' : '') + '>' + p.svg + '</svg></div>';
+  return '<div class="ghs-diamond' + (p.advisory ? ' advisory' : '') + '"' + (size ? ' style="width:' + size + 'px;height:' + size + 'px;"' : '') + '><svg viewBox="0 0 24 24"' + (size ? ' style="width:' + Math.round(size*0.57) + 'px;height:' + Math.round(size*0.57) + 'px;"' : '') + '>' + p.svg + '</svg></div>';
 }
 function renderGhsPictogramRow(keys){
   if(!keys || !keys.length) return "";
@@ -15710,11 +15755,16 @@ function renderGhsPictogramRow(keys){
     return '<div class="ghs-pictogram" title="' + escAttr(p.label) + '">' + ghsDiamondHtml(k) + '<span class="ghs-pictogram-label">' + esc(p.label) + '</span></div>';
   }).join("") + '</div>';
 }
-// Checkbox picker for the Add/Edit SDS form -- one per standard pictogram,
-// pre-ticked for whichever ones are already saved on this chemical.
+// Checkbox picker for the Add/Edit SDS form -- one per standard GHS hazard
+// pictogram, plus the "Do not induce vomiting" first-aid icon in its own
+// labelled group at the end (so it reads as a separate kind of icon, not a
+// 10th hazard diamond) -- pre-ticked for whichever ones are already saved
+// on this chemical.
 function renderGhsPictogramPicker(selected){
   selected = selected || [];
-  return '<div class="ghs-check-row">' + Object.keys(GHS_PICTOGRAMS).map(function(k){
+  var hazardKeys = Object.keys(GHS_PICTOGRAMS).filter(function(k){ return !GHS_PICTOGRAMS[k].advisory; });
+  var advisoryKeys = Object.keys(GHS_PICTOGRAMS).filter(function(k){ return GHS_PICTOGRAMS[k].advisory; });
+  function checkHtml(k){
     var p = GHS_PICTOGRAMS[k];
     var checked = selected.indexOf(k) > -1;
     return '<label class="ghs-check' + (checked ? ' checked' : '') + '">' +
@@ -15722,7 +15772,10 @@ function renderGhsPictogramPicker(selected){
       '<input type="checkbox" name="pictogram" value="' + k + '"' + (checked ? ' checked' : '') + ' onchange="this.closest(\'.ghs-check\').classList.toggle(\'checked\', this.checked);" />' +
       '<span class="ghs-pictogram-label">' + esc(p.label) + '</span>' +
     '</label>';
-  }).join("") + '</div>';
+  }
+  return '<div class="ghs-check-row">' + hazardKeys.map(checkHtml).join("") +
+    (advisoryKeys.length ? '<span class="ghs-check-group-label">First aid</span>' + advisoryKeys.map(checkHtml).join("") : "") +
+  '</div>';
 }
 
 // A single row inside one of the detail cards below: a small muted label on
@@ -15842,6 +15895,17 @@ function renderSdsDetail(c){
 
   var html = '<button type="button" class="back-chevron-btn" onclick="ui.sdsSelected=null;render();">&#8249; Back to Safety Data Sheets</button>';
 
+  // "Call Poisons Info" at the very top of the page, above everything else
+  // including the product name/header -- at Maria's request ("Under each
+  // chemical put the Call Poisons Info 13 11 26 at the top"). This is the
+  // same fixed national hotline (same as the Transport emergency 000
+  // number) that still also appears down in First aid below -- it's
+  // important enough to find instantly from the moment the page opens, not
+  // just after scrolling past several other cards.
+  html += '<div class="card" style="background:var(--danger-contrast);border:1px solid #f3c6bd;">' +
+    '<a class="btn btn-danger" style="display:block;text-align:center;text-decoration:none;" href="tel:131126">Call Poisons Info 13 11 26</a>' +
+  '</div>';
+
   html += '<div class="card">';
   if(categoryParts.length) html += '<p class="row-muted" style="margin:0 0 4px;font-size:11.5px;font-weight:700;letter-spacing:.06em;">' + esc(categoryParts.join(" · ")) + '</p>';
   html += '<h3 style="margin:0 0 2px;font-size:20px;">' + esc(c.productName) + '</h3>';
@@ -15853,34 +15917,6 @@ function renderSdsDetail(c){
     '</div>';
   }
   html += '</div>';
-
-  // "SDS preview" card -- added 2026-10-03 at Maria's request, to match a
-  // reference screenshot she sent (a product's GHS hazard statements,
-  // precautionary statements, hazard category and pictograms, plus "View
-  // GHS label"/"View SDS" buttons). Those four fields (hazardStatements,
-  // precautions, hazardCategories, pictograms) are brand new -- nothing on
-  // the existing register has them filled in yet -- so, same as every other
-  // optional section on this page, the card only appears once at least one
-  // of them has actually been entered for this chemical; it never shows an
-  // empty shell. "View GHS label"/"View SDS" both open the same chemical
-  // safety search site (chemicalsafety.com) rather than a specific saved
-  // document link, since no per-chemical document URL exists in this app's
-  // data -- same destination as the "Search for SDS" button below, just
-  // presented as the two labelled actions from Maria's reference image.
-  var hasGhsData = (c.hazardStatements && c.hazardStatements.length) || (c.precautions && c.precautions.length) || (c.hazardCategories && c.hazardCategories.length) || (c.pictograms && c.pictograms.length);
-  if(hasGhsData){
-    html += '<div class="card">' +
-      '<p class="row-muted" style="margin:0 0 2px;font-size:11px;font-weight:700;letter-spacing:.06em;">SDS PREVIEW</p>';
-    if(c.hazardStatements && c.hazardStatements.length) html += '<h4 style="margin:12px 0 6px;font-size:13px;color:var(--danger);">Hazard statements</h4>' + sdsBulletList(c.hazardStatements);
-    if(c.precautions && c.precautions.length) html += '<h4 style="margin:14px 0 6px;font-size:13px;">Precautions</h4>' + sdsBulletList(c.precautions);
-    if(c.hazardCategories && c.hazardCategories.length) html += '<h4 style="margin:14px 0 4px;font-size:13px;">Hazard category</h4><p style="margin:0;font-size:13px;">' + esc(c.hazardCategories.join(", ")) + '</p>';
-    if(c.pictograms && c.pictograms.length) html += '<div style="margin-top:14px;">' + renderGhsPictogramRow(c.pictograms) + '</div>';
-    html += '<div style="display:flex;gap:8px;margin-top:16px;">' +
-      '<a class="btn btn-primary btn-sm" style="flex:1;text-align:center;text-decoration:none;" href="https://chemicalsafety.com/sds-search/" target="_blank" rel="noopener">View GHS label</a>' +
-      '<a class="btn btn-primary btn-sm" style="flex:1;text-align:center;text-decoration:none;" href="https://chemicalsafety.com/sds-search/" target="_blank" rel="noopener">View SDS</a>' +
-    '</div>';
-    html += '</div>';
-  }
 
   // "Find the current SDS" -- added 2026-09-29 at Maria's request, after a
   // conversation about WHS compliance: the law requires workers have access
@@ -15956,6 +15992,32 @@ function renderSdsDetail(c){
     html += '</div>';
   }
 
+  // GHS hazard statements/precautions/category/pictograms card -- added
+  // 2026-10-03 at Maria's request, to match a reference screenshot she sent
+  // (a product's GHS hazard statements, precautionary statements, hazard
+  // category and pictograms). Those four fields (hazardStatements,
+  // precautions, hazardCategories, pictograms) are brand new -- nothing on
+  // the existing register has them filled in yet -- so, same as every other
+  // optional section on this page, the card only appears once at least one
+  // of them has actually been entered for this chemical; it never shows an
+  // empty shell. UPDATED same day, in quick succession, at Maria's further
+  // requests: the "SDS PREVIEW" label text is gone; the "View GHS
+  // label"/"View SDS" buttons (which only ever linked out to a generic
+  // chemicalsafety.com search, not a saved per-product document) are gone;
+  // and the whole card moved from right under the product header down to
+  // here, the very end of the page, so the page now reads safety-critical
+  // stuff first (Call Poisons Info, Find the current SDS, First aid) and
+  // this reference material last.
+  var hasGhsData = (c.hazardStatements && c.hazardStatements.length) || (c.precautions && c.precautions.length) || (c.hazardCategories && c.hazardCategories.length) || (c.pictograms && c.pictograms.length);
+  if(hasGhsData){
+    html += '<div class="card">';
+    if(c.hazardStatements && c.hazardStatements.length) html += '<h4 style="margin:0 0 6px;font-size:13px;color:var(--danger);">Hazard statements</h4>' + sdsBulletList(c.hazardStatements);
+    if(c.precautions && c.precautions.length) html += '<h4 style="margin:14px 0 6px;font-size:13px;">Precautions</h4>' + sdsBulletList(c.precautions);
+    if(c.pictograms && c.pictograms.length) html += '<div style="margin-top:14px;">' + renderGhsPictogramRow(c.pictograms) + '</div>';
+    if(c.hazardCategories && c.hazardCategories.length) html += '<h4 style="margin:14px 0 4px;font-size:13px;">Hazard category</h4><p style="margin:0;font-size:13px;">' + esc(c.hazardCategories.join(", ")) + '</p>';
+    html += '</div>';
+  }
+
   return html;
 }
 
@@ -15970,7 +16032,7 @@ function renderSdsForm(existing){
       '<div class="field"><label>Hazard class</label><input type="text" name="hazardClass" value="' + escAttr(existing?existing.hazardClass:"") + '" /></div>' +
       '<div class="field"><label>Signal word</label><input type="text" name="signalWord" value="' + escAttr(existing?existing.signalWord:"") + '" /></div>' +
     '</div>' +
-    '<h4 style="margin:16px 0 8px;">SDS preview (GHS hazard info)</h4>' +
+    '<h4 style="margin:16px 0 8px;">GHS hazard info</h4>' +
     '<div class="form-grid">' +
       '<div class="field span-2"><label>Hazard statements (add as many as needed)</label>' + renderSdsListRows("sdsHazardStatementRows", "hazardStatement", existing ? (existing.hazardStatements||[]) : [], "+ Add statement") + '</div>' +
       '<div class="field span-2"><label>Precautions (add as many as needed)</label>' + renderSdsListRows("sdsPrecautionRows", "precaution", existing ? (existing.precautions||[]) : [], "+ Add precaution") + '</div>' +
