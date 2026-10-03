@@ -1605,7 +1605,7 @@ const DEFAULT_STATE = {
 // change to this file, same as CACHE_NAME in sw.js -- it gives an instant,
 // no-technical-steps-needed way to confirm whether a given device is
 // actually running the latest deploy, without comparing file contents.
-var APP_BUILD = "2026-10-03.3";
+var APP_BUILD = "2026-10-03.4";
 
 /* ======================================================================
    UTILITIES
@@ -15906,13 +15906,15 @@ function renderSdsDetail(c){
   // UPDATED 2026-10-03 at Maria's request: the two buttons below used to be
   // "Search the APVMA product register" (portal.apvma.gov.au/pubcris) and
   // "Search the web for this product's label" (a Google search). She asked
-  // to replace the first with a single "Search for SDS" button pointing to
-  // chemicalsafety.com/sds-search/, and to remove the second entirely --
-  // so this card now links out to just that one site.
+  // to replace the first with a single "Search for SDS" button, and to
+  // remove the second entirely -- so this card now links out to just one
+  // site. That button's link started out pointing to chemicalsafety.com's
+  // SDS search, then was changed again, same day, to Cotton Australia's own
+  // SDS page (cottonaustralia.com.au/sds) at Maria's follow-up request.
   html += '<div class="card" style="background:var(--accent-contrast);border:1px solid var(--accent);">' +
     '<h3 style="margin:0 0 4px;font-size:15px;color:var(--accent-strong);">Find the current SDS</h3>' +
     '<p style="margin:0 0 12px;font-size:12.5px;color:var(--text-muted);">The details further down this page are a quick reference and may not reflect the latest label revision, or may be for a different branded product with the same active ingredient. For the official, current Safety Data Sheet, search <strong>' + esc(c.productName) + '</strong> on this.</p>' +
-    '<a class="btn btn-primary" style="display:block;text-align:center;text-decoration:none;" href="https://chemicalsafety.com/sds-search/" target="_blank" rel="noopener">Search for SDS</a>' +
+    '<a class="btn btn-primary" style="display:block;text-align:center;text-decoration:none;" href="https://cottonaustralia.com.au/sds" target="_blank" rel="noopener">Search for SDS</a>' +
   '</div>';
 
   // First aid + the two universal emergency numbers -- these two hotlines
