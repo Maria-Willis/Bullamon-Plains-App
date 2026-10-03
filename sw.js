@@ -303,7 +303,23 @@
 // web for it instead" empty-state link are removed entirely; and the
 // chemical list on that page is now sorted alphabetically by product name
 // instead of raw import order. index.html only.)
-var CACHE_NAME = "bullamon-plains-shell-v44";
+//
+// v45 (2026-10-03): Maria forwarded 20 real product SDS/label PDFs (eChem
+// Australia and one CropSure product) after a direct website fetch failed.
+// Added migrations sdsPdfFillV7 (enriches 9 existing bare generic-name
+// chemical rows -- Abamectin, Acetamiprid, Alpha Duo, Amicide, Amine,
+// Atrazine 900, Chlorsulfuron, Clethodim, Clodinafop -- with full
+// SDS/label data, including real GHS hazard statements/precautions/
+// categories/pictograms for the first time) and sdsNewChemicalsV4 (adds 11
+// brand-new chemicals not already on the register: eChem Amitraz 200
+// EC/ULV, Amitrole T 250, eChem Bifenthrin 100 EC, eChem Chlorpyrifos 500,
+// eChem Clethodim 360 EC, eChem Clopyralid 600, CropSure Beast 200
+// Herbicide, eChem Dicamba 500, eChem Difen 500 SC, eChem Chlorothalonil
+// 900 WG, and eChem Clopyralid 300 -- the last two share a generic name
+// with existing bare rows csheet_38/csheet_42 but describe a different
+// real-world formulation/concentration/salt, so were added as new rows
+// instead of merged). index.html only.
+var CACHE_NAME = "bullamon-plains-shell-v45";
 
 var SHELL_ASSETS = [
   "./",
