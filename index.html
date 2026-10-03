@@ -1576,7 +1576,7 @@ const DEFAULT_STATE = {
 // change to this file, same as CACHE_NAME in sw.js -- it gives an instant,
 // no-technical-steps-needed way to confirm whether a given device is
 // actually running the latest deploy, without comparing file contents.
-var APP_BUILD = "2026-10-03.1";
+var APP_BUILD = "2026-10-03.2";
 
 /* ======================================================================
    UTILITIES
@@ -15660,22 +15660,93 @@ function sdsBulletList(items){
   if(!items || !items.length) return "";
   return '<ul style="margin:0;padding-left:18px;font-size:13px;line-height:1.6;">' + items.map(function(t){ return '<li>' + esc(t) + '</li>'; }).join("") + '</ul>';
 }
-// List-of-pairs fields (buffer distances, withholding by crop) are entered
-// as plain "Label: Value" lines in a textarea rather than a dynamic
-// add/remove row editor -- simplest thing that lets Maria enter an
-// arbitrary number of rows without a much bigger UI component.
-function parseSdsPairLines(v){
-  return String(v||"").split("\n").map(function(s){ return s.trim(); }).filter(Boolean).map(function(line){
-    var idx = line.indexOf(":");
-    if(idx === -1) return { label: line, value: "" };
-    return { label: line.slice(0, idx).trim(), value: line.slice(idx+1).trim() };
-  });
+// List-of-pairs and plain-list fields on the SDS form (PPE points, storage
+// points, application limits, buffer distances, withholding by crop) used
+// to be entered as plain lines of text in a textarea -- simplest thing that
+// let Maria enter an arbitrary number of rows without a much bigger UI
+// component. At her follow-up request ("I need to be able to add and
+// remove items when editing safety data sheets"), these are now real
+// add/remove row editors instead -- a row per item, each with its own ×
+// button, plus an "+ Add..." button at the end. Since renderSds() only ever
+// shows the Safety Data Sheets LIST or ONE product's detail/edit view, never
+// both at once (see renderSds()), this form is never on the page twice at
+// the same time -- so these use fixed container ids rather than one scoped
+// to a particular SDS record, same as several other single-instance search
+// inputs elsewhere in the app (e.g. "sds-search-input").
+//
+// Pure DOM, no render() involved in adding/removing a row -- same technique
+// already used for the machinery Parts-used chip picker (addPartsUsedChip)
+// -- so rows can be freely added/removed while the rest of this big form
+// stays exactly as the person left it, and the whole thing still only
+// actually saves once, when the form's own Save button is pressed.
+function sdsListRowHtml(fieldName, value){
+  return '<div class="sds-row" style="display:flex;gap:6px;margin-bottom:6px;">' +
+    '<input type="text" name="' + fieldName + '" value="' + escAttr(value||"") + '" style="flex:1;" />' +
+    '<button type="button" class="btn btn-ghost btn-sm" style="width:auto;" title="Remove this item" onclick="removeSdsRow(this)">&times;</button>' +
+  '</div>';
 }
-function joinSdsPairLines(pairs){
-  return (pairs||[]).map(function(p){ return p.value ? (p.label + ": " + p.value) : p.label; }).join("\n");
+function renderSdsListRows(containerId, fieldName, values, addLabel){
+  var rows = (values && values.length ? values : [""]).map(function(v){ return sdsListRowHtml(fieldName, v); }).join("");
+  return '<div id="' + containerId + '">' + rows + '</div>' +
+    '<button type="button" class="btn btn-ghost btn-sm" style="width:auto;margin-top:2px;" onclick="addSdsListRow(\'' + containerId + '\',\'' + fieldName + '\')">' + esc(addLabel || "+ Add item") + '</button>';
 }
-function parseSdsBulletLines(v){
-  return String(v||"").split("\n").map(function(s){ return s.trim(); }).filter(Boolean);
+function addSdsListRow(containerId, fieldName){
+  var container = document.getElementById(containerId);
+  if(!container) return;
+  container.insertAdjacentHTML("beforeend", sdsListRowHtml(fieldName, ""));
+  var inputs = container.querySelectorAll('input[name="' + fieldName + '"]');
+  var last = inputs[inputs.length - 1];
+  if(last) last.focus();
+}
+// Removes the whole row (both the text input and its × button) that this
+// button sits in -- .closest() rather than a stored reference, so it works
+// regardless of how many rows were added/removed before it.
+function removeSdsRow(btn){
+  var row = btn.closest(".sds-row");
+  if(row && row.parentElement) row.parentElement.removeChild(row);
+}
+function sdsPairRowHtml(labelField, valueField, label, value, labelPlaceholder, valuePlaceholder){
+  return '<div class="sds-row" style="display:flex;gap:6px;margin-bottom:6px;">' +
+    '<input type="text" name="' + labelField + '" value="' + escAttr(label||"") + '" placeholder="' + escAttr(labelPlaceholder||"Label") + '" style="flex:1;" />' +
+    '<input type="text" name="' + valueField + '" value="' + escAttr(value||"") + '" placeholder="' + escAttr(valuePlaceholder||"Value") + '" style="flex:1;" />' +
+    '<button type="button" class="btn btn-ghost btn-sm" style="width:auto;" title="Remove this row" onclick="removeSdsRow(this)">&times;</button>' +
+  '</div>';
+}
+function renderSdsPairRows(containerId, labelField, valueField, pairs, labelPlaceholder, valuePlaceholder, addLabel){
+  var rows = (pairs && pairs.length ? pairs : [{ label: "", value: "" }]).map(function(p){
+    return sdsPairRowHtml(labelField, valueField, p.label, p.value, labelPlaceholder, valuePlaceholder);
+  }).join("");
+  return '<div id="' + containerId + '">' + rows + '</div>' +
+    '<button type="button" class="btn btn-ghost btn-sm" style="width:auto;margin-top:2px;" onclick="addSdsPairRow(\'' + containerId + '\',\'' + labelField + '\',\'' + valueField + '\',\'' + escAttr(labelPlaceholder||"") + '\',\'' + escAttr(valuePlaceholder||"") + '\')">' + esc(addLabel || "+ Add row") + '</button>';
+}
+function addSdsPairRow(containerId, labelField, valueField, labelPlaceholder, valuePlaceholder){
+  var container = document.getElementById(containerId);
+  if(!container) return;
+  container.insertAdjacentHTML("beforeend", sdsPairRowHtml(labelField, valueField, "", "", labelPlaceholder, valuePlaceholder));
+  var inputs = container.querySelectorAll('input[name="' + labelField + '"]');
+  var last = inputs[inputs.length - 1];
+  if(last) last.focus();
+}
+// Reads every row back out on submit. A plain list just drops blank rows
+// (someone added a row, then changed their mind without filling it in).
+// A pair list keeps a row if EITHER side has something in it, so a
+// label-only or value-only row isn't silently dropped -- matches how the
+// old "Label: Value" line parsing treated an incomplete line. The two
+// NodeLists stay aligned by index since removeSdsRow() always removes a
+// row's label and value inputs together, never just one side of it.
+function collectSdsListValues(f, fieldName){
+  return Array.prototype.slice.call(f.querySelectorAll('input[name="' + fieldName + '"]')).map(function(inp){ return inp.value.trim(); }).filter(Boolean);
+}
+function collectSdsPairValues(f, labelField, valueField){
+  var labels = Array.prototype.slice.call(f.querySelectorAll('input[name="' + labelField + '"]'));
+  var values = Array.prototype.slice.call(f.querySelectorAll('input[name="' + valueField + '"]'));
+  var out = [];
+  for(var i = 0; i < labels.length; i++){
+    var label = labels[i].value.trim();
+    var value = (values[i] ? values[i].value.trim() : "");
+    if(label || value) out.push({ label: label, value: value });
+  }
+  return out;
 }
 
 function renderSdsDetail(c){
@@ -15808,11 +15879,11 @@ function renderSdsForm(existing){
     '</div>' +
     '<h4 style="margin:16px 0 8px;">PPE and re-entry</h4>' +
     '<div class="form-grid">' +
-      '<div class="field span-2"><label>One point per line</label><textarea name="ppePoints" rows="3" placeholder="Cotton overalls buttoned to neck and wrist when opening, mixing and spraying">' + esc(existing ? (existing.ppePoints||[]).join("\n") : "") + '</textarea></div>' +
+      '<div class="field span-2"><label>Points (add as many as needed)</label>' + renderSdsListRows("sdsPpeRows", "ppePoint", existing ? (existing.ppePoints||[]) : []) + '</div>' +
     '</div>' +
     '<h4 style="margin:16px 0 8px;">Storage</h4>' +
     '<div class="form-grid">' +
-      '<div class="field span-2"><label>One point per line</label><textarea name="storagePoints" rows="3" placeholder="Closed original container">' + esc(existing ? (existing.storagePoints && existing.storagePoints.length ? existing.storagePoints.join("\n") : (existing.storageRequirements||"")) : "") + '</textarea></div>' +
+      '<div class="field span-2"><label>Points (add as many as needed)</label>' + renderSdsListRows("sdsStorageRows", "storagePoint", existing ? (existing.storagePoints && existing.storagePoints.length ? existing.storagePoints : (existing.storageRequirements ? [existing.storageRequirements] : [])) : []) + '</div>' +
     '</div>' +
     '<h4 style="margin:16px 0 8px;">Spray conditions</h4>' +
     '<div class="form-grid">' +
@@ -15823,13 +15894,13 @@ function renderSdsForm(existing){
       '<div class="field"><label>Heavy dew</label><input type="text" name="heavyDew" value="' + escAttr(existing && existing.spray ? existing.spray.heavyDew : "") + '" /></div>' +
       '<div class="field"><label>Bees</label><input type="text" name="bees" value="' + escAttr(existing && existing.spray ? existing.spray.bees : "") + '" /></div>' +
       '<div class="field"><label>ULV</label><input type="text" name="ulv" value="' + escAttr(existing && existing.spray ? existing.spray.ulv : "") + '" /></div>' +
-      '<div class="field span-2"><label>Buffer to natural aquatic areas -- one "Label: Value" per line</label><textarea name="bufferDistances" rows="3" placeholder="Boom sprayer: 20 m\nAircraft 3–8 km/h: 100 m">' + esc(existing ? joinSdsPairLines(existing.bufferDistances) : "") + '</textarea></div>' +
-      '<div class="field span-2"><label>Application limits -- one point per line</label><textarea name="applicationLimits" rows="3" placeholder="Cotton: max 3 per crop per season">' + esc(existing ? (existing.applicationLimits||[]).join("\n") : "") + '</textarea></div>' +
+      '<div class="field span-2"><label>Buffer to natural aquatic areas</label>' + renderSdsPairRows("sdsBufferRows", "bufferLabel", "bufferValue", existing ? (existing.bufferDistances||[]) : [], "e.g. Boom sprayer", "e.g. 20 m") + '</div>' +
+      '<div class="field span-2"><label>Application limits (add as many as needed)</label>' + renderSdsListRows("sdsAppLimitRows", "applicationLimit", existing ? (existing.applicationLimits||[]) : [], "+ Add limit") + '</div>' +
     '</div>' +
     '<h4 style="margin:16px 0 8px;">Withholding periods</h4>' +
     '<div class="form-grid">' +
-      '<div class="field span-2"><label>Harvest -- one "Crop: Period" per line</label><textarea name="withholdingHarvest" rows="3" placeholder="Cotton: 28 days\nChickpea, mung bean, soybean: 14 days">' + esc(existing ? joinSdsPairLines(existing.withholdingHarvest) : "") + '</textarea></div>' +
-      '<div class="field span-2"><label>Grazing -- one "Crop: Period" per line</label><textarea name="withholdingGrazing" rows="2" placeholder="Cotton: Never graze crop, stubble or gin trash">' + esc(existing ? joinSdsPairLines(existing.withholdingGrazing) : "") + '</textarea></div>' +
+      '<div class="field span-2"><label>Harvest</label>' + renderSdsPairRows("sdsWithholdHarvestRows", "withholdHarvestLabel", "withholdHarvestValue", existing ? (existing.withholdingHarvest||[]) : [], "e.g. Cotton", "e.g. 28 days") + '</div>' +
+      '<div class="field span-2"><label>Grazing</label>' + renderSdsPairRows("sdsWithholdGrazingRows", "withholdGrazingLabel", "withholdGrazingValue", existing ? (existing.withholdingGrazing||[]) : [], "e.g. Cotton", "e.g. Never graze crop, stubble or gin trash") + '</div>' +
     '</div>' +
     '<div class="form-actions"><button type="submit" class="btn btn-primary" style="width:auto;">Save</button><button type="button" class="btn btn-ghost" onclick="' + (existing ? "ui.editing.sds=null;render();" : "toggleForm('newSds')") + '">Cancel</button></div>' +
   '</form></div>';
@@ -15852,8 +15923,8 @@ function saveSds(e, id){
     poisonSchedule: f.poisonSchedule.value.trim(),
     dangerousGoods: f.dangerousGoods.value.trim(),
     registeredFor: f.registeredFor.value.trim(),
-    ppePoints: parseSdsBulletLines(f.ppePoints.value),
-    storagePoints: parseSdsBulletLines(f.storagePoints.value),
+    ppePoints: collectSdsListValues(f, "ppePoint"),
+    storagePoints: collectSdsListValues(f, "storagePoint"),
     spray: {
       windSpeed: f.windSpeed.value.trim(),
       inversions: f.inversions.value.trim(),
@@ -15863,10 +15934,10 @@ function saveSds(e, id){
       bees: f.bees.value.trim(),
       ulv: f.ulv.value.trim()
     },
-    bufferDistances: parseSdsPairLines(f.bufferDistances.value),
-    applicationLimits: parseSdsBulletLines(f.applicationLimits.value),
-    withholdingHarvest: parseSdsPairLines(f.withholdingHarvest.value),
-    withholdingGrazing: parseSdsPairLines(f.withholdingGrazing.value),
+    bufferDistances: collectSdsPairValues(f, "bufferLabel", "bufferValue"),
+    applicationLimits: collectSdsListValues(f, "applicationLimit"),
+    withholdingHarvest: collectSdsPairValues(f, "withholdHarvestLabel", "withholdHarvestValue"),
+    withholdingGrazing: collectSdsPairValues(f, "withholdGrazingLabel", "withholdGrazingValue"),
     lastReviewed: todayISO()
   };
   // storageRequirements (the old single-line field) is kept in sync with the
