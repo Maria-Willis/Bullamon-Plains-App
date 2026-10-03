@@ -1622,7 +1622,7 @@ const DEFAULT_STATE = {
 // change to this file, same as CACHE_NAME in sw.js -- it gives an instant,
 // no-technical-steps-needed way to confirm whether a given device is
 // actually running the latest deploy, without comparing file contents.
-var APP_BUILD = "2026-10-03.6";
+var APP_BUILD = "2026-10-03.7";
 
 /* ======================================================================
    UTILITIES
@@ -4300,6 +4300,384 @@ async function boot(){
       if(!existingSdsIds3[nc.id]){ state.chemicals.sds.push(nc); }
     });
     state.chemicals.sdsNewChemicalsV3 = true;
+    migrated = true;
+  }
+
+  // One-time fill-in of SDS/label details for 20 real product SDS/label PDFs
+  // Maria uploaded directly (2026-10-03), after a direct fetch of
+  // http://www.echem.com.au/herbicides.html failed with a technical
+  // HTTPS redirect-loop error (not a policy block) -- she was asked how to
+  // proceed and chose to forward the PDFs herself instead. Per her
+  // instruction ("add all the chemicals listed including their sds
+  // information... replace any chemicals already on the app if they look
+  // like they conflict"), each of the 20 products (19 eChem Australia Pty
+  // Ltd products plus 1 CropSure Pty Ltd product) was checked by
+  // generic/active-ingredient name against every existing row on this
+  // register. 9 matched an existing bare generic-name placeholder row
+  // closely enough to be the same real-world active ingredient (same
+  // formulation type, concentration and salt), so those rows are enriched
+  // here (fill-only-if-empty, exactly like every other sdsPdfFillVN batch
+  // -- this never overwrites a field already edited on a device); the
+  // other 11 are genuinely new products not already on this register (or
+  // describe a materially different formulation/concentration/salt from an
+  // existing bare row, so were deliberately NOT merged into it), and are
+  // added as brand-new rows by sdsNewChemicalsV4 below instead. Two
+  // existing bare rows were checked closely and found NOT to be safe
+  // merge targets: csheet_38 "Chlorothalonil" (720 g/L liquid) does not
+  // match eChem's 900 g/kg granular product, and csheet_42 "Clopyralid"
+  // (750 g/kg, potassium salt) does not match either eChem Clopyralid
+  // product (300 g/L or 600 g/L, triisopropylamine salt) -- both eChem
+  // products are added as new rows (csheet_214, csheet_215) instead of
+  // enriching those rows, to avoid attaching mismatched GHS hazard data to
+  // an unrelated real-world product. Most of the 20 PDFs were full formal
+  // Safety Data Sheets (not secondhand label summaries like several
+  // earlier batches), so this is also the first batch to populate the
+  // newer hazardStatements/precautions/hazardCategories/pictograms fields
+  // (added 2026-10-03 for the GHS card) with real data, alongside the
+  // original legacy fields. Two products (2,4-D 625 Amine and Amitrole T
+  // 250) were only supplied as product LABELS, not full SDS documents, so
+  // -- consistent with how this register has always handled label-only
+  // sources (e.g. csheet_77 above) -- their GHS hazard-statement/
+  // precaution/category/pictogram fields are deliberately left blank
+  // rather than guessed at. Two other products, both eChem Clopyralid 300
+  // Herbicide and (per its own SDS) the existing csheet_42 row's
+  // real-world product, genuinely have GHS Signal word "NONE -- Not
+  // hazardous" (clopyralid present as a neutralised salt), so their GHS
+  // fields are also left blank where applicable -- that is the accurate
+  // reflection of their own safety data, not a gap in research.
+  if(state.chemicals && !state.chemicals.sdsPdfFillV7){
+    var sdsPdfDetails7 = {
+      "csheet_1": {
+        "manufacturer": "eChem Australia Pty Ltd, Indooroopilly QLD. This register's \"Abamectin\" row is a bare generic entry -- filled here from the eChem-branded Abamectin Insecticide/Miticide SDS; if your drum is a different brand of abamectin, check the APVMA number against your container.",
+        "activeConstituent": "Abamectin (per eChem Abamectin Insecticide/Miticide SDS, APVMA 53306)",
+        "hazardClass": "SUSMP Classification S6. ADG Class 6.1 Toxic, UN 2902. GHS Signal word: DANGER. Flammable liquids Category 4; Acute Toxicity (Oral) Category 3; Skin Irritation Category 2; Eye Irritation Category 2B; Acute Toxicity (Inhalation) Category 3; Specific Target Organ Toxicity (single exposure) Category 3; Reproductive Toxicity Category 1B; Specific Target Organ Toxicity (repeated exposure) Category 2; Hazardous to the aquatic environment (acute) Category 1.",
+        "signalWord": "Danger",
+        "withholdingPeriod": "Not stated in the SDS sighted (a safety data sheet, not the product label, so no Directions for Use / withholding period table was available). Refer to the product label for the withholding period for the specific crop being sprayed.",
+        "storageRequirements": "Store in a closed container, locked up, protected from sunlight, in a well-ventilated area. Keep cool.",
+        "firstAid": "Do NOT induce vomiting if swallowed. Flush eyes with water for 15 minutes. Wash skin for 10-20 minutes. Seek medical attention if breathing problems develop. Poisons Information Centre 13 11 26.",
+        "hazardStatements": ["H227 Combustible liquid.", "H301 Toxic if swallowed.", "H315 Causes skin irritation.", "H320 Causes eye irritation.", "H331 Toxic if inhaled.", "H335 May cause respiratory irritation.", "H360 May damage fertility or the unborn child.", "H373 May cause damage to organs through prolonged or repeated exposure.", "H400 Very toxic to aquatic life."],
+        "precautions": ["Do NOT induce vomiting if swallowed.", "Wear protective gloves/protective clothing/eye protection/face protection.", "Store locked up, protected from sunlight.", "Avoid release to the environment."],
+        "hazardCategories": ["Flammable liquids - Category 4", "Acute toxicity (oral) - Category 3", "Skin irritation - Category 2", "Eye irritation - Category 2B", "Acute toxicity (inhalation) - Category 3", "Reproductive toxicity - Category 1B", "STOT (repeated exposure) - Category 2", "Hazardous to the aquatic environment (acute) - Category 1"],
+        "pictograms": ["toxic", "irritant", "health", "environment", "vomiting"]
+      },
+      "csheet_2": {
+        "manufacturer": "eChem Australia Pty Ltd, Indooroopilly QLD. Filled from the eChem AceTam 225 Insecticide SDS -- if your drum is a different brand of acetamiprid, check the APVMA number against your container.",
+        "activeConstituent": "Acetamiprid 15-25% (per eChem AceTam 225 Insecticide SDS, APVMA 67783) -- also contains Dimethyl sulfoxide 40-50% and N-methyl-2-pyrrolidone 25-35%.",
+        "hazardClass": "Poison Schedule 6. GHS Signal word: DANGER. Reproductive Toxicity Category 1B; Hazardous to the aquatic environment (acute) Category 1; Hazardous to the aquatic environment (chronic) Category 1; Acute Toxicity (Oral) Category 4; Acute Toxicity (Inhalation) Category 4; Skin Corrosion/Irritation Category 2; Eye Irritation Category 2A; Specific Target Organ Toxicity (single exposure) Category 3.",
+        "signalWord": "Danger",
+        "withholdingPeriod": "Not stated in the SDS sighted (a safety data sheet, not the product label, so no Directions for Use / withholding period table was available). Refer to the product label for the withholding period for the specific crop being sprayed.",
+        "storageRequirements": "Store in a cool, dry and well ventilated area. Keep in original container, tightly closed when not in use. Protect from direct sunlight.",
+        "firstAid": "Do NOT induce vomiting if swallowed. Poisons Information Centre 13 11 26.",
+        "hazardStatements": ["H302 Harmful if swallowed.", "H332 Harmful if inhaled.", "H315 Causes skin irritation.", "H319 Causes serious eye irritation.", "H360D May damage the unborn child.", "H335 May cause respiratory irritation.", "H410 Very toxic to aquatic life with long lasting effects."],
+        "precautions": ["Do NOT induce vomiting if swallowed.", "Wear protective gloves/protective clothing/eye protection/face protection.", "Avoid release to the environment.", "Protect from direct sunlight."],
+        "hazardCategories": ["Reproductive toxicity - Category 1B", "Hazardous to the aquatic environment (acute) - Category 1", "Hazardous to the aquatic environment (chronic) - Category 1", "Acute toxicity (oral) - Category 4", "Acute toxicity (inhalation) - Category 4", "Skin corrosion/irritation - Category 2", "Eye irritation - Category 2A", "STOT (single exposure) - Category 3"],
+        "pictograms": ["health", "environment", "irritant", "vomiting"]
+      },
+      "csheet_8": {
+        "manufacturer": "eChem Australia Pty Ltd, Indooroopilly QLD. Filled from the eChem Alpha-Cyp 100 Duo Insecticide SDS -- if your drum is a different brand of alpha-cypermethrin, check the APVMA number against your container.",
+        "activeConstituent": "Alpha-cypermethrin 100 g/L (per eChem Alpha-Cyp 100 Duo Insecticide SDS, APVMA 53218)",
+        "hazardClass": "SUSMP Classification S6. GHS Signal word: DANGER. Flammable liquids Category 4; Acute Toxicity (Oral) Category 4; Aspiration Hazard Category 1; Skin Corrosion/Irritation Category 2; Eye damage/irritation Category 2B; Specific Target Organ Toxicity (single exposure) Category 3; Specific Target Organ Toxicity (repeated exposure) Category 2.",
+        "signalWord": "Danger",
+        "withholdingPeriod": "Not stated in the SDS sighted (a safety data sheet, not the product label, so no Directions for Use / withholding period table was available). Refer to the product label for the withholding period for the specific crop being sprayed.",
+        "storageRequirements": "Store in a cool, dry and well ventilated area. Keep in original container, tightly closed when not in use. Protect from direct sunlight, heat, sparks and open flames.",
+        "firstAid": "Do NOT induce vomiting if swallowed. Poisons Information Centre 13 11 26.",
+        "hazardStatements": ["H227 Combustible liquid.", "H302 Harmful if swallowed.", "H304 May be fatal if swallowed and enters airways.", "H315 Causes skin irritation.", "H320 Causes eye irritation.", "H335 May cause respiratory irritation.", "H373 May cause damage to organs through prolonged or repeated exposure."],
+        "precautions": ["Do NOT induce vomiting if swallowed.", "Wear protective gloves/protective clothing/eye protection/face protection.", "Keep away from heat/sparks/open flames. No smoking.", "Store locked up, protected from sunlight."],
+        "hazardCategories": ["Flammable liquids - Category 4", "Acute toxicity (oral) - Category 4", "Aspiration hazard - Category 1", "Skin corrosion/irritation - Category 2", "Eye damage/irritation - Category 2B", "STOT (single exposure) - Category 3", "STOT (repeated exposure) - Category 2"],
+        "pictograms": ["health", "irritant", "vomiting"]
+      },
+      "csheet_11": {
+        "manufacturer": "eChem Australia Pty Ltd, Indooroopilly QLD. This register has two similar bare \"2,4-D amine\" placeholder rows (\"Amicide\" and \"Amine\", both listed with active constituent \"Dimethylamine\") -- the only document sighted for this active was a product LABEL (not a full SDS) for eChem's \"2,4-D 625 Amine\", so the same label data has been used to fill both rows rather than guessing which one it specifically corresponds to. Confirm against your container which product you actually have.",
+        "activeConstituent": "625 g/L 2,4-D present as the dimethylamine and diethanolamine salts (per eChem 2,4-D 625 Amine Herbicide label, APVMA 66440/53636)",
+        "hazardClass": "Group I Herbicide. Signal word (label): CAUTION. Poison -- Keep out of reach of children. CAUTION: this is a phenoxy herbicide that can cause severe damage to susceptible crops (cotton, grapes, tomatoes, oilseed crops, ornamentals) if spray drift occurs. Label safety-panel wording: \"Harmful in contact with skin\", \"Causes serious eye irritation\", \"Harmful if inhaled\". Only a product label was sighted, not a full SDS, so no formal GHS hazard-statement/category/pictogram table was available -- those fields are deliberately left blank here rather than guessed at.",
+        "signalWord": "Caution",
+        "withholdingPeriod": "Not stated on the pages sighted (label front/safety panel only -- the Directions for Use / withholding period table was not captured). Refer to the product label for the withholding period for the specific crop being sprayed.",
+        "storageRequirements": "Store in a cool, well-ventilated area. Avoid prolonged exposure to direct sunlight. Triple- or pressure-rinse containers before disposal.",
+        "firstAid": "Contact a doctor or the Poisons Information Centre on 13 11 26."
+      },
+      "csheet_12": {
+        "manufacturer": "eChem Australia Pty Ltd, Indooroopilly QLD. See the note on csheet_11 (\"Amicide\") -- the same eChem 2,4-D 625 Amine label data has been used to fill both similar bare placeholder rows.",
+        "activeConstituent": "625 g/L 2,4-D present as the dimethylamine and diethanolamine salts (per eChem 2,4-D 625 Amine Herbicide label, APVMA 66440/53636)",
+        "hazardClass": "Group I Herbicide. Signal word (label): CAUTION. Poison -- Keep out of reach of children. CAUTION: this is a phenoxy herbicide that can cause severe damage to susceptible crops (cotton, grapes, tomatoes, oilseed crops, ornamentals) if spray drift occurs. Label safety-panel wording: \"Harmful in contact with skin\", \"Causes serious eye irritation\", \"Harmful if inhaled\". Only a product label was sighted, not a full SDS, so no formal GHS hazard-statement/category/pictogram table was available -- those fields are deliberately left blank here rather than guessed at.",
+        "signalWord": "Caution",
+        "withholdingPeriod": "Not stated on the pages sighted (label front/safety panel only -- the Directions for Use / withholding period table was not captured). Refer to the product label for the withholding period for the specific crop being sprayed.",
+        "storageRequirements": "Store in a cool, well-ventilated area. Avoid prolonged exposure to direct sunlight. Triple- or pressure-rinse containers before disposal.",
+        "firstAid": "Contact a doctor or the Poisons Information Centre on 13 11 26."
+      },
+      "csheet_19": {
+        "manufacturer": "eChem Australia Pty Ltd, Indooroopilly QLD. Filled from the eChem Atrazine 900 WG Herbicide SDS -- if your drum is a different brand of atrazine, check the APVMA number against your container.",
+        "activeConstituent": "Atrazine 900 g/kg (per eChem Atrazine 900 WG Herbicide SDS, APVMA 82492)",
+        "hazardClass": "SUSMP Classification S5. GHS Signal word: WARNING. Skin Sensitisation Category 1; Specific Target Organ Toxicity (repeated exposure) Category 2; Hazardous to the aquatic environment (chronic) Category 1. Not subject to the ADG Code (packages 500 kg/L or less). Light tan coloured granules, mild sweet odour.",
+        "signalWord": "Warning",
+        "withholdingPeriod": "Not stated in the SDS sighted (a safety data sheet, not the product label, so no Directions for Use / withholding period table was available). Refer to the product label for the withholding period for the specific crop being sprayed.",
+        "storageRequirements": "Store in a cool, dry and well ventilated area. Keep in original container, tightly closed when not in use. Protect from direct sunlight.",
+        "firstAid": "Do NOT induce vomiting if swallowed. Poisons Information Centre 13 11 26.",
+        "hazardStatements": ["H317 May cause an allergic skin reaction.", "H373 May cause damage to organs through prolonged or repeated exposure.", "H410 Very toxic to aquatic life with long lasting effects."],
+        "precautions": ["Do NOT induce vomiting if swallowed.", "Wear protective gloves/protective clothing/eye protection/face protection.", "Avoid release to the environment."],
+        "hazardCategories": ["Skin sensitisation - Category 1", "STOT (repeated exposure) - Category 2", "Hazardous to the aquatic environment (chronic) - Category 1"],
+        "pictograms": ["health", "irritant", "environment", "vomiting"]
+      },
+      "csheet_39": {
+        "manufacturer": "eChem Australia Pty Ltd, Indooroopilly QLD. Filled from the eChem Chlorsulfuron 750 WG Herbicide SDS -- if your drum is a different brand of chlorsulfuron, check the APVMA number against your container.",
+        "activeConstituent": "Chlorsulfuron 75% (per eChem Chlorsulfuron 750 WG Herbicide SDS, APVMA 60682)",
+        "hazardClass": "Poison Schedule 5. GHS Signal word: WARNING. Hazardous to the aquatic environment (chronic) Category 1 -- this is the only hazard classification that applies; \"Not classified as hazardous according to the Safe Work Australia criteria\" for all other endpoints. Off-white to tan granulate, odourless. Not subject to the ADG Code (packages 500 kg/L or less).",
+        "signalWord": "Warning",
+        "withholdingPeriod": "Not stated in the SDS sighted (a safety data sheet, not the product label, so no Directions for Use / withholding period table was available). Refer to the product label for the withholding period for the specific crop being sprayed.",
+        "storageRequirements": "Store in a cool, dry and well ventilated area. Keep in original container, tightly closed when not in use. Protect from direct sunlight.",
+        "firstAid": "Do NOT induce vomiting if swallowed. Poisons Information Centre 13 11 26.",
+        "hazardStatements": ["H410 Very toxic to aquatic life with long lasting effects."],
+        "precautions": ["Do NOT induce vomiting if swallowed.", "Avoid release to the environment."],
+        "hazardCategories": ["Hazardous to the aquatic environment (chronic) - Category 1"],
+        "pictograms": ["environment", "vomiting"]
+      },
+      "csheet_40": {
+        "manufacturer": "eChem Australia Pty Ltd, Indooroopilly QLD. Filled from the eChem Clethodim 240 Herbicide SDS. eChem also makes a 360 g/L version (\"eChem Clethodim 360 EC Herbicide\") -- added separately below as a new row (csheet_209) since it is a materially different, higher-strength formulation, not a duplicate of this one. Confirm against your container which concentration you actually have.",
+        "activeConstituent": "Clethodim 240 g/L (per eChem Clethodim 240 Herbicide SDS, APVMA 68708)",
+        "hazardClass": "SUSMP Classification S5. \"None allocated -- Not a Dangerous Good.\" GHS Signal word: WARNING. Flammable liquids Category 4; Acute Toxicity (Oral) Category 4; Aspiration Hazard Category 1; Skin Sensitisation Category 1; Acute Toxicity (Inhalation) Category 4; Hazardous to the aquatic environment (chronic) Category 3. Clear amber liquid, aromatic odour.",
+        "signalWord": "Warning",
+        "withholdingPeriod": "Not stated in the SDS sighted (a safety data sheet, not the product label, so no Directions for Use / withholding period table was available). Refer to the product label for the withholding period for the specific crop being sprayed.",
+        "storageRequirements": "Store in a cool, dry and well ventilated area. Keep in original container, tightly closed when not in use. Protect from direct sunlight, heat, sparks and open flames.",
+        "firstAid": "Do NOT induce vomiting if swallowed. Poisons Information Centre 13 11 26.",
+        "hazardStatements": ["H227 Combustible liquid.", "H302 Harmful if swallowed.", "H304 May be fatal if swallowed and enters airways.", "H317 May cause an allergic skin reaction.", "H332 Harmful if inhaled.", "H412 Harmful to aquatic life with long-lasting effects."],
+        "precautions": ["Do NOT induce vomiting if swallowed.", "Wear protective gloves/protective clothing/eye protection/face protection.", "Keep away from heat/sparks/open flames. No smoking."],
+        "hazardCategories": ["Flammable liquids - Category 4", "Acute toxicity (oral) - Category 4", "Aspiration hazard - Category 1", "Skin sensitisation - Category 1", "Acute toxicity (inhalation) - Category 4", "Hazardous to the aquatic environment (chronic) - Category 3"],
+        "pictograms": ["health", "irritant", "vomiting"]
+      },
+      "csheet_41": {
+        "manufacturer": "eChem Australia Pty Ltd, Indooroopilly QLD. Filled from the eChem (Clodin 240EC Selective Herbicide) SDS -- if your drum is a different brand of clodinafop, check the APVMA number against your container.",
+        "activeConstituent": "Clodinafop-propargyl 246 g/L plus cloquintocet-mexyl (safener) 61.85 g/L (per Clodin 240EC Selective Herbicide SDS, APVMA 62592). Emulsifiable concentrate, dark yellow water-thin liquid.",
+        "hazardClass": "SUSMP Classification S6. ADG Classification: Class 9 Miscellaneous Dangerous Goods, UN 3082. GHS Signal word: DANGER. Flammable liquids Category 4; Acute Toxicity (Oral) Category 4; Aspiration Hazard Category 1; Skin Irritation Category 2; Skin Sensitisation Category 1; Eye Irritation Category 2B; Specific Target Organ Toxicity (single exposure) Category 3; Reproductive Toxicity Category 1B; Specific Target Organ Toxicity (repeated exposure) Category 2; Hazardous to the aquatic environment (chronic) Category 1.",
+        "signalWord": "Danger",
+        "withholdingPeriod": "Not stated in the SDS sighted (a safety data sheet, not the product label, so no Directions for Use / withholding period table was available). Refer to the product label for the withholding period for the specific crop being sprayed.",
+        "storageRequirements": "Store in a closed container, locked up, protected from sunlight, in a well-ventilated place. Keep cool.",
+        "firstAid": "IF SWALLOWED: rinse mouth, do NOT induce vomiting, call a Poisons Centre or doctor. Poisons Information Centre 13 11 26.",
+        "hazardStatements": ["H227 Combustible liquid.", "H302 Harmful if swallowed.", "H304 May be fatal if swallowed and enters airways.", "H315 Causes skin irritation.", "H317 May cause an allergic skin reaction.", "H320 Causes eye irritation.", "H335 May cause respiratory irritation.", "H360D May damage the unborn child.", "H373 May cause damage to organs through prolonged or repeated exposure.", "H410 Very toxic to aquatic life with long-lasting effects."],
+        "precautions": ["Do NOT induce vomiting if swallowed.", "Obtain special instructions before use.", "Wear protective gloves, protective clothing and eye or face protection.", "Store locked up, protected from sunlight."],
+        "hazardCategories": ["Flammable liquids - Category 4", "Acute toxicity (oral) - Category 4", "Aspiration hazard - Category 1", "Skin irritation - Category 2", "Skin sensitisation - Category 1", "Eye irritation - Category 2B", "Reproductive toxicity - Category 1B", "STOT (repeated exposure) - Category 2", "Hazardous to the aquatic environment (chronic) - Category 1"],
+        "pictograms": ["health", "irritant", "environment", "vomiting"]
+      },
+    };
+    (state.chemicals.sds || []).forEach(function(c){
+      var d = sdsPdfDetails7[c.id];
+      if(!d) return;
+      Object.keys(d).forEach(function(k){
+        var isEmpty = !c[k] || (Array.isArray(c[k]) && c[k].length === 0);
+        if(isEmpty){ c[k] = d[k]; }
+      });
+      if(!c.lastReviewed){ c.lastReviewed = "2026-10-03"; }
+    });
+    state.chemicals.sdsPdfFillV7 = true;
+    migrated = true;
+  }
+
+  // New chemicals not already present in the SDS register, added from real
+  // product SDS/label PDFs Maria uploaded directly (batch 7, 2026-10-03),
+  // per Maria's standing instruction: "If I upload a chemical that is not
+  // listed please add it." These 11 products were checked by
+  // generic/active-ingredient name against every existing row on this
+  // register (including the sdsPdfFillV7 batch immediately above) and found
+  // to have no existing bare generic-name placeholder row that is safely
+  // the same real-world product to enrich, so each is added here as a
+  // brand-new row instead (csheet_214 and csheet_215 are the two products
+  // that do share a generic name with an existing row -- csheet_38 and
+  // csheet_42 respectively -- but describe a different real-world
+  // formulation/concentration/salt, so were added as new rows rather than
+  // merged; see the sdsPdfFillV7 comment above for detail). Ten of the
+  // eleven are eChem Australia Pty Ltd products; "CropSure Beast 200
+  // Herbicide" is from a different manufacturer, CropSure Pty Ltd -- this
+  // is correctly recorded in its own manufacturer field rather than
+  // assumed to be eChem.
+  // Guarded by id so these rows are never duplicated, and by
+  // sdsNewChemicalsV4 so this batch only ever runs once.
+  if(state.chemicals && !state.chemicals.sdsNewChemicalsV4){
+    var sdsNewChemicals4 = [
+      {
+        "id": "csheet_205",
+        "productName": "eChem Amitraz 200 EC/ULV",
+        "manufacturer": "eChem Australia Pty Ltd, Indooroopilly QLD",
+        "activeConstituent": "Amitraz 200 g/L",
+        "chemicalType": "Insecticide/Acaricide",
+        "hazardClass": "APVMA Approval Number 56004. SUSMP Classification S6. GHS Signal word: WARNING. Flammable liquids Category 4; Acute Toxicity (Oral) Category 4; Aspiration Hazard Category 1; Skin Sensitisation Category 1; Specific Target Organ Toxicity (repeated exposure) Category 2; Hazardous to the aquatic environment (chronic) Category 1.",
+        "signalWord": "Warning",
+        "withholdingPeriod": "Not stated in the SDS sighted (a safety data sheet, not the product label, so no Directions for Use / withholding period table was available). Refer to the product label for the withholding period for the specific crop being sprayed.",
+        "storageRequirements": "Store in a cool, dry and well ventilated area. Keep in original container, tightly closed when not in use. Protect from direct sunlight, heat, sparks and open flames.",
+        "firstAid": "Do NOT induce vomiting if swallowed. Keep out of reach of children. Poisons Information Centre 13 11 26.",
+        "hazardStatements": ["H227 Combustible liquid.", "H302 Harmful if swallowed.", "H304 May be fatal if swallowed and enters airways.", "H317 May cause an allergic skin reaction.", "H373 May cause damage to organs through prolonged or repeated exposure.", "H410 Very toxic to aquatic life with long lasting effects."],
+        "precautions": ["Do NOT induce vomiting if swallowed.", "Keep out of reach of children.", "Wear protective gloves/protective clothing/eye protection/face protection.", "Keep away from heat/sparks/open flames. No smoking."],
+        "hazardCategories": ["Flammable liquids - Category 4", "Acute toxicity (oral) - Category 4", "Aspiration hazard - Category 1", "Skin sensitisation - Category 1", "STOT (repeated exposure) - Category 2", "Hazardous to the aquatic environment (chronic) - Category 1"],
+        "pictograms": ["health", "irritant", "environment", "vomiting"],
+        "lastReviewed": "2026-10-03"
+      },
+      {
+        "id": "csheet_206",
+        "productName": "Amitrole T 250",
+        "manufacturer": "eChem Australia Pty Ltd, Indooroopilly QLD. Only a product LABEL was sighted for this product, not a full SDS, so no formal GHS hazard-statement/category/pictogram table was available -- those fields are deliberately left blank here rather than guessed at.",
+        "activeConstituent": "250 g/L Amitrole plus 220 g/L Ammonium Thiocyanate",
+        "chemicalType": "Herbicide",
+        "hazardClass": "Group 34 Herbicide. APVMA Approval Number 93697/140212. Signal word (label): CAUTION. Safety directions: DO NOT inhale spray mist; wash hands/arms/face after use. For control of weeds in orchards, vineyards, irrigation ditches/drains, roadsides, wheat and barley, and general industrial situations.",
+        "signalWord": "Caution",
+        "withholdingPeriod": "Not stated on the pages sighted (label front/safety panel only -- the Directions for Use / withholding period table was not captured). Refer to the product label for the withholding period for the specific crop being sprayed.",
+        "storageRequirements": "Not stated on the pages sighted (label front/safety panel only). Refer to the product label.",
+        "firstAid": "If poisoning occurs, contact a doctor or the Poisons Information Centre on 13 11 26.",
+        "lastReviewed": "2026-10-03"
+      },
+      {
+        "id": "csheet_207",
+        "productName": "eChem Bifenthrin 100 EC Insecticide",
+        "manufacturer": "eChem Australia Pty Ltd, Indooroopilly QLD",
+        "activeConstituent": "Bifenthrin 10-15% (approx. 100 g/L), plus distillates (petroleum), hydrotreated middle, greater than 65%",
+        "chemicalType": "Insecticide/Miticide",
+        "hazardClass": "APVMA Approval Number 69549. Poison Schedule 6. GHS Signal word: DANGER. Carcinogenicity Category 1B; Specific Target Organ Toxicity (repeated exposure) Category 1; Aspiration Hazard Category 1; Hazardous to the aquatic environment (acute) Category 1; Hazardous to the aquatic environment (chronic) Category 1; Acute Toxicity (Oral) Category 4; Skin Corrosion/Irritation Category 2; Skin Sensitisation Category 1.",
+        "signalWord": "Danger",
+        "withholdingPeriod": "Not stated in the SDS sighted (a safety data sheet, not the product label, so no Directions for Use / withholding period table was available). Refer to the product label for the withholding period for the specific crop being sprayed.",
+        "storageRequirements": "Store in a cool, dry and well ventilated area. Keep in original container, tightly closed when not in use. Protect from direct sunlight.",
+        "firstAid": "Do NOT induce vomiting if swallowed. Poisons Information Centre 13 11 26.",
+        "hazardStatements": ["H302 Harmful if swallowed.", "H315 Causes skin irritation.", "H317 May cause an allergic skin reaction.", "H350 May cause cancer.", "H372 Causes damage to the nervous system through prolonged or repeated exposure.", "H304 May be fatal if swallowed and enters airways.", "H410 Very toxic to aquatic life with long lasting effects."],
+        "precautions": ["Do NOT induce vomiting if swallowed.", "Wear protective gloves/protective clothing/eye protection/face protection.", "Avoid release to the environment."],
+        "hazardCategories": ["Carcinogenicity - Category 1B", "STOT (repeated exposure) - Category 1", "Aspiration hazard - Category 1", "Hazardous to the aquatic environment (acute) - Category 1", "Hazardous to the aquatic environment (chronic) - Category 1", "Acute toxicity (oral) - Category 4", "Skin corrosion/irritation - Category 2", "Skin sensitisation - Category 1"],
+        "pictograms": ["health", "environment", "irritant", "vomiting"],
+        "lastReviewed": "2026-10-03"
+      },
+      {
+        "id": "csheet_208",
+        "productName": "eChem Chlorpyrifos 500 Insecticide",
+        "manufacturer": "eChem Australia Pty Ltd, Indooroopilly QLD",
+        "activeConstituent": "Chlorpyrifos 500 g/L (Group 1B insecticide)",
+        "chemicalType": "Insecticide",
+        "hazardClass": "APVMA Approval Number 83426. SUSMP Classification S6. ADG Class 6.1 Toxic, UN 3018. GHS Signal word: DANGER. Flammable liquids Category 4; Acute Toxicity (Oral) Category 3; Acute Toxicity (Dermal) Category 4; Specific Target Organ Toxicity (repeated exposure) Category 2; Hazardous to the aquatic environment (chronic) Category 1. Organophosphate / cholinesterase-inhibiting compound -- poisoning symptoms include numbness, tingling, incoordination, headache, dizziness, tremor, nausea, abdominal cramps, sweating, blurred vision, breathing difficulty and slow heartbeat.",
+        "signalWord": "Danger",
+        "withholdingPeriod": "Not stated in the SDS sighted (a safety data sheet, not the product label, so no Directions for Use / withholding period table was available). Refer to the product label for the withholding period for the specific crop being sprayed.",
+        "storageRequirements": "Store in a cool, dry and well ventilated area. Keep in original container, tightly closed when not in use. Protect from direct sunlight, heat, sparks and open flames.",
+        "firstAid": "Do NOT induce vomiting if swallowed. Poisons Information Centre 13 11 26.",
+        "hazardStatements": ["H227 Combustible liquid.", "H301 Toxic if swallowed.", "H311 Toxic in contact with skin.", "H373 May cause damage to organs through prolonged or repeated exposure.", "H410 Very toxic to aquatic life with long lasting effects."],
+        "precautions": ["Do NOT induce vomiting if swallowed.", "Wear protective gloves/protective clothing/eye protection/face protection.", "Keep away from heat/sparks/open flames. No smoking.", "Avoid release to the environment."],
+        "hazardCategories": ["Flammable liquids - Category 4", "Acute toxicity (oral) - Category 3", "Acute toxicity (dermal) - Category 4", "STOT (repeated exposure) - Category 2", "Hazardous to the aquatic environment (chronic) - Category 1"],
+        "pictograms": ["toxic", "health", "environment", "vomiting"],
+        "lastReviewed": "2026-10-03"
+      },
+      {
+        "id": "csheet_209",
+        "productName": "eChem Clethodim 360 EC Herbicide",
+        "manufacturer": "eChem Australia Pty Ltd, Indooroopilly QLD. A different, higher-strength formulation from the register's existing bare \"Clethodim\" row (csheet_40, filled from eChem's 240 g/L product) -- added as its own new row rather than merged into that one. Confirm against your container which concentration you actually have.",
+        "activeConstituent": "Clethodim 30-40% (approx. 360 g/L), plus solvent naphtha (petroleum), heavy aromatic, 50-60%",
+        "chemicalType": "Herbicide",
+        "hazardClass": "APVMA Approval Number 93114. Poison Schedule 5. Not classified as Dangerous Goods. GHS Signal word: DANGER. Aspiration Hazard Category 1; Skin Sensitisation Category 1; Flammable Liquids Category 4; Hazardous to the aquatic environment (chronic) Category 3. Brown liquid, mild odour.",
+        "signalWord": "Danger",
+        "withholdingPeriod": "Not stated in the SDS sighted (a safety data sheet, not the product label, so no Directions for Use / withholding period table was available). Refer to the product label for the withholding period for the specific crop being sprayed.",
+        "storageRequirements": "Store in a cool, dry and well ventilated area. Keep in original container, tightly closed when not in use. Protect from freezing, direct sunlight, heat, sparks and open flames.",
+        "firstAid": "Do NOT induce vomiting if swallowed. Poisons Information Centre 13 11 26.",
+        "hazardStatements": ["H227 Combustible liquid.", "H317 May cause an allergic skin reaction.", "H304 May be fatal if swallowed and enters airways.", "H412 Harmful to aquatic life with long lasting effects."],
+        "precautions": ["Do NOT induce vomiting if swallowed.", "Keep away from heat/sparks/open flames. No smoking.", "Wear protective gloves/protective clothing/eye protection/face protection.", "Store locked up."],
+        "hazardCategories": ["Aspiration hazard - Category 1", "Skin sensitisation - Category 1", "Flammable liquids - Category 4", "Hazardous to the aquatic environment (chronic) - Category 3"],
+        "pictograms": ["health", "irritant", "vomiting"],
+        "lastReviewed": "2026-10-03"
+      },
+      {
+        "id": "csheet_210",
+        "productName": "eChem Clopyralid 600 Herbicide",
+        "manufacturer": "eChem Australia Pty Ltd, Indooroopilly QLD. A different, higher-strength and hazardous formulation from eChem's own 300 g/L product (\"eChem Clopyralid 300 Herbicide\", not classified as hazardous -- added separately below as csheet_215). Note the register's existing bare \"Clopyralid\" row (csheet_42) describes yet another, unrelated product -- a 750 g/kg granular formulation with clopyralid present as the potassium salt -- so neither this nor the 300 g/L product was merged into it. Confirm against your container which product you actually have.",
+        "activeConstituent": "Clopyralid (ISO) 40-60%",
+        "chemicalType": "Herbicide",
+        "hazardClass": "APVMA Approval Number 90812. Poison Schedule 5. ADG Class 9 Miscellaneous Dangerous Goods, UN 3082 (Environmentally Hazardous Substance, Liquid, N.O.S. (Clopyralid)), Marine Pollutant. GHS Signal word: DANGER. Serious Eye Damage/Irritation Category 1 -- this is the only hazard classification that applies. Brown or black liquid, mild odour.",
+        "signalWord": "Danger",
+        "withholdingPeriod": "Not stated in the SDS sighted (a safety data sheet, not the product label, so no Directions for Use / withholding period table was available). Refer to the product label for the withholding period for the specific crop being sprayed.",
+        "storageRequirements": "Store in a cool, dry and well ventilated area. Keep in original container, tightly closed when not in use. Protect from direct sunlight. Keep away from oxidising agents, acids and bases.",
+        "firstAid": "Do NOT induce vomiting if swallowed. IF IN EYES: rinse cautiously with water for several minutes. Poisons Information Centre 13 11 26.",
+        "hazardStatements": ["H318 Causes serious eye damage."],
+        "precautions": ["Wear eye protection/face protection.", "IF IN EYES: rinse cautiously with water for several minutes.", "Keep out of reach of children."],
+        "hazardCategories": ["Serious eye damage/irritation - Category 1"],
+        "pictograms": ["corrosive", "vomiting"],
+        "lastReviewed": "2026-10-03"
+      },
+      {
+        "id": "csheet_211",
+        "productName": "CropSure Beast 200 Herbicide",
+        "manufacturer": "CropSure Pty Ltd, 18 Raymond Road, Laverton North VIC 3026. A different manufacturer from eChem Australia -- not to be confused with this register's eChem-branded entries.",
+        "activeConstituent": "200 g/L Glufosinate-ammonium",
+        "chemicalType": "Herbicide",
+        "groupNumber": "10",
+        "hazardClass": "APVMA Approval Number 90143/127764. SUSMP Classification S5. Not a Dangerous Good (ADG/IATA/IMDG/IMSBC). GHS Signal word: DANGER. Acute Toxicity (Dermal) Category 4; Serious Eye Damage/Eye Irritation Category 2/2A; Reproductive Toxicity Category 1; Reproductive Toxicity Category 2; Specific Target Organ Toxicity (repeated exposure) Category 2. Group 10 Herbicide (glutamine synthetase inhibitor) -- for the non-residual control of broadleaf and grass weeds; for weed-resistance management, rotate with herbicides from a different group.",
+        "signalWord": "Danger",
+        "withholdingPeriod": "Harvest: avocado, banana, feijoa, guava, kiwifruit, litchi, mango, olives, pawpaw, passionfruit, pineapple, rambutan, blackberry, boysenberry, loganberry, raspberry, citrus fruit, grapes, strawberries, tomatoes, tree nuts -- not required when used as directed. Pome and stone fruit: do not harvest for 21 days after application. Grazing: do not graze or cut treated areas for stockfood for 8 weeks after application.",
+        "storageRequirements": "Store in the closed, original container in a cool, well-ventilated area. Do not store for prolonged periods in direct sunlight.",
+        "firstAid": "Harmful if inhaled. May irritate the eyes. Avoid contact with eyes. Do NOT inhale spray mist. IF SWALLOWED: do NOT induce vomiting. If poisoning occurs, contact a doctor or Poisons Information Centre. Phone Australia 13 11 26, New Zealand 0800 764 766.",
+        "hazardStatements": ["H312 Harmful in contact with skin.", "H319 Causes serious eye irritation.", "H360 May damage fertility or the unborn child.", "H361 Suspected of damaging fertility or the unborn child.", "H373 May cause damage to organs through prolonged or repeated exposure."],
+        "precautions": ["Do NOT induce vomiting if swallowed.", "Do not breathe fumes, mists, vapours or spray.", "Wear protective gloves, protective clothing and eye or face protection.", "Do not eat, drink or smoke when using this product.", "Keep out of reach of children."],
+        "hazardCategories": ["Acute toxicity (dermal) - Category 4", "Serious eye damage/eye irritation - Category 2/2A", "Reproductive toxicity - Category 1", "Reproductive toxicity - Category 2", "STOT (repeated exposure) - Category 2"],
+        "pictograms": ["health", "irritant", "vomiting"],
+        "lastReviewed": "2026-10-03"
+      },
+      {
+        "id": "csheet_212",
+        "productName": "eChem Dicamba 500 Herbicide",
+        "manufacturer": "eChem Australia Pty Ltd, Indooroopilly QLD",
+        "activeConstituent": "Dicamba, present as the dimethylamine salt, 50-70% (approx. 500 g/L)",
+        "chemicalType": "Herbicide",
+        "hazardClass": "APVMA Approval Number 85704. Poison Schedule 6. Not classified as Dangerous Goods. GHS Signal word: WARNING. Eye Irritation Category 2A; Hazardous to the aquatic environment (chronic) Category 3. Note: mixing with acids can precipitate solid dicamba and block spray equipment; mixing with strong alkalis may release harmful, flammable dimethylamine vapours.",
+        "signalWord": "Warning",
+        "withholdingPeriod": "Not stated in the SDS sighted (a safety data sheet, not the product label, so no Directions for Use / withholding period table was available). Refer to the product label for the withholding period for the specific crop being sprayed.",
+        "storageRequirements": "Store in a cool, dry and well ventilated area. Keep container tightly closed when not in use. Protect from light. Keep away from strong oxidising agents, acids and bases.",
+        "firstAid": "Do NOT induce vomiting if swallowed. IF IN EYES: rinse cautiously with water for several minutes. Poisons Information Centre 13 11 26.",
+        "hazardStatements": ["H319 Causes serious eye irritation.", "H412 Harmful to aquatic life with long lasting effects."],
+        "precautions": ["Do NOT induce vomiting if swallowed.", "Wear eye protection/face protection.", "Avoid release to the environment."],
+        "hazardCategories": ["Eye irritation - Category 2A", "Hazardous to the aquatic environment (chronic) - Category 3"],
+        "pictograms": ["irritant", "vomiting"],
+        "lastReviewed": "2026-10-03"
+      },
+      {
+        "id": "csheet_213",
+        "productName": "eChem Difen 500 SC Miticide/Insecticide",
+        "manufacturer": "eChem Australia Pty Ltd, Indooroopilly QLD",
+        "activeConstituent": "Diafenthiuron 500 g/L (suspension concentrate)",
+        "chemicalType": "Insecticide/Miticide",
+        "hazardClass": "APVMA Approval Number 68019. SUSMP Classification S5. ADG Class 6.1 Toxic Substances, UN 2902 (Pesticide, Liquid, Toxic, N.O.S.). GHS Signal word: DANGER. Acute Toxicity (Oral) Category 4; Skin Sensitisation Category 1; Acute Toxicity (Inhalation) Category 3; Specific Target Organ Toxicity (repeated exposure) Category 2; Hazardous to the aquatic environment (chronic) Category 1. White to off-white liquid suspension, minimal odour.",
+        "signalWord": "Danger",
+        "withholdingPeriod": "Not stated in the SDS sighted (a safety data sheet, not the product label, so no Directions for Use / withholding period table was available). Refer to the product label for the withholding period for the specific crop being sprayed.",
+        "storageRequirements": "Store in a closed container, locked up, protected from sunlight, in a well-ventilated place. Keep cool.",
+        "firstAid": "Do NOT induce vomiting if swallowed. If inhalation occurs, contact a Poisons Information Centre -- urgent hospital treatment is likely to be needed. Poisons Information Centre 13 11 26.",
+        "hazardStatements": ["H302 Harmful if swallowed.", "H317 May cause an allergic skin reaction.", "H331 Toxic if inhaled.", "H373 May cause damage to organs through prolonged or repeated exposure.", "H410 Very toxic to aquatic life with long lasting effects."],
+        "precautions": ["Do NOT induce vomiting if swallowed.", "Do not breathe fumes, mists, vapours or spray.", "Wear protective gloves, protective clothing and eye or face protection.", "Use only outdoors or in a well ventilated area."],
+        "hazardCategories": ["Acute toxicity (oral) - Category 4", "Skin sensitisation - Category 1", "Acute toxicity (inhalation) - Category 3", "STOT (repeated exposure) - Category 2", "Hazardous to the aquatic environment (chronic) - Category 1"],
+        "pictograms": ["toxic", "irritant", "health", "environment", "vomiting"],
+        "lastReviewed": "2026-10-03"
+      },
+      {
+        "id": "csheet_214",
+        "productName": "eChem Chlorothalonil 900 WG Fungicide",
+        "manufacturer": "eChem Australia Pty Ltd, Indooroopilly QLD. The register's existing bare \"Chlorothalonil\" row (csheet_38) describes a different product -- a 720 g/L liquid (SC) formulation -- while this is a 900 g/kg granular (WG) formulation, so this was added as its own new row rather than merged into that one. Confirm against your container which formulation/concentration you actually have. (Note: csheet_180 \"Unite\" elsewhere on this register is a separate, differently-branded chlorothalonil product again.)",
+        "activeConstituent": "Chlorothalonil 900 g/kg",
+        "chemicalType": "Fungicide",
+        "hazardClass": "APVMA Approval Number 92667. Poison Schedule 6. GHS Signal word: DANGER. Acute Toxicity (Inhalation) Category 2; Carcinogenicity Category 2 (IARC Group 2B, possibly carcinogenic to humans); Eye Damage Category 1; Hazardous to the aquatic environment (chronic) Category 1; Skin Sensitisation Category 1; Specific Target Organ Toxicity (single exposure) Category 3. Light brown granulate.",
+        "signalWord": "Danger",
+        "withholdingPeriod": "Not stated in the SDS sighted (a safety data sheet, not the product label, so no Directions for Use / withholding period table was available). Refer to the product label for the withholding period for the specific crop being sprayed.",
+        "storageRequirements": "Store in a cool, dry and well ventilated area. Keep in original container, tightly closed when not in use. Protect from direct sunlight.",
+        "firstAid": "Do NOT induce vomiting if swallowed. Poisons Information Centre 13 11 26.",
+        "hazardStatements": ["H330 Fatal if inhaled.", "H318 Causes serious eye damage.", "H317 May cause an allergic skin reaction.", "H351 Suspected of causing cancer.", "H335 May cause respiratory irritation.", "H410 Very toxic to aquatic life with long lasting effects."],
+        "precautions": ["Do NOT induce vomiting if swallowed.", "Wear protective gloves/protective clothing/eye protection/face protection.", "Use only outdoors or in a well-ventilated area.", "Avoid release to the environment."],
+        "hazardCategories": ["Acute toxicity (inhalation) - Category 2", "Carcinogenicity - Category 2 (IARC Group 2B)", "Eye damage - Category 1", "Hazardous to the aquatic environment (chronic) - Category 1", "Skin sensitisation - Category 1", "STOT (single exposure) - Category 3"],
+        "pictograms": ["toxic", "health", "corrosive", "environment", "irritant", "vomiting"],
+        "lastReviewed": "2026-10-03"
+      },
+      {
+        "id": "csheet_215",
+        "productName": "eChem Clopyralid 300 Herbicide",
+        "manufacturer": "eChem Australia Pty Ltd, Indooroopilly QLD. The register's existing bare \"Clopyralid\" row (csheet_42) describes a different product -- a 750 g/kg granular formulation with clopyralid present as the potassium salt -- while this is a 300 g/L liquid with clopyralid present as the triisopropylamine salt, so this was added as its own new row rather than merged into that one. eChem also makes a 600 g/L version (\"eChem Clopyralid 600 Herbicide\", added above as csheet_210) with a notably different hazard profile (it IS classified as hazardous, Signal word DANGER). Confirm against your container which product you actually have.",
+        "activeConstituent": "Clopyralid 300 g/L present as the triisopropylamine salt",
+        "chemicalType": "Herbicide",
+        "hazardClass": "APVMA Approval Number 70397. SUSMP Classification S5. \"Not a Dangerous Good\" (ADG/IATA/IMDG/IMSBC). GHS Signal word: NONE -- not classified as hazardous. This product's own SDS states \"no significant risk factors have been found for this product\" -- clopyralid is present as a neutralised salt, which reduces the eye-damage hazard of the free acid, so (unlike most other entries on this register) no GHS hazard statements/precautions/hazard categories/pictograms are populated here, which is the accurate reflection of its own safety data rather than a research gap.",
+        "signalWord": "None -- not classified as hazardous (clopyralid present as the neutralised triisopropylamine salt)",
+        "withholdingPeriod": "Not stated in the SDS sighted (a safety data sheet, not the product label, so no Directions for Use / withholding period table was available). Refer to the product label for the withholding period for the specific crop being sprayed.",
+        "storageRequirements": "Store in a dry place, in a closed container, in a well-ventilated place. Protect from sunlight. Keep cool.",
+        "firstAid": "IF SWALLOWED: do NOT induce vomiting; rinse mouth with water and give some water to drink. Poisons Information Centre 13 11 26.",
+        "lastReviewed": "2026-10-03"
+      }
+    ];
+    var existingSdsIds4 = {};
+    (state.chemicals.sds || []).forEach(function(c){ existingSdsIds4[c.id] = true; });
+    sdsNewChemicals4.forEach(function(nc){
+      if(!existingSdsIds4[nc.id]){ state.chemicals.sds.push(nc); }
+    });
+    state.chemicals.sdsNewChemicalsV4 = true;
     migrated = true;
   }
 
