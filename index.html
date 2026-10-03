@@ -1622,7 +1622,7 @@ const DEFAULT_STATE = {
 // change to this file, same as CACHE_NAME in sw.js -- it gives an instant,
 // no-technical-steps-needed way to confirm whether a given device is
 // actually running the latest deploy, without comparing file contents.
-var APP_BUILD = "2026-10-03.7";
+var APP_BUILD = "2026-10-03.8";
 
 /* ======================================================================
    UTILITIES
@@ -4470,6 +4470,60 @@ async function boot(){
     migrated = true;
   }
 
+  // One-time fill-in of GHS card fields (hazardStatements/precautions/
+  // hazardCategories/pictograms) for 3 existing bare generic-name rows,
+  // from real eChem product SDS PDFs Maria uploaded directly (batch 8,
+  // 2026-10-03). These 3 were the ONLY ones of the 20 new PDFs in this
+  // batch found safe to merge into an existing row: a truly bare,
+  // generic-active-ingredient productName (not itself a brand/trade
+  // name), with no manufacturer or specific-brand text anywhere in the
+  // existing hazardClass note, and no conflicting GHS signal word or
+  // hazard-category claim already on file. Every other product in this
+  // batch of 20 either had no safe existing match or did have one of
+  // those conflict signals, so it was added as a brand-new row instead
+  // (see sdsNewChemicalsV5 immediately below) rather than risk merging
+  // one company's SDS data onto a different company's already-identified
+  // product. All 6 legacy fields (activeConstituent/hazardClass/
+  // signalWord/withholdingPeriod/storageRequirements/firstAid) on these
+  // 3 rows were already populated by earlier batches, so in practice
+  // this migration only adds the newer GHS array fields and manufacturer.
+  if(state.chemicals && !state.chemicals.sdsPdfFillV8){
+    var sdsPdfDetails8 = {
+      "csheet_81": {
+        "manufacturer": "eChem Australia Pty Ltd, Indooroopilly QLD. This register's bare 'Flumioxazin' row is filled here from the eChem Flumie 500 WG Herbicide SDS -- if your drum is a different brand of flumioxazin, check the APVMA number (95325/145293) against your container. Note: this product's own SDS states an unusually high Poisons Schedule 7 classification (most flumioxazin products, including this register's branded 'Valor 500 WG', csheet_183, are Schedule 6 or lower) -- confirmed as stated in the SDS sighted, not a transcription error.",
+        "hazardStatements": ["H361d Suspected of damaging the unborn child.", "H410 Very toxic to aquatic life with long lasting effects."],
+        "precautions": ["Do NOT induce vomiting if swallowed.", "Obtain special instructions before use.", "Wear protective gloves/protective clothing/eye protection/face protection.", "Avoid release to the environment."],
+        "hazardCategories": ["Reproductive toxicity - Category 2", "Hazardous to the aquatic environment (acute) - Category 1", "Hazardous to the aquatic environment (chronic) - Category 1"],
+        "pictograms": ["health", "environment", "vomiting"]
+      },
+      "csheet_100": {
+        "manufacturer": "eChem Australia Pty Ltd, Indooroopilly QLD. This register's bare 'Indoxacarb' row is filled here from the eChem Indox 150 Insecticide SDS. Note: unusually, this particular SDS does not state an APVMA approval number anywhere in the document sighted -- if your drum has one printed on it, record it separately.",
+        "hazardStatements": ["H302 Harmful if swallowed.", "H315 Causes skin irritation.", "H317 May cause an allergic skin reaction.", "H320 Causes eye irritation.", "H333 May be harmful if inhaled.", "H372 Causes damage to the blood, nervous system and the heart through prolonged or repeated exposure.", "H410 Very toxic to aquatic life with long lasting effects."],
+        "precautions": ["Do NOT induce vomiting if swallowed.", "Contaminated work clothing should not be allowed out of the workplace.", "Wear protective gloves/protective clothing/eye protection/face protection.", "Avoid release to the environment."],
+        "hazardCategories": ["Acute toxicity (oral) - Category 4", "Skin irritation - Category 2", "Skin sensitisation - Category 1", "Eye irritation - Category 2B", "Acute toxicity (inhalation) - Category 5", "STOT (repeated exposure) - Category 1", "Hazardous to the aquatic environment (chronic) - Category 1"],
+        "pictograms": ["health", "irritant", "environment", "vomiting"]
+      },
+      "csheet_110": {
+        "manufacturer": "eChem Australia Pty Ltd, Indooroopilly QLD. This register's bare 'Lambda Cyhalothrin' row (already recorded as a controlled-release suspension, CS, at 250 g/L) is filled here from the eChem Lambda 250 CS Insecticide SDS, APVMA 90078 -- if your drum is a different brand, check the APVMA number against your container.",
+        "hazardStatements": ["H302 Harmful if swallowed.", "H331 Toxic if inhaled.", "H410 Very toxic to aquatic life with long lasting effects."],
+        "precautions": ["Do NOT induce vomiting if swallowed.", "Keep or store away from combustible materials.", "Avoid breathing fumes, mists, vapours or spray.", "Use only outdoors or in a well ventilated area."],
+        "hazardCategories": ["Acute toxicity (oral) - Category 4", "Acute toxicity (inhalation) - Category 3", "Hazardous to the aquatic environment (chronic) - Category 1"],
+        "pictograms": ["toxic", "environment", "vomiting"]
+      }
+    };
+    (state.chemicals.sds || []).forEach(function(c){
+      var d = sdsPdfDetails8[c.id];
+      if(!d) return;
+      Object.keys(d).forEach(function(k){
+        var isEmpty = !c[k] || (Array.isArray(c[k]) && c[k].length === 0);
+        if(isEmpty){ c[k] = d[k]; }
+      });
+      if(!c.lastReviewed){ c.lastReviewed = "2026-10-03"; }
+    });
+    state.chemicals.sdsPdfFillV8 = true;
+    migrated = true;
+  }
+
   // New chemicals not already present in the SDS register, added from real
   // product SDS/label PDFs Maria uploaded directly (batch 7, 2026-10-03),
   // per Maria's standing instruction: "If I upload a chemical that is not
@@ -4678,6 +4732,318 @@ async function boot(){
       if(!existingSdsIds4[nc.id]){ state.chemicals.sds.push(nc); }
     });
     state.chemicals.sdsNewChemicalsV4 = true;
+    migrated = true;
+  }
+
+  // New chemicals not already present in the SDS register, added from real
+  // product SDS/label PDFs Maria uploaded directly (batch 8, 2026-10-03),
+  // per Maria's standing instruction: "If I upload a chemical that is not
+  // listed please add it." These 17 products were checked by generic/
+  // active-ingredient name against every existing row on this register
+  // (including the sdsPdfFillV8 batch immediately above, which safely
+  // enriched the 3 that had no conflicting data) and found to either have
+  // no existing match, or to only have existing matches that are already
+  // attributed (by name, or by a conflicting GHS signal word/hazard
+  // category) to a different, specific, identified brand -- so merging
+  // this batch's eChem hazard data into those rows risked misattributing
+  // one company's SDS data to a different company's already-identified
+  // product. Each is added here as its own new row instead, with a note
+  // explaining which existing row(s) it was deliberately NOT merged into
+  // and why, so Maria/staff can confirm which brand is actually on hand.
+  if(state.chemicals && !state.chemicals.sdsNewChemicalsV5){
+    var sdsNewChemicals5 = [
+      {
+        "id": "csheet_216",
+        "productName": "eChem Diuron 900 WG Herbicide",
+        "manufacturer": "eChem Australia Pty Ltd, Indooroopilly QLD. This is a different, GHS DANGER-vs-WARNING conflicting classification from the register's existing bare 'Diuron 900 WDG' row (csheet_59, sourced from a 'Diuron 900DF' SDS) -- that entry states GHS Signal word DANGER with Eye Damage Category 1 and Skin Corrosion/Irritation Category 2, while this eChem product's own SDS states GHS Signal word WARNING with no eye/skin hazard classification at all, but adds Aquatic Chronic Category 1 (not in the other entry). Both claim to be a 900 g/kg diuron water dispersible granule, so this is most likely a genuine difference between manufacturers' formulations (different inert/carrier ingredients) rather than the same product -- added as a separate row rather than merged, to avoid overwriting either source's own hazard data. Confirm against your container which brand you actually have.",
+        "activeConstituent": "900 g/kg Diuron (per eChem Diuron 900 WG Herbicide SDS, APVMA 92613)",
+        "chemicalType": "Herbicide",
+        "hazardClass": "Not considered a Scheduled Poison per the SDS sighted (no SUSMP schedule stated), though classified as Dangerous Goods: ADG Class 9, UN 3077, Packing Group III, Marine Pollutant. GHS Signal word: WARNING. Carcinogenicity Category 2; Specific Target Organ Toxicity (repeated exposure) Category 2; Hazardous to the aquatic environment (chronic) Category 1; Acute Toxicity (Oral) Category 4. Hazchem Code 2Z. Pale brown-beige granulate.",
+        "signalWord": "Warning",
+        "withholdingPeriod": "Not stated in the SDS sighted (a safety data sheet, not the product label, so no Directions for Use/withholding period table was available). Refer to the product label for the withholding period for the specific crop being sprayed.",
+        "storageRequirements": "Store in a cool, dry and well ventilated area. Keep in original container, tightly closed when not in use. Protect from direct sunlight.",
+        "firstAid": "Do NOT induce vomiting if swallowed. Poisons Information Centre 13 11 26.",
+        "hazardStatements": ["H302 Harmful if swallowed.", "H351 Suspected of causing cancer.", "H373 May cause damage to organs through prolonged or repeated exposure.", "H410 Very toxic to aquatic life with long lasting effects."],
+        "precautions": ["Do NOT induce vomiting if swallowed.", "Avoid release to the environment.", "Wear protective gloves/protective clothing/eye protection/face protection."],
+        "hazardCategories": ["Carcinogenicity - Category 2", "STOT (repeated exposure) - Category 2", "Hazardous to the aquatic environment (chronic) - Category 1", "Acute toxicity (oral) - Category 4"],
+        "pictograms": ["health", "environment", "irritant", "vomiting"],
+        "lastReviewed": "2026-10-03"
+      },
+      {
+        "id": "csheet_217",
+        "productName": "eChem e-Grex Selective Herbicide",
+        "manufacturer": "eChem Australia Pty Ltd, Indooroopilly QLD. A premix of MCPA (as the ethylhexyl ester) and diflufenican -- no existing row on this register combines these two actives, so added as a new entry rather than merged into any single-active MCPA row.",
+        "activeConstituent": "MCPA (present as the ethyl hexyl ester) 250 g/L + Diflufenican 25 g/L (per eChem e-Grex Selective Herbicide SDS, APVMA 90077)",
+        "chemicalType": "Herbicide",
+        "hazardClass": "SUSMP Classification S5. ADG Class 9 Miscellaneous Dangerous Goods, UN 3082. GHS Signal word: WARNING. Flammable liquids Category 4; Skin Corrosion/Irritation Category 2; Serious eye damage/eye irritation Category 2/2A; Hazardous to the aquatic environment (short-term/chronic) Category 1. Dark brown liquid, strong ester odour.",
+        "signalWord": "Warning",
+        "withholdingPeriod": "Not stated in the SDS sighted. Refer to the product label for the withholding period for the specific crop being sprayed.",
+        "storageRequirements": "Store in a cool, dry and well ventilated area. Keep in original container, tightly closed when not in use. Protect from direct sunlight, heat, sparks and open flames.",
+        "firstAid": "Do NOT induce vomiting if swallowed. Poisons Information Centre 13 11 26.",
+        "hazardStatements": ["H227 Combustible liquid.", "H315 Causes skin irritation.", "H319 Causes serious eye irritation.", "H410 Very toxic to aquatic life with long lasting effects."],
+        "precautions": ["Do NOT induce vomiting if swallowed.", "Wear protective gloves/protective clothing/eye protection/face protection.", "Keep away from heat/sparks/open flames. No smoking.", "Avoid release to the environment."],
+        "hazardCategories": ["Flammable liquids - Category 4", "Skin corrosion/irritation - Category 2", "Serious eye damage/eye irritation - Category 2/2A", "Hazardous to the aquatic environment (chronic) - Category 1"],
+        "pictograms": ["irritant", "environment", "vomiting"],
+        "lastReviewed": "2026-10-03"
+      },
+      {
+        "id": "csheet_218",
+        "productName": "Emaz Herbicide",
+        "manufacturer": "eChem Australia Pty Ltd, Indooroopilly QLD. A 240 g/L liquid formulation with imazapic present as the ammonium salt -- a materially different formulation from the register's existing 'Imazapic 700 WDG' row (csheet_97, a 700 g/kg granule, Titan Ag Pty Ltd), so added as a new row rather than merged into that one.",
+        "activeConstituent": "Imazapic (present as the ammonium salt) 240 g/L (per Emaz Herbicide SDS, APVMA 61822)",
+        "chemicalType": "Herbicide",
+        "hazardClass": "Not classified as hazardous according to Safe Work Australia criteria. Not a Dangerous Good (ADG/IATA/IMDG/IMSBC). GHS Signal word: NONE. This product's own SDS states no hazard statements apply. Dark yellow watery liquid, characteristic odour.",
+        "signalWord": "None -- not classified as hazardous",
+        "withholdingPeriod": "Not stated in the SDS sighted. Refer to the product label for the withholding period for the specific crop being sprayed.",
+        "storageRequirements": "Store in a cool, dry place away from direct sunlight, in the original, tightly closed container.",
+        "firstAid": "If swallowed, give a glass of water to drink. Poisons Information Centre 13 11 26.",
+        "lastReviewed": "2026-10-03"
+      },
+      {
+        "id": "csheet_219",
+        "productName": "eChem Epoxi 125 SC Fungicide",
+        "manufacturer": "eChem Australia Pty Ltd, Indooroopilly QLD",
+        "activeConstituent": "Epoxiconazole 12.5% (per eChem Epoxi 125 SC Fungicide SDS, APVMA 94684/143179). Note: the SDS's own ingredient-level classification shows a stricter Aquatic Chronic Category 2 (H411) for the pure active, but the product-level classification (used here, consistent with the product's own stated Signal Word/Hazard Statements) is Aquatic Chronic Category 3 (H412).",
+        "chemicalType": "Fungicide",
+        "hazardClass": "SUSMP Classification S5. ADG Class 9 Miscellaneous Dangerous Goods, UN 3082. GHS Signal word: DANGER. Carcinogenicity Category 2; Toxic to Reproduction Category 1B; Hazardous to the aquatic environment (chronic) Category 3. Light beige liquid, slight odour.",
+        "signalWord": "Danger",
+        "withholdingPeriod": "Not stated in the SDS sighted. Refer to the product label for the withholding period for the specific crop being sprayed.",
+        "storageRequirements": "Store in a cool, dry and well ventilated area. Keep in original container, tightly closed when not in use. Protect from direct sunlight.",
+        "firstAid": "Do NOT induce vomiting if swallowed. Poisons Information Centre 13 11 26.",
+        "hazardStatements": ["H351 Suspected of causing cancer.", "H360Df May damage the unborn child. Suspected of damaging fertility.", "H412 Harmful to aquatic life with long lasting effects."],
+        "precautions": ["Do NOT induce vomiting if swallowed.", "Obtain special instructions before use.", "Wear protective gloves/protective clothing/eye protection/face protection."],
+        "hazardCategories": ["Carcinogenicity - Category 2", "Reproductive toxicity - Category 1B", "Hazardous to the aquatic environment (chronic) - Category 3"],
+        "pictograms": ["health", "vomiting"],
+        "lastReviewed": "2026-10-03"
+      },
+      {
+        "id": "csheet_220",
+        "productName": "eChem e-Strobin 250 SC Fungicide",
+        "manufacturer": "eChem Australia Pty Ltd, Indooroopilly QLD. A straight azoxystrobin-only product -- a different formulation from the register's existing bare 'Azoxystrobin' row (csheet_22), which is a premix of 200 g/L azoxystrobin + 80 g/L cyproconazole, so added as a new row rather than merged into that one.",
+        "activeConstituent": "Azoxystrobin 10-30% (nominal 250 g/L) (per eChem e-Strobin 250 SC Fungicide SDS, APVMA 68703)",
+        "chemicalType": "Fungicide",
+        "hazardClass": "SUSMP Classification S5. ADG Class 9 Miscellaneous Dangerous Goods, UN 3082. GHS Signal word: DANGER. Acute Toxicity (inhalation) Category 3; Hazardous to the aquatic environment (chronic) Category 1. Off-white liquid, odourless.",
+        "signalWord": "Danger",
+        "withholdingPeriod": "Not stated in the SDS sighted. Refer to the product label for the withholding period for the specific crop being sprayed.",
+        "storageRequirements": "Store in a cool, dry and well ventilated area. Keep in original container, tightly closed when not in use.",
+        "firstAid": "Do NOT induce vomiting if swallowed. Remove to fresh air. Poisons Information Centre 13 11 26.",
+        "hazardStatements": ["H331 Toxic if inhaled.", "H410 Very toxic to aquatic life with long lasting effects."],
+        "precautions": ["Do NOT induce vomiting if swallowed.", "Avoid breathing dust/fume/gas/mist/vapours/spray.", "Use only outdoors or in a well ventilated area.", "Avoid release to the environment."],
+        "hazardCategories": ["Acute toxicity (inhalation) - Category 3", "Hazardous to the aquatic environment (chronic) - Category 1"],
+        "pictograms": ["toxic", "environment", "vomiting"],
+        "lastReviewed": "2026-10-03"
+      },
+      {
+        "id": "csheet_221",
+        "productName": "eChem Ethephon Growth Regulator",
+        "manufacturer": "eChem Australia Pty Ltd, Indooroopilly QLD. A different, lower concentration from eChem's own 900 g/L product ('eChem Ethephon 900 Growth Regulator', added separately below as csheet_222) -- also note the register's existing bare 'Ethephon' row (csheet_138, farm name 'Promote') is already attributed to a specific different manufacturer's product, Adama's 'Promote Plus 900' (900 g/L), so this 720 g/L product was not merged into that row either. Confirm against your container which concentration you actually have.",
+        "activeConstituent": "Ethephon 720 g/L (per eChem Ethephon Growth Regulator SDS, APVMA 53313)",
+        "chemicalType": "Growth Regulant",
+        "hazardClass": "SUSMP Classification S6. ADG Class 8 Corrosive Substances, sub-risk Class 6.1 Toxic Substances, UN 2922. GHS Signal word: DANGER. Corrosive to metals Category 1; Acute Toxicity (Oral) Category 4; Acute Toxicity (Dermal) Category 3; Skin Corrosion Category 1C; Acute Toxicity (Inhalation) Category 4; Hazardous to the aquatic environment (short-term/chronic) Category 2. Clear colourless to pale yellow liquid, characteristic mild odour.",
+        "signalWord": "Danger",
+        "withholdingPeriod": "Not stated in the SDS sighted. Refer to the product label for the withholding period for the specific crop being sprayed.",
+        "storageRequirements": "Store in a cool, dry, well ventilated area away from incompatible materials. Keep container tightly closed.",
+        "firstAid": "If swallowed, do NOT induce vomiting. If on skin, remove contaminated clothing and wash with plenty of water. If in eyes, hold eyelids apart and flush with water for at least 15 minutes. Poisons Information Centre 13 11 26.",
+        "hazardStatements": ["H290 May be corrosive to metals.", "H302 Harmful if swallowed.", "H311 Toxic in contact with skin.", "H314 Causes severe skin burns and eye damage.", "H332 Harmful if inhaled.", "H411 Toxic to aquatic life with long lasting effects."],
+        "precautions": ["Do NOT induce vomiting if swallowed.", "Wear protective gloves/protective clothing/eye protection/face protection.", "Do NOT breathe dust/fume/gas/mist/vapours/spray.", "Avoid release to the environment."],
+        "hazardCategories": ["Corrosive to metals - Category 1", "Acute toxicity (oral) - Category 4", "Acute toxicity (dermal) - Category 3", "Skin corrosion - Category 1C", "Acute toxicity (inhalation) - Category 4", "Hazardous to the aquatic environment (chronic) - Category 2"],
+        "pictograms": ["toxic", "corrosive", "irritant", "vomiting"],
+        "lastReviewed": "2026-10-03"
+      },
+      {
+        "id": "csheet_222",
+        "productName": "eChem Ethephon 900 Growth Regulator",
+        "manufacturer": "eChem Australia Pty Ltd, Indooroopilly QLD. A different, higher-concentration product also exists ('eChem Ethephon Growth Regulator', 720 g/L, added separately above as csheet_221). The register's existing bare 'Ethephon' row (csheet_138, farm name 'Promote') is already attributed to a specific different manufacturer's product at the same 900 g/L concentration -- Adama's 'Promote Plus 900' -- so this eChem-branded product was added as its own new row rather than merged into that one, to avoid attaching this SDS's hazard data to a different company's named product. Confirm against your container which brand you actually have.",
+        "activeConstituent": "Ethephon 900 g/L (per eChem Ethephon 900 Growth Regulator SDS, APVMA 81899)",
+        "chemicalType": "Growth Regulant",
+        "hazardClass": "SUSMP Classification S6. ADG Class 8 Corrosive Substances, sub-risk Class 6.1 Toxic Substances, UN 2922. GHS Signal word: DANGER. Acute Toxicity (Oral) Category 4; Acute Toxicity (Dermal) Category 3; Skin Corrosion Category 1C; Acute Toxicity (Inhalation) Category 4; Hazardous to the aquatic environment (chronic) Category 2. Clear, straw coloured liquid, characteristic odour. (Unlike eChem's 720 g/L product, this 900 g/L product is not classified Corrosive to metals.)",
+        "signalWord": "Danger",
+        "withholdingPeriod": "Not stated in the SDS sighted. Refer to the product label for the withholding period for the specific crop being sprayed.",
+        "storageRequirements": "Store in a cool, dry, well ventilated area away from incompatible materials. Keep container tightly closed.",
+        "firstAid": "If swallowed, do NOT induce vomiting. If on skin, remove contaminated clothing and wash with plenty of water. If in eyes, hold eyelids apart and flush with water for at least 15 minutes. Poisons Information Centre 13 11 26.",
+        "hazardStatements": ["H302 Harmful if swallowed.", "H311 Toxic in contact with skin.", "H314 Causes severe skin burns and eye damage.", "H332 Harmful if inhaled.", "H411 Toxic to aquatic life with long lasting effects."],
+        "precautions": ["Do NOT induce vomiting if swallowed.", "Wear protective gloves/protective clothing/eye protection/face protection.", "Do NOT breathe dust/fume/gas/mist/vapours/spray.", "Avoid release to the environment."],
+        "hazardCategories": ["Acute toxicity (oral) - Category 4", "Acute toxicity (dermal) - Category 3", "Skin corrosion - Category 1C", "Acute toxicity (inhalation) - Category 4", "Hazardous to the aquatic environment (chronic) - Category 2"],
+        "pictograms": ["toxic", "corrosive", "irritant", "vomiting"],
+        "lastReviewed": "2026-10-03"
+      },
+      {
+        "id": "csheet_223",
+        "productName": "e-Tron Cotton Defoliant Oil",
+        "manufacturer": "Contact details on the SDS sighted were eChem Australia Pty Ltd's, but the product name 'e-Tron' and the absence of an APVMA approval number on this SDS -- unusual for a registered agricultural chemical -- suggest this may be a label-exempt spray oil/adjuvant rather than a separately APVMA-registered product; confirm against your container/label. A similar-concentration paraffinic spray oil, 'Parachute' (788 g/L, ATaMS/FMC, csheet_127), is already on this register as a separate branded product -- not merged with this entry given the different brand and the missing APVMA data here.",
+        "activeConstituent": "Paraffinic oil 794 g/L (approx. 79.4%) (per e-Tron Cotton Defoliant Oil SDS -- no APVMA approval number was stated in the document sighted)",
+        "chemicalType": "Defoliant",
+        "hazardClass": "SUSMP Classification S5. Not a Dangerous Good (ADG/IATA/IMDG/IMSBC). GHS Signal word: WARNING. Eye irritation Category 2B. Clear slight amber thin liquid, petroleum odour.",
+        "signalWord": "Warning",
+        "withholdingPeriod": "Not stated in the SDS sighted. Refer to the product label for the withholding period for the specific crop being sprayed.",
+        "storageRequirements": "Store in a cool, dry place, away from heat and ignition sources, in the original, tightly closed container.",
+        "firstAid": "If in eyes, hold eyelids apart and flush with water for several minutes. If swallowed, do NOT induce vomiting -- seek medical advice. Poisons Information Centre 13 11 26.",
+        "hazardStatements": ["H320 Causes eye irritation."],
+        "precautions": ["Do NOT induce vomiting if swallowed.", "Wear eye protection/face protection.", "Wash exposed skin thoroughly after handling."],
+        "hazardCategories": ["Eye irritation - Category 2B"],
+        "pictograms": ["irritant", "vomiting"],
+        "lastReviewed": "2026-10-03"
+      },
+      {
+        "id": "csheet_224",
+        "productName": "eChem Fipronil 200 SC Insecticide",
+        "manufacturer": "eChem Australia Pty Ltd, Indooroopilly QLD. The register already has two existing branded Fipronil 200 g/L products at the same concentration -- 'Maestro' (csheet_114, Nufarm, discontinued) and 'Regent' (csheet_143, BASF) -- this eChem-branded product is a third, separate brand at the same concentration and was added as its own new row rather than merged into either of those, to avoid attaching this SDS's hazard data to a different company's named product.",
+        "activeConstituent": "Fipronil 15-20% (nominal 200 g/L) (per eChem Fipronil 200 SC Insecticide SDS, APVMA 91887)",
+        "chemicalType": "Insecticide",
+        "hazardClass": "SUSMP Classification S6. ADG Class 9 Miscellaneous Dangerous Goods, UN 3082, Marine Pollutant. GHS Signal word: DANGER. Specific Target Organ Toxicity (repeated exposure) Category 1; Hazardous to the aquatic environment (chronic) Category 1; Acute Toxicity (Oral) Category 4; Acute Toxicity (Dermal) Category 4; Acute Toxicity (Inhalation) Category 4. Off-white suspension, slight characteristic odour.",
+        "signalWord": "Danger",
+        "withholdingPeriod": "Not stated in the SDS sighted. Refer to the product label for the withholding period for the specific crop being sprayed.",
+        "storageRequirements": "Store in a cool, dry and well ventilated area, in the original container, away from food and feedstuffs.",
+        "firstAid": "Do NOT induce vomiting if swallowed. Poisons Information Centre 13 11 26.",
+        "hazardStatements": ["H302 Harmful if swallowed.", "H312 Harmful in contact with skin.", "H332 Harmful if inhaled.", "H372 Causes damage to organs through prolonged or repeated exposure.", "H410 Very toxic to aquatic life with long lasting effects."],
+        "precautions": ["Do NOT induce vomiting if swallowed.", "Wear protective gloves/protective clothing/eye protection/face protection.", "Avoid release to the environment."],
+        "hazardCategories": ["STOT (repeated exposure) - Category 1", "Hazardous to the aquatic environment (chronic) - Category 1", "Acute toxicity (oral) - Category 4", "Acute toxicity (dermal) - Category 4", "Acute toxicity (inhalation) - Category 4"],
+        "pictograms": ["health", "environment", "irritant", "vomiting"],
+        "lastReviewed": "2026-10-03"
+      },
+      {
+        "id": "csheet_225",
+        "productName": "eChem Glufosinate 200 Herbicide",
+        "manufacturer": "eChem Australia Pty Ltd, Indooroopilly QLD. The register already has two existing 200 g/L glufosinate-ammonium rows -- 'Biffo' (csheet_26) and 'Glufosinate 200' (csheet_89, identified as Nutrien Ag Solutions/Genfarm's branded product) -- both of which state a less severe label heading (Schedule 5, CAUTION) with no GHS Signal word recorded, whereas this eChem product's own SDS states GHS Signal word DANGER (due to its flammable solvent and reproductive toxicity classification). Rather than risk attaching this more severe hazard profile to either of those other brands' entries, this eChem product was added as its own new row. Confirm against your container which brand you actually have.",
+        "activeConstituent": "Glufosinate-ammonium 200 g/L (per eChem Glufosinate 200 Herbicide SDS, APVMA 68711). Also contains 1-methoxy-2-propanol 50-150 g/L (a flammable solvent).",
+        "chemicalType": "Herbicide",
+        "hazardClass": "SUSMP Classification S5. Not a Dangerous Good (ADG/IATA/IMDG/IMSBC). GHS Signal word: DANGER. Flammable liquids Category 4; Acute Toxicity (Oral) Category 4; Acute Toxicity (Dermal) Category 4; Acute Toxicity (Inhalation) Category 4; Specific Target Organ Toxicity (single exposure) Category 3; Reproductive Toxicity Category 1B; Specific Target Organ Toxicity (repeated exposure) Category 2. Bluish-green liquid, slight pungent odour.",
+        "signalWord": "Danger",
+        "withholdingPeriod": "Not stated in the SDS sighted. Refer to the product label for the withholding period for the specific crop being sprayed.",
+        "storageRequirements": "Store in a cool, dry and well ventilated area, away from heat/sparks/open flames. Keep container tightly closed.",
+        "firstAid": "Do NOT induce vomiting if swallowed. Poisons Information Centre 13 11 26.",
+        "hazardStatements": ["H227 Combustible liquid.", "H302 Harmful if swallowed.", "H312 Harmful in contact with skin.", "H332 Harmful if inhaled.", "H336 May cause drowsiness or dizziness.", "H360FD May damage fertility. May damage the unborn child.", "H373 May cause damage to organs through prolonged or repeated exposure."],
+        "precautions": ["Do NOT induce vomiting if swallowed.", "Obtain special instructions before use.", "Keep away from heat/sparks/open flames. No smoking.", "Wear protective gloves/protective clothing/eye protection/face protection."],
+        "hazardCategories": ["Flammable liquids - Category 4", "Acute toxicity (oral) - Category 4", "Acute toxicity (dermal) - Category 4", "Acute toxicity (inhalation) - Category 4", "Reproductive toxicity - Category 1B", "STOT (repeated exposure) - Category 2"],
+        "pictograms": ["health", "irritant", "vomiting"],
+        "lastReviewed": "2026-10-03"
+      },
+      {
+        "id": "csheet_226",
+        "productName": "eChem Glyphosate 450 Herbicide",
+        "manufacturer": "eChem Australia Pty Ltd, Indooroopilly QLD. The register's existing 450 g/L isopropylamine-salt glyphosate rows are already attributed to other manufacturers at the same concentration -- 'Kelpie Chisel' (csheet_106, Sinochem) and 'Ken-Up' (csheet_107, Kenso) -- so this eChem product was added as its own new row rather than merged into either of those.",
+        "activeConstituent": "Glyphosate (present as the isopropylamine salt) 450 g/L (per eChem Glyphosate 450 Herbicide SDS, APVMA 53289)",
+        "chemicalType": "Herbicide",
+        "hazardClass": "SUSMP Classification S5. ADG Class 9 Miscellaneous Dangerous Goods, UN 3082. GHS Signal word: WARNING. Skin irritation Category 2; Eye irritation Category 2B; Hazardous to the aquatic environment (chronic) Category 2. Viscous blue liquid, slight amine odour.",
+        "signalWord": "Warning",
+        "withholdingPeriod": "Not stated in the SDS sighted. Refer to the product label for the withholding period for the specific crop being sprayed.",
+        "storageRequirements": "Store in a cool, dry and well ventilated area, in the original, tightly closed container.",
+        "firstAid": "Do NOT induce vomiting if swallowed. If in eyes, hold eyelids apart and flush with water. Poisons Information Centre 13 11 26.",
+        "hazardStatements": ["H315 Causes skin irritation.", "H320 Causes eye irritation.", "H411 Toxic to aquatic life with long lasting effects."],
+        "precautions": ["Do NOT induce vomiting if swallowed.", "Wear protective gloves/protective clothing/eye protection/face protection.", "Avoid release to the environment."],
+        "hazardCategories": ["Skin irritation - Category 2", "Eye irritation - Category 2B", "Hazardous to the aquatic environment (chronic) - Category 2"],
+        "pictograms": ["irritant", "vomiting"],
+        "lastReviewed": "2026-10-03"
+      },
+      {
+        "id": "csheet_227",
+        "productName": "eChem Grazmore 400 Herbicide",
+        "manufacturer": "eChem Australia Pty Ltd, Indooroopilly QLD. A triclopyr+picloram combination at its own specific ratio (428 g/L triclopyr + 192 g/L picloram) -- distinct from the register's other existing triclopyr+picloram combination rows at different ratios: 'Conqueror' (csheet_47, 300 g/L triclopyr + 100 g/L picloram) and 'Grazon Extra' (csheet_92, 363.5 g/L triclopyr + 87.1 g/L picloram + hexyloxypropylamine). Given how easily these ratio-specific combination herbicides can be confused, this was added as its own new row rather than merged into either existing one. Confirm against your container's exact concentrations before relying on this or any of the other triclopyr/picloram entries.",
+        "activeConstituent": "Triclopyr (present as the butoxyethanol ester) 428 g/L + Picloram 192 g/L (per eChem Grazmore 400 Herbicide SDS, APVMA 83435)",
+        "chemicalType": "Herbicide",
+        "hazardClass": "SUSMP Classification S6. ADG Class 9 Miscellaneous Dangerous Goods, UN 3082. GHS Signal word: WARNING. Acute Toxicity (Oral) Category 4; Skin irritation Category 2; Skin sensitisation Category 1; Eye irritation Category 2B; Acute Toxicity (Inhalation) Category 4; Specific Target Organ Toxicity (repeated exposure) Category 2; Hazardous to the aquatic environment (chronic) Category 1. Clear brown liquid.",
+        "signalWord": "Warning",
+        "withholdingPeriod": "Not stated in the SDS sighted. Refer to the product label for the withholding period for the specific crop being sprayed.",
+        "storageRequirements": "Store in a cool, dry and well ventilated area, in the original, tightly closed container.",
+        "firstAid": "Do NOT induce vomiting if swallowed. Poisons Information Centre 13 11 26.",
+        "hazardStatements": ["H302 Harmful if swallowed.", "H315 Causes skin irritation.", "H317 May cause an allergic skin reaction.", "H320 Causes eye irritation.", "H332 Harmful if inhaled.", "H335 May cause respiratory irritation.", "H373 May cause damage to kidneys and liver through prolonged or repeated exposure.", "H410 Very toxic to aquatic life with long lasting effects."],
+        "precautions": ["Do NOT induce vomiting if swallowed.", "Wear protective gloves/protective clothing/eye protection/face protection.", "Avoid breathing dust/fume/gas/mist/vapours/spray.", "Avoid release to the environment."],
+        "hazardCategories": ["Acute toxicity (oral) - Category 4", "Skin irritation - Category 2", "Skin sensitisation - Category 1", "Eye irritation - Category 2B", "Acute toxicity (inhalation) - Category 4", "STOT (repeated exposure) - Category 2", "Hazardous to the aquatic environment (chronic) - Category 1"],
+        "pictograms": ["health", "irritant", "environment", "vomiting"],
+        "lastReviewed": "2026-10-03"
+      },
+      {
+        "id": "csheet_228",
+        "productName": "Halox 520 Herbicide",
+        "manufacturer": "eChem Australia Pty Ltd, Indooroopilly QLD (branded simply 'Halox 520 Herbicide', no eChem name on the front panel, but the SDS issuer is eChem Australia). The register's existing bare 'Haloxyfop' row with the same 520 g/L R-methyl ester active (csheet_68, farm name 'Exert') is a specific trade-named product in its own right, so this was added as its own new row rather than merged into that one. Confirm against your container which brand you actually have.",
+        "activeConstituent": "Haloxyfop (present as the R-methyl ester) 520 g/L (per Halox 520 Herbicide SDS, APVMA 61953)",
+        "chemicalType": "Herbicide",
+        "hazardClass": "SUSMP Classification S6. ADG Class 9 Miscellaneous Dangerous Goods, UN 3082. GHS Signal word: WARNING. Flammable liquids Category 4; Acute Toxicity (Oral) Category 4; Hazardous to the aquatic environment (short-term/chronic) Category 1. Dark yellow water-thin liquid, characteristic odour.",
+        "signalWord": "Warning",
+        "withholdingPeriod": "Not stated in the SDS sighted. Refer to the product label for the withholding period for the specific crop being sprayed.",
+        "storageRequirements": "Store in a cool, dry and well ventilated area, away from heat/sparks/open flames.",
+        "firstAid": "Do NOT induce vomiting if swallowed. Poisons Information Centre 13 11 26.",
+        "hazardStatements": ["H227 Combustible liquid.", "H302 Harmful if swallowed.", "H410 Very toxic to aquatic life with long lasting effects."],
+        "precautions": ["Do NOT induce vomiting if swallowed.", "Keep away from heat/sparks/open flames. No smoking.", "Avoid release to the environment."],
+        "hazardCategories": ["Flammable liquids - Category 4", "Acute toxicity (oral) - Category 4", "Hazardous to the aquatic environment (chronic) - Category 1"],
+        "pictograms": ["environment", "irritant", "vomiting"],
+        "lastReviewed": "2026-10-03"
+      },
+      {
+        "id": "csheet_229",
+        "productName": "eChem Isox 750 WG Herbicide",
+        "manufacturer": "eChem Australia Pty Ltd, Indooroopilly QLD. The register's existing bare 'Isoxaflutole' row (csheet_103) has already been filled from a different company's product, Ospray Pty Ltd's 'Fluxia Herbicide', which records a mild skin-irritation hazard not present in this eChem product's own SDS (which explicitly states skin/eye irritation classification criteria are not met) -- so this was added as its own new row rather than merged into that one, to avoid attaching conflicting hazard data to a different company's product. Note the register also has other branded 750 g/kg isoxaflutole rows at other ids (Bayer's 'Balance', csheet_23; Conquest's 'Bounty', csheet_30; ADAMA's 'Palmero 750 WG', csheet_126) -- this is a further separate (eChem) brand at the same common concentration.",
+        "activeConstituent": "Isoxaflutole (ISO) 75% (750 g/kg) (per eChem Isox 750 WG Herbicide SDS, APVMA 70181)",
+        "chemicalType": "Herbicide",
+        "hazardClass": "SUSMP Poisons Schedule 5. Classified as Dangerous Goods for transport: ADG Class 9, UN 3077, Packing Group III, Marine Pollutant. GHS Signal word: WARNING. Reproductive toxicity Category 2; Hazardous to the aquatic environment (acute) Category 1; Hazardous to the aquatic environment (chronic) Category 1. Skin/eye irritation classification criteria are explicitly stated as not met in this product's own SDS. White to beige granulate, characteristic odour.",
+        "signalWord": "Warning",
+        "withholdingPeriod": "Not stated in the SDS sighted. Refer to the product label for the withholding period for the specific crop being sprayed.",
+        "storageRequirements": "Store in a cool, dry and well ventilated area, in the original, tightly closed container.",
+        "firstAid": "Do NOT induce vomiting if swallowed. Poisons Information Centre 13 11 26.",
+        "hazardStatements": ["H361d Suspected of damaging the unborn child.", "H400 Very toxic to aquatic life.", "H410 Very toxic to aquatic life with long lasting effects."],
+        "precautions": ["Do NOT induce vomiting if swallowed.", "Obtain special instructions before use.", "Avoid release to the environment."],
+        "hazardCategories": ["Reproductive toxicity - Category 2", "Hazardous to the aquatic environment (acute) - Category 1", "Hazardous to the aquatic environment (chronic) - Category 1"],
+        "pictograms": ["health", "environment", "vomiting"],
+        "lastReviewed": "2026-10-03"
+      },
+      {
+        "id": "csheet_230",
+        "productName": "eChem MCPA 750 Herbicide",
+        "manufacturer": "eChem Australia Pty Ltd, Indooroopilly QLD. The register's existing bare 'MCPA' row at the same nominal 750 g/L concentration (csheet_117) is already attributed to a specific placeholder brand, 'Nufarm MCPA Amine 750', and records no eye-damage/corrosive classification -- this eChem product's own SDS states GHS Signal word DANGER with Causes Serious Eye Damage (H318), more severe than what's recorded for csheet_117. Added as its own new row rather than merged, to avoid overwriting that entry's existing (different) hazard data.",
+        "activeConstituent": "MCPA dimethylammonium salt, 70-80% w/w (per eChem MCPA 750 Herbicide SDS, APVMA 86480)",
+        "chemicalType": "Herbicide",
+        "hazardClass": "SUSMP Poisons Schedule 6. Not classified as Dangerous Goods for road/rail; classified as Dangerous Goods when transported by Air or Sea (IMDG/IATA UN 3082). GHS Signal word: DANGER. Serious eye damage Category 1; Hazardous to the aquatic environment (acute) Category 1; Hazardous to the aquatic environment (chronic) Category 1; Acute Toxicity (Oral) Category 4; Skin corrosion/irritation Category 2. Clear, red-brown liquid, ammonia-like odour.",
+        "signalWord": "Danger",
+        "withholdingPeriod": "Not stated in the SDS sighted. Refer to the product label for the withholding period for the specific crop being sprayed.",
+        "storageRequirements": "Store in a cool, dry and well ventilated area, in the original, tightly closed container.",
+        "firstAid": "Do NOT induce vomiting if swallowed. If in eyes, hold eyelids apart and flush with water for at least 15 minutes. Poisons Information Centre 13 11 26.",
+        "hazardStatements": ["H302 Harmful if swallowed.", "H315 Causes skin irritation.", "H318 Causes serious eye damage.", "H410 Very toxic to aquatic life with long lasting effects."],
+        "precautions": ["Do NOT induce vomiting if swallowed.", "Wear protective gloves/protective clothing/eye protection/face protection.", "Avoid release to the environment."],
+        "hazardCategories": ["Serious eye damage - Category 1", "Hazardous to the aquatic environment (acute) - Category 1", "Hazardous to the aquatic environment (chronic) - Category 1", "Acute toxicity (oral) - Category 4", "Skin corrosion/irritation - Category 2"],
+        "pictograms": ["corrosive", "environment", "irritant", "vomiting"],
+        "lastReviewed": "2026-10-03"
+      },
+      {
+        "id": "csheet_231",
+        "productName": "eChem MCPA LVE 570 Herbicide",
+        "manufacturer": "eChem Australia Pty Ltd, Indooroopilly QLD. The register's existing 570 g/L MCPA 2-ethylhexyl-ester row, 'Agritone LVE' (csheet_6), is already attributed to Nufarm Australia Ltd -- so this eChem-branded product (a different company's same-concentration, same-ester-form product) was added as its own new row rather than merged into Nufarm's entry.",
+        "activeConstituent": "MCPA 2-ethylhexyl ester, 60-80% w/w (570 g/L nominal) (per eChem MCPA LVE 570 Herbicide SDS, APVMA 86483)",
+        "chemicalType": "Herbicide",
+        "hazardClass": "SUSMP Poisons Schedule 6. Not classified as Dangerous Goods for road/rail; classified as Dangerous Goods when transported by Air or Sea (IMDG/IATA UN 3082). GHS Signal word: WARNING. Hazardous to the aquatic environment (chronic) Category 1; Acute Toxicity (Oral) Category 4; Acute Toxicity (Dermal) Category 4; Acute Toxicity (Inhalation) Category 4; Skin corrosion/irritation Category 2; Eye irritation Category 2A. Clear, brown liquid, characteristic odour.",
+        "signalWord": "Warning",
+        "withholdingPeriod": "Not stated in the SDS sighted. Refer to the product label for the withholding period for the specific crop being sprayed.",
+        "storageRequirements": "Store in a cool, dry and well ventilated area, in the original, tightly closed container.",
+        "firstAid": "Do NOT induce vomiting if swallowed. Poisons Information Centre 13 11 26.",
+        "hazardStatements": ["H302 Harmful if swallowed.", "H312 Harmful in contact with skin.", "H315 Causes skin irritation.", "H319 Causes serious eye irritation.", "H332 Harmful if inhaled.", "H410 Very toxic to aquatic life with long lasting effects."],
+        "precautions": ["Do NOT induce vomiting if swallowed.", "Wear protective gloves/protective clothing/eye protection/face protection.", "Avoid release to the environment."],
+        "hazardCategories": ["Hazardous to the aquatic environment (chronic) - Category 1", "Acute toxicity (oral) - Category 4", "Acute toxicity (dermal) - Category 4", "Acute toxicity (inhalation) - Category 4", "Skin corrosion/irritation - Category 2", "Eye irritation - Category 2A"],
+        "pictograms": ["environment", "irritant", "vomiting"],
+        "lastReviewed": "2026-10-03"
+      },
+      {
+        "id": "csheet_232",
+        "productName": "eChem Mepiquat 38 Cotton Growth Regulator",
+        "manufacturer": "eChem Australia Pty Ltd, Indooroopilly QLD. A much lower concentration (38 g/L) than the register's existing 380 g/L mepiquat chloride rows -- 'Reward Farmoz' (csheet_146, discontinued) and 'RX 380' (csheet_149), both ADAMA -- a ten-fold difference in rate, so added as its own new row rather than merged into either of those. Confirm against your container which concentration you actually have, since application rates would differ substantially.",
+        "activeConstituent": "Mepiquat (present as the chloride) 38 g/L (per eChem Mepiquat 38 Cotton Growth Regulator SDS, APVMA 52332)",
+        "chemicalType": "Growth Regulant",
+        "hazardClass": "Classified as: N, Dangerous to the environment. Not classified as hazardous according to Safe Work Australia criteria. SUSMP Classification S5. Not a Dangerous Good (ADG/IATA/IMDG/IMSBC). GHS Signal word: NONE -- not hazardous. Hazardous to the aquatic environment (chronic) Category 3 is the only classification that applies. Slightly yellowish liquid, characteristic mild odour.",
+        "signalWord": "None -- not hazardous (Hazardous to aquatic environment Category 3 is the only classification that applies)",
+        "withholdingPeriod": "Not stated in the SDS sighted. Refer to the product label for the withholding period for the specific crop being sprayed.",
+        "storageRequirements": "Store in a cool, dry place, in the original, tightly closed container.",
+        "firstAid": "Do NOT induce vomiting if swallowed. Poisons Information Centre 13 11 26.",
+        "hazardStatements": ["H412 Harmful to aquatic life with long lasting effects."],
+        "precautions": ["Do NOT induce vomiting if swallowed.", "Avoid release to the environment."],
+        "hazardCategories": ["Hazardous to the aquatic environment (chronic) - Category 3"],
+        "pictograms": ["vomiting"],
+        "lastReviewed": "2026-10-03"
+      }
+    ];
+    var existingSdsIds5 = {};
+    (state.chemicals.sds || []).forEach(function(c){ existingSdsIds5[c.id] = true; });
+    sdsNewChemicals5.forEach(function(nc){
+      if(!existingSdsIds5[nc.id]){ state.chemicals.sds.push(nc); }
+    });
+    state.chemicals.sdsNewChemicalsV5 = true;
     migrated = true;
   }
 
