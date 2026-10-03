@@ -319,7 +319,15 @@
 // with existing bare rows csheet_38/csheet_42 but describe a different
 // real-world formulation/concentration/salt, so were added as new rows
 // instead of merged). index.html only.
-var CACHE_NAME = "bullamon-plains-shell-v45";
+//
+// v46 (2026-10-03.8): a further batch of 20 new eChem/CropSure PDFs --
+// 3 safely enriched existing bare generic-name rows with GHS card data
+// (Flumioxazin/csheet_81, Indoxacarb/csheet_100, Lambda-cyhalothrin/
+// csheet_110) and 17 added as brand-new rows (csheet_216-csheet_232)
+// because every other existing candidate match was already attributed
+// to a specific different brand, or had a conflicting GHS signal
+// word/hazard-category claim on file. index.html only.
+var CACHE_NAME = "bullamon-plains-shell-v46";
 
 var SHELL_ASSETS = [
   "./",
