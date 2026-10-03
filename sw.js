@@ -276,7 +276,13 @@
 // https://chemicalsafety.com/sds-search/ (was "Search the APVMA product
 // register" + "Search the web for this product's label", both now
 // removed). index.html only.)
-var CACHE_NAME = "bullamon-plains-shell-v41";
+// (Bumped again 2026-10-03: "Search for SDS" button's link changed from
+// chemicalsafety.com/sds-search/ to https://cottonaustralia.com.au/sds, at
+// Maria's follow-up request ("change the linked 'search for sds' to
+// https://cottonaustralia.com.au/sds"). The "View GHS label"/"View SDS"
+// buttons on the new SDS preview card are unaffected -- she named this one
+// button specifically. index.html only.)
+var CACHE_NAME = "bullamon-plains-shell-v42";
 
 var SHELL_ASSETS = [
   "./",
