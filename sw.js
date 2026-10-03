@@ -282,7 +282,28 @@
 // https://cottonaustralia.com.au/sds"). The "View GHS label"/"View SDS"
 // buttons on the new SDS preview card are unaffected -- she named this one
 // button specifically. index.html only.)
-var CACHE_NAME = "bullamon-plains-shell-v42";
+// (Bumped again 2026-10-03: a copy of the "Find the current SDS"/"Search
+// for SDS" card now also appears at the top of the Safety Data Sheets LIST
+// page (above "Safety data sheets"), not just on a chemical's own detail
+// page -- at Maria's request ("Move a copy of the Search for Safety Data
+// Sheets to the safety data sheets page"). Same link
+// (cottonaustralia.com.au/sds); the original copy on each chemical's detail
+// page is unchanged. index.html only.)
+// (Bumped again 2026-10-03, several related SDS tweaks requested together:
+// "Call Poisons Info 13 11 26" now sits at the very top of both a
+// chemical's own page and the Safety Data Sheets list page (in addition to
+// its existing spot in First aid); "View GHS label"/"View SDS" and the "SDS
+// PREVIEW" label are removed from the hazard-statements/precautions/
+// category/pictograms card, which itself moved from near the top of a
+// chemical's page down to the very end; the GHS pictogram picker/display
+// widened (labels were "a little squashed") and gained a 10th, separately
+// grouped "Do not induce vomiting" first-aid icon (blue-bordered, not one
+// of the 9 official red GHS hazard diamonds); the Safety Data Sheets list
+// page's "Search the web ↗"/"Search APVMA ↗" buttons and the "Search the
+// web for it instead" empty-state link are removed entirely; and the
+// chemical list on that page is now sorted alphabetically by product name
+// instead of raw import order. index.html only.)
+var CACHE_NAME = "bullamon-plains-shell-v44";
 
 var SHELL_ASSETS = [
   "./",
