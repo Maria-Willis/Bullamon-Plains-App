@@ -256,7 +256,16 @@
 // background white"). Pure styling (.machine-photo in the <style> block),
 // same on the fleet-list's small tiles and a machine's own larger detail
 // tile. index.html only.)
-var CACHE_NAME = "bullamon-plains-shell-v39";
+// (Bumped again 2026-10-03: Safety Data Sheets editing gets real add/remove
+// row controls instead of "one point per line"/"Label: Value per line"
+// textareas, for PPE points, Storage points, Application limits, Buffer
+// distances, and Withholding (harvest/grazing) -- at Maria's request ("I
+// need to be able to add and remove items when editing safety data
+// sheets"). Each row has its own × button, plus a "+ Add..." button at the
+// end of each list; saved data shape is unchanged (still arrays of strings
+// or {label,value} pairs), so every chemical's existing SDS data displays
+// and edits exactly as before. index.html only.)
+var CACHE_NAME = "bullamon-plains-shell-v40";
 
 var SHELL_ASSETS = [
   "./",
