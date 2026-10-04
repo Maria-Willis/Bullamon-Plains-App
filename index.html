@@ -173,6 +173,12 @@
   .btn-olive{background:var(--olive);color:var(--olive-contrast);}
   .btn-danger{background:var(--danger);color:var(--danger-contrast);}
   .btn-sm{padding:6px 10px;font-size:12px;}
+  /* Larger action buttons (2026-10-04, at Maria's request -- "make the Log
+     service, Log other work & Report issue buttons bigger" on a machine's
+     Overview tab): taller, bigger text, and they share the row's width
+     equally (wrapping to full-width rows on a narrow phone) so they're easy
+     to hit with a gloved/dirty thumb. */
+  .btn.btn-xl{padding:16px 20px;font-size:16px;min-height:56px;flex:1 1 170px;width:auto;}
   .signin-error{
     background:var(--danger-contrast);
     color:var(--danger);
@@ -837,11 +843,31 @@
      one is right. */
   body.printing-bulls table.bulls-table thead{ display:table-header-group; }
   body.printing-bulls table.bulls-table tr{ page-break-inside:avoid; }
+
+  /* Maps "Print" (2026-10-04) -- a single map photo printed on its own,
+     scaled to fit one sheet with its title/notes as a caption. Only active
+     while body carries .printing-map (set by printMapPhoto() for the
+     duration of the print dialog); the orientation (@page) is injected
+     per-image by that function since it depends on the photo's shape. */
+  #print-map-sheet{ display:none; }
+  @media print{
+    body.printing-map #app{ display:none !important; }
+    body.printing-map #print-map-sheet{
+      display:flex !important;flex-direction:column;align-items:center;justify-content:flex-start;
+      width:100%;color:#000;background:#fff;
+    }
+    body.printing-map #print-map-sheet h1{ font-size:18px;margin:0 0 4px;text-align:center; }
+    body.printing-map #print-map-sheet p{ font-size:12px;margin:0 0 8px;text-align:center; }
+    body.printing-map #print-map-sheet img{
+      max-width:100%;max-height:calc(100vh - 60px);object-fit:contain;
+    }
+  }
 </style>
 </head>
 <body>
 
 <div id="app"></div>
+<div id="print-map-sheet" aria-hidden="true"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
@@ -1622,7 +1648,7 @@ const DEFAULT_STATE = {
 // change to this file, same as CACHE_NAME in sw.js -- it gives an instant,
 // no-technical-steps-needed way to confirm whether a given device is
 // actually running the latest deploy, without comparing file contents.
-var APP_BUILD = "2026-10-03.8";
+var APP_BUILD = "2026-10-04.4";
 
 /* ======================================================================
    UTILITIES
@@ -2098,7 +2124,59 @@ async function boot(){
   }
   var migrated = false;
   try{
-    var res = await supabaseClient.from("app_state").select("data,version").eq("id", "main").maybeSingle();
+    // A genuinely dead connection usually fails fast and is caught by
+    // isOfflineError() below. A POOR/marginal signal is the harder case --
+    // the device still reports "online", but the request itself can sit
+    // for a very long time before the network layer ever gives up on it,
+    // with nothing above us to bound that wait. That's what made the app
+    // "very slow to load or it simply won't load" when Maria tested it
+    // somewhere with weak signal (reported 2026-10-04). Racing the real
+    // request against a short timeout means a slow/stuck connection falls
+    // back to this device's own last-known-good offline copy (the same
+    // bootOffline() path a hard failure already takes) instead of leaving
+    // the whole app stuck on a loading screen indefinitely.
+    var bootTimedOut = {};
+    var liveReadPromise = supabaseClient.from("app_state").select("data,version").eq("id", "main").maybeSingle();
+    var res = await Promise.race([
+      liveReadPromise,
+      new Promise(function(resolve){ setTimeout(function(){ resolve(bootTimedOut); }, 7000); })
+    ]);
+    if(res === bootTimedOut){
+      console.error("[Bullamon Plains] Supabase read timed out (slow/poor connection) -- falling back to the offline copy.");
+      isOffline = true;
+      // The real request isn't cancelled -- it keeps running in the
+      // background rather than being abandoned outright. A poor (not dead)
+      // signal often does still come good a few seconds later, and if
+      // nothing has been edited on this device yet by the time it does,
+      // quietly catch this device up to the real latest copy exactly as a
+      // normal successful boot would. This matters because without it, a
+      // device left sitting on a plain cached copy (which can itself
+      // already be a version or two behind the real current one, simply
+      // because it's a snapshot from an earlier visit) would have its
+      // FIRST offline edit queued against that stale version as its
+      // "before" baseline -- making the next sync wrongly report that
+      // "someone else saved changes" and discard the edit for manual
+      // re-entry, even though nobody else actually changed anything; this
+      // device's own starting point was just already out of date (reported
+      // by Maria 2026-10-04, immediately after this timeout fallback was
+      // introduced, which made hitting this exact window far more likely).
+      // If an edit has already been queued offline by the time the slow
+      // request lands, this is skipped entirely -- never overwrite an
+      // in-progress offline edit; the existing attemptOfflineSync()
+      // conflict handling already covers reconciling that case correctly.
+      liveReadPromise.then(function(lateRes){
+        if(hasPendingOfflineEdits() || !isOffline) return; // already moved on, by an edit or a real reconnect
+        if(!lateRes || lateRes.error || !lateRes.data) return;
+        state = lateRes.data.data;
+        stateVersion = lateRes.data.version;
+        isNewRow = false;
+        isOffline = false;
+        cacheGoodState();
+        subscribeRealtime();
+        render();
+      }).catch(function(){ /* still no good -- stays on the offline copy */ });
+      return bootOffline();
+    }
     if(res.error) throw res.error;
     if(res.data){
       state = res.data.data;
@@ -5044,6 +5122,696 @@ async function boot(){
       if(!existingSdsIds5[nc.id]){ state.chemicals.sds.push(nc); }
     });
     state.chemicals.sdsNewChemicalsV5 = true;
+    migrated = true;
+  }
+
+  // Batch 9 (2026-10-03): 20 more real eChem/CropSure product PDFs Maria
+  // uploaded, no accompanying message -- same standing instructions as every
+  // prior batch (add any chemical not already listed; replace/enrich an
+  // existing row only when it's genuinely the same real-world product).
+  //
+  // UNLIKE every batch since batch 6, this batch adds NO enrichment-only
+  // fill pass (no "sdsPdfFillV9"). A full cross-reference against the
+  // existing register (237 rows, including the 5 legacy c1-c5 rows) found
+  // that every one of this batch's 20 active ingredients already has at
+  // least one existing row that looked bare/generic at a glance -- but in
+  // every single case, that existing row turned out to already carry a
+  // specific other brand's data (either the productName itself is a trade
+  // name, e.g. "Associate", "Dual Gold", "Hornet 430", "Starane Advanced",
+  // or the manufacturer/hazardClass note already attributes it to a named
+  // other company, e.g. csheet_165 "Tebuconazole" -> Imtrade/4Farmers/Titan
+  // Ag/Nufarm/Adama; csheet_169 "Thidiazuron" -> Bayer Dropp Ultra, which is
+  // actually a different thidiazuron+diuron COMBINATION product, not a
+  // straight thidiazuron match at all). Per the strict data-integrity rule
+  // applied since batch 8, none of these qualified for a safe merge, so
+  // this entire batch is new standalone rows, each with a manufacturer note
+  // explaining the specific existing row(s) it was deliberately NOT merged
+  // into and why.
+  //
+  // One especially close call: csheet_171 "Thiram 600" already lists eChem
+  // by name as one of several companies that sell this generic 600 g/L
+  // thiram formulation -- but its filled-in signal word/hazard class data
+  // was sourced from a Nufarm label, not an eChem one, so it was still kept
+  // separate rather than overwritten; eChem's own labelled SDS is its own
+  // new row (csheet_251) instead. Flagged prominently to Maria for her own
+  // judgement on which container(s) she actually has in the shed.
+  //
+  // Also flagged to Maria (not something code can resolve): the uploaded
+  // file "Pendimethalin-330-SDS.pdf" is, by its actual contents, unambiguously
+  // the SDS for "eChem Pendimethalin 440 Herbicide" (APVMA 91481, 440 g/L) --
+  // the "330" in the filename does not match the document. The 440 g/L
+  // content was used as authoritative (csheet_238).
+  if(state.chemicals && !state.chemicals.sdsNewChemicalsV6){
+    var sdsNewChemicals6 = [
+      {
+        "id": "csheet_233",
+        "productName": "eChem Meso Herbicide",
+        "manufacturer": "eChem Australia Pty Ltd, Indooroopilly QLD. No existing register row for mesosulfuron-methyl (or mefenpyr-diethyl) was found anywhere on the register, so this is a genuinely new active ingredient combination -- added as a new row rather than a merge.",
+        "activeConstituent": "Mesosulfuron-methyl (ISO) <3.5% + Mefenpyr-diethyl (safener) <10% + Solvent naphtha (petroleum), heavy arom. 20% (per eChem Meso Herbicide SDS, APVMA 95152)",
+        "chemicalType": "Herbicide",
+        "hazardClass": "SUSMP Poisons Schedule 5. Not subject to the ADG Code by road/rail in packagings under 500kg(L) (classed as Dangerous Goods by Air/Sea). GHS Signal word: DANGER. Aspiration hazard Category 1; Hazardous to the aquatic environment (acute) Category 1; Hazardous to the aquatic environment (chronic) Category 1. Liquid, characteristic odour, not flammable.",
+        "signalWord": "Danger",
+        "withholdingPeriod": "Not stated in the SDS sighted. Refer to the product label for the withholding period for the specific crop being sprayed.",
+        "storageRequirements": "Store in a cool, dry and well ventilated area, in the original, tightly closed container. Protect from direct sunlight.",
+        "firstAid": "If swallowed, do NOT induce vomiting -- immediately rinse mouth with water and seek immediate medical attention. Poisons Information Centre 13 11 26.",
+        "hazardStatements": [
+          "H304 May be fatal if swallowed and enters airways.",
+          "H410 Very toxic to aquatic life with long lasting effects."
+        ],
+        "precautions": [
+          "Avoid release to the environment.",
+          "IF SWALLOWED: Immediately call a POISON CENTER/doctor.",
+          "Do NOT induce vomiting.",
+          "Collect spillage.",
+          "Store locked up."
+        ],
+        "hazardCategories": [
+          "Aspiration hazard - Category 1",
+          "Hazardous to the aquatic environment (acute) - Category 1",
+          "Hazardous to the aquatic environment (chronic) - Category 1"
+        ],
+        "pictograms": ["health", "environment", "vomiting"],
+        "lastReviewed": "2026-10-03"
+      },
+      {
+        "id": "csheet_234",
+        "productName": "eChem Metsulfuron-Methyl WG Herbicide",
+        "manufacturer": "eChem Australia Pty Ltd, Indooroopilly QLD. Metsulfuron-methyl already has two existing rows: 'Associate' (csheet_17), a specific trade name in its own right, and 'Metsulfuron' (csheet_119), whose hazardClass note already attributes its filled-in data to a different real product (Innova Metsulfuron 600 Herbicide, Syngenta). Neither qualifies as a safe generic merge target, so this eChem-labelled 60% metsulfuron-methyl product was added as its own new row.",
+        "activeConstituent": "Metsulfuron-methyl 60% (per eChem Metsulfuron-Methyl WG Herbicide SDS, APVMA 58297)",
+        "chemicalType": "Herbicide",
+        "hazardClass": "Not a scheduled poison (SUSMP). Not classified as Dangerous Goods by road/rail (classed as Dangerous Goods by Air/Sea only -- see UN3077). GHS Signal word: WARNING. Hazardous to the aquatic environment (chronic) Category 1. Off-white granulate, odourless.",
+        "signalWord": "Warning",
+        "withholdingPeriod": "Not stated in the SDS sighted. Refer to the product label for the withholding period for the specific crop being sprayed.",
+        "storageRequirements": "Store in a cool, dry and well ventilated area, in the original, tightly closed container. Do not store for prolonged periods in direct sunlight. Keep away from oxidising agents.",
+        "firstAid": "If swallowed, do NOT induce vomiting -- immediately rinse mouth with water and seek immediate medical attention. Poisons Information Centre 13 11 26.",
+        "hazardStatements": ["H410 Very toxic to aquatic life with long lasting effects."],
+        "precautions": [
+          "Avoid release to the environment.",
+          "Do NOT induce vomiting if swallowed.",
+          "Collect spillage."
+        ],
+        "hazardCategories": ["Hazardous to the aquatic environment (chronic) - Category 1"],
+        "pictograms": ["environment", "vomiting"],
+        "lastReviewed": "2026-10-03"
+      },
+      {
+        "id": "csheet_235",
+        "productName": "eChem Paraquat 250 Herbicide",
+        "manufacturer": "eChem Australia Pty Ltd, Indooroopilly QLD (APVMA 66548). Every existing 250 g/L paraquat(-ish) row on the register is already attributed to a different specific brand: 'Para-Ken 334' (csheet_128, Kenso, and a different concentration anyway), 'Paraquat 250' (csheet_129, confirmed as Titan Ag's Titan Paraquat 250 Herbicide), 'Spraytop 250' (csheet_159, Adama), 'Uniquat 250' (csheet_179, UPL), plus the paraquat+diquat combination products 'Gramoxone 250'/'Spray Seed 250' (csheet_90/csheet_158, Syngenta -- a different formulation entirely) and 'Explode Conquest' (csheet_70, Conquest Crop Protection). None qualify as a safe generic merge target, so this eChem-labelled product was added as its own new row.",
+        "activeConstituent": "Paraquat (present as the dichloride) 250 g/L (per eChem Paraquat 250 Herbicide SDS, APVMA 66548)",
+        "chemicalType": "Herbicide",
+        "hazardClass": "SUSMP Poisons Schedule 7 (Dangerous Poison). ADG Class 6.1 Toxic Substances, UN3016 BIPYRIDILIUM PESTICIDE, LIQUID, TOXIC. GHS Signal word: DANGER. Acute Toxicity Oral Category 3; Acute Toxicity Dermal Category 3; Acute Toxicity Inhalation Category 1/2; Skin corrosion/irritation Category 2; Serious eye damage/eye irritation Category 2B; STOT (single exposure) Category 3; STOT (repeated exposure) Category 1; Hazardous to the aquatic environment (acute) Category 1; Hazardous to the aquatic environment (chronic) Category 1. Clear blue liquid, unpleasant odour.",
+        "signalWord": "Danger",
+        "withholdingPeriod": "Not stated in the SDS sighted. Refer to the product label for the withholding period for the specific crop being sprayed.",
+        "storageRequirements": "This product is a Scheduled Poison -- store locked up, in a cool, well-ventilated area, protected from sunlight. Check containers periodically for leaks.",
+        "firstAid": "Skin: flush with lukewarm water for 20-30 minutes, DO NOT INTERRUPT FLUSHING. Eyes: flush for 15 minutes. If swallowed, do NOT induce vomiting; rinse mouth and contact the Poisons Information Centre or a doctor immediately. Symptoms of pulmonary oedema can be delayed up to 48 hours after inhalation exposure. Poisons Information Centre 13 11 26.",
+        "hazardStatements": [
+          "H301 Toxic if swallowed.",
+          "H311 Toxic in contact with skin.",
+          "H315 Causes skin irritation.",
+          "H320 Causes eye irritation.",
+          "H330 Fatal if inhaled.",
+          "H335 May cause respiratory irritation.",
+          "H372 Causes damage to organs through prolonged or repeated exposure.",
+          "H410 Very toxic to aquatic life with long lasting effects."
+        ],
+        "precautions": [
+          "Do not breathe fumes, mists, vapours or spray.",
+          "Wear protective gloves, protective clothing and eye or face protection.",
+          "Wear respiratory protection.",
+          "IF SWALLOWED: Rinse mouth. Do NOT induce vomiting.",
+          "Store locked up. Protect from sunlight."
+        ],
+        "hazardCategories": [
+          "Acute toxicity (oral) - Category 3",
+          "Acute toxicity (dermal) - Category 3",
+          "Acute toxicity (inhalation) - Category 1/2",
+          "Skin corrosion/irritation - Category 2",
+          "Serious eye damage/eye irritation - Category 2B",
+          "STOT (single exposure) - Category 3",
+          "STOT (repeated exposure) - Category 1",
+          "Hazardous to the aquatic environment (acute) - Category 1",
+          "Hazardous to the aquatic environment (chronic) - Category 1"
+        ],
+        "pictograms": ["toxic", "irritant", "health", "environment", "vomiting"],
+        "lastReviewed": "2026-10-03"
+      },
+      {
+        "id": "csheet_236",
+        "productName": "eChem Paraquat 360 Herbicide",
+        "manufacturer": "eChem Australia Pty Ltd, Indooroopilly QLD (APVMA 93444). The only existing 360 g/L-strength paraquat row, 'Gramoxone 360 Pro Herbicide' (csheet_204), is itself a specific Syngenta trade name and was already flagged as a separately registered product from the other Gramoxone/Spray Seed entries -- not a safe generic merge target. Added as its own new row.",
+        "activeConstituent": "Paraquat (present as paraquat dichloride) 30-45% + Ethoxylated oleylamine 5-10% + Pyridine <0.5% (per eChem Paraquat 360 Herbicide SDS, APVMA 93444)",
+        "chemicalType": "Herbicide",
+        "hazardClass": "SUSMP Poisons Schedule 7. ADG Class 6.1, UN3016. GHS Signal word: DANGER. Acute Toxicity (Oral) Category 4; Acute Toxicity (Dermal) Category 3; Acute Toxicity (Inhalation) Category 3; Skin corrosion/irritation Category 2; Serious eye damage Category 1; STOT (single exposure) Category 3; STOT (repeated exposure) Category 1; Hazardous to the aquatic environment (acute) Category 2; Hazardous to the aquatic environment (chronic) Category 1. Blue liquid, unpleasant odour, pH approx. 5.",
+        "signalWord": "Danger",
+        "withholdingPeriod": "Not stated in the SDS sighted. Refer to the product label for the withholding period for the specific crop being sprayed.",
+        "storageRequirements": "Store in a cool, dry and well ventilated area, container tightly closed. Protect from freezing, direct sunlight, heat, sparks, open flames and other ignition sources. Keep away from strong oxidising agents, strong acids and strong bases.",
+        "firstAid": "Skin: remove contaminated clothing immediately, wash with water and soap. Eyes: rinse for at least 15 minutes, seek immediate medical attention. If swallowed, do NOT induce vomiting -- rinse mouth with water and seek immediate medical attention.",
+        "hazardStatements": [
+          "H302 Harmful if swallowed.",
+          "H311 Toxic in contact with skin.",
+          "H331 Toxic if inhaled.",
+          "H315 Causes skin irritation.",
+          "H318 Causes serious eye damage.",
+          "H335 May cause respiratory irritation.",
+          "H372 Causes damage to organs through prolonged or repeated exposure.",
+          "H401 Toxic to aquatic life.",
+          "H410 Very toxic to aquatic life with long lasting effects."
+        ],
+        "precautions": [
+          "Do not breathe dust/fume/gas/mist/vapours/spray.",
+          "Wear protective gloves/protective clothing/eye protection/face protection.",
+          "IF SWALLOWED: Call a POISON CENTER/doctor if you feel unwell. Rinse mouth. Do NOT induce vomiting.",
+          "Store locked up, in a well-ventilated place, container tightly closed."
+        ],
+        "hazardCategories": [
+          "Acute toxicity (oral) - Category 4",
+          "Acute toxicity (dermal) - Category 3",
+          "Acute toxicity (inhalation) - Category 3",
+          "Skin corrosion/irritation - Category 2",
+          "Serious eye damage - Category 1",
+          "STOT (single exposure) - Category 3",
+          "STOT (repeated exposure) - Category 1",
+          "Hazardous to the aquatic environment (acute) - Category 2",
+          "Hazardous to the aquatic environment (chronic) - Category 1"
+        ],
+        "pictograms": ["toxic", "health", "corrosive", "irritant", "environment", "vomiting"],
+        "lastReviewed": "2026-10-03"
+      },
+      {
+        "id": "csheet_237",
+        "productName": "Parasol Insecticide and Defoliant Oil",
+        "manufacturer": "eChem (Australia) Pty Ltd, Indooroopilly QLD. This is a second eChem paraffinic spray oil at almost the identical concentration (794 g/L) and hazard profile (Eye irritation Category 2B, H320, Signal WARNING, no APVMA number stated) to the existing 'e-Tron Cotton Defoliant Oil' (csheet_223, added in batch 8, also 794 g/L). The two SDSs name genuinely different trade names ('Parasol Insecticide and Defoliant Oil' vs 'e-Tron Cotton Defoliant Oil') and slightly different stated uses (insecticide/general defoliant vs specifically a cotton defoliant), so this was kept as a separate new row rather than merged -- but given how closely the two specifications match, please confirm against your actual container/label which of these two eChem oils (or both) you hold, as they may turn out to be the same physical product sold under two different names.",
+        "activeConstituent": "Paraffinic oil 794 g/L (per Parasol Insecticide and Defoliant Oil SDS -- no APVMA approval number was stated in the document sighted)",
+        "chemicalType": "Insecticide / Defoliant",
+        "hazardClass": "SUSMP Poisons Schedule 5. Not a Dangerous Good (ADG/IATA/IMDG/IMSBC). GHS Signal word: WARNING. Eye irritation Category 2B. Clear slight amber thin liquid, petroleum odour, flash point >150 degC.",
+        "signalWord": "Warning",
+        "withholdingPeriod": "Not stated in the SDS sighted. Refer to the product label for the withholding period for the specific crop being sprayed.",
+        "storageRequirements": "This product is a Scheduled Poison -- store in the closed original container, in a dry, cool, well-ventilated area, out of direct sunlight.",
+        "firstAid": "If in eyes, flush with lukewarm water for 15 minutes and obtain medical attention immediately. If swallowed, do NOT induce vomiting -- wash mouth with water. Poisons Information Centre 13 11 26.",
+        "hazardStatements": ["H320 Causes eye irritation."],
+        "precautions": [
+          "Do not get in eyes, on skin, or on clothing.",
+          "Wear protective gloves, protective clothing and eye or face protection.",
+          "IF SWALLOWED: Rinse mouth. Do NOT induce vomiting.",
+          "Protect from sunlight. Keep cool."
+        ],
+        "hazardCategories": ["Eye irritation - Category 2B"],
+        "pictograms": ["irritant", "vomiting"],
+        "lastReviewed": "2026-10-03"
+      },
+      {
+        "id": "csheet_238",
+        "productName": "eChem Pendimethalin 440 Herbicide",
+        "manufacturer": "eChem Australia Pty Ltd, Indooroopilly QLD (APVMA 91481). Note for Maria: the uploaded file was named 'Pendimethalin-330-SDS.pdf', but its actual contents are unambiguously for a 440 g/L product -- the 440 g/L content (not the '330' in the filename) was used here. Existing pendimethalin rows are all already attributed to other specific brands: 'Apparent Pendimethalin' (csheet_16, 440 g/L, Apparent Pty Ltd), 'Pendimthalin' (csheet_131, whose own note already flags a likely match to the Apparent 440 product), 'Rifle 440' (csheet_148, Nufarm), and 'Stomp Xtra' (csheet_163, a different concentration and itself a BASF trade name). None qualify as a safe generic merge target, so this eChem-labelled product was added as its own new row.",
+        "activeConstituent": "Pendimethalin 440 g/L + Liquid hydrocarbon 467 g/L (per eChem Pendimethalin 440 Herbicide SDS, APVMA 91481)",
+        "chemicalType": "Herbicide",
+        "hazardClass": "SUSMP Poisons Schedule 5. ADG Class 9 Miscellaneous Dangerous Goods, UN3082. GHS Signal word: WARNING. Flammable liquids Category 4; Acute Toxicity Oral Category 4; Aspiration Hazard Category 1; Skin Sensitisation Category 1; Skin corrosion/irritation and serious eye damage/irritation Category 2; Hazardous to the aquatic environment (short term/chronic) Category 1. Liquid, characteristic odour, flash point >61 degC.",
+        "signalWord": "Warning",
+        "withholdingPeriod": "Not stated in the SDS sighted. Refer to the product label for the withholding period for the specific crop being sprayed.",
+        "storageRequirements": "This product is a Scheduled Poison -- store in a dry, closed container, in a well-ventilated place, kept cool and protected from sunlight.",
+        "firstAid": "Skin: seek urgent medical attention, flush for at least 60 minutes, DO NOT INTERRUPT FLUSHING. Eyes: flush for 15 minutes. If swallowed, do NOT induce vomiting -- contact the Poisons Information Centre or a doctor immediately; if vomiting occurs naturally, lay the patient on their side (aspiration risk). Poisons Information Centre 13 11 26.",
+        "hazardStatements": [
+          "H227 Combustible liquid.",
+          "H302 Harmful if swallowed.",
+          "H304 May be fatal if swallowed and enters airways.",
+          "H317 May cause an allergic skin reaction.",
+          "H315+H320 Causes skin and eye irritation.",
+          "H410 Very toxic to aquatic life with long lasting effects."
+        ],
+        "precautions": [
+          "Keep away from heat, sparks, open flames and hot surfaces. No smoking.",
+          "Wear protective gloves, protective clothing and eye or face protection.",
+          "IF SWALLOWED: Rinse mouth. Do NOT induce vomiting.",
+          "Store in a dry place in a closed container, protected from sunlight."
+        ],
+        "hazardCategories": [
+          "Acute toxicity (oral) - Category 4",
+          "Aspiration hazard - Category 1",
+          "Skin sensitisation - Category 1",
+          "Skin corrosion/irritation and serious eye damage/irritation - Category 2",
+          "Hazardous to the aquatic environment (short term/chronic) - Category 1"
+        ],
+        "pictograms": ["irritant", "health", "environment", "vomiting"],
+        "lastReviewed": "2026-10-03"
+      },
+      {
+        "id": "csheet_239",
+        "productName": "Piclor M 242 Herbicide",
+        "manufacturer": "eChem Australia Pty Ltd, Indooroopilly QLD (APVMA 66955). The existing row 'JAB 242 - Cropcare' (csheet_104) has an almost identical composition (420 g/L MCPA + 26 g/L picloram, both as potassium salts, per its own manufacturer correction note) and even a similar product numbering ('242'), but it is itself a specific Crop Care Australasia trade name (Jab 242), not a bare generic row -- so this eChem product was added as its own new row rather than merged, despite the close chemical match. Confirm against your container label if you're unsure which brand you're holding.",
+        "activeConstituent": "MCPA as potassium salt 420 g/L + Picloram as potassium salt 26 g/L (per Piclor M 242 Herbicide SDS, APVMA 66955)",
+        "chemicalType": "Herbicide",
+        "hazardClass": "SUSMP Poisons Schedule 5. ADG Class 9 Miscellaneous Dangerous Goods, UN3082 (Air/Sea only -- not subject to the ADG Code for Road/Rail in packages under 500kg(L)). GHS Signal word: WARNING. Acute Toxicity Oral Category 4; Acute Toxicity Dermal Category 4; Skin Corrosion/Irritation Category 2; Serious eye damage/eye irritation Category 2B; STOT (single exposure) Category 3. Dark brown to black liquid, mild odour.",
+        "signalWord": "Warning",
+        "withholdingPeriod": "Not stated in the SDS sighted. Refer to the product label for the withholding period for the specific crop being sprayed.",
+        "storageRequirements": "This product is a Scheduled Poison -- store locked up, in a well-ventilated place, container tightly closed, protected from sunlight.",
+        "firstAid": "Skin: wash gently with warm water for 10-20 minutes. Eyes: flush for 15 minutes. If swallowed, do NOT induce vomiting -- wash mouth with water and contact the Poisons Information Centre or a doctor. Poisons Information Centre 13 11 26.",
+        "hazardStatements": [
+          "H302 Harmful if swallowed.",
+          "H312 Harmful in contact with skin.",
+          "H315 Causes skin irritation.",
+          "H320 Causes eye irritation.",
+          "H335 May cause respiratory irritation."
+        ],
+        "precautions": [
+          "Avoid breathing fumes, mists, vapours or spray.",
+          "Wear protective gloves, protective clothing and eye or face protection.",
+          "IF SWALLOWED: Rinse mouth. Do NOT induce vomiting.",
+          "Store locked up, protected from sunlight."
+        ],
+        "hazardCategories": [
+          "Acute toxicity (oral) - Category 4",
+          "Acute toxicity (dermal) - Category 4",
+          "Skin corrosion/irritation - Category 2",
+          "Serious eye damage/eye irritation - Category 2B",
+          "STOT (single exposure) - Category 3"
+        ],
+        "pictograms": ["irritant", "vomiting"],
+        "lastReviewed": "2026-10-03"
+      },
+      {
+        "id": "csheet_240",
+        "productName": "eChem Promid 500 SC Herbicide",
+        "manufacturer": "eChem Australia Pty Ltd, Indooroopilly QLD. No existing register row for propyzamide was found anywhere on the register, so this is a genuinely new active ingredient -- added as a new row.",
+        "activeConstituent": "Propyzamide 500 g/L + Ethylene glycol 42 g/L (per eChem Promid 500 SC Herbicide SDS)",
+        "chemicalType": "Herbicide",
+        "hazardClass": "SUSMP Poisons Schedule 5. ADG Class 9 Miscellaneous Dangerous Goods, UN3082 (Air/Sea only). GHS Signal word: WARNING. Carcinogenicity Category 2; Hazardous to the aquatic environment (short term/chronic) Category 1. Liquid, colour/odour not specified. SWA classifies propyzamide as a Category 2 Carcinogen (suspected of causing cancer in humans); this is a cumulative poison -- take special care over extended handling periods.",
+        "signalWord": "Warning",
+        "withholdingPeriod": "Not stated in the SDS sighted. Refer to the product label for the withholding period for the specific crop being sprayed.",
+        "storageRequirements": "This product is a Scheduled Poison -- store in a dry place, in a closed container, in a well-ventilated place, kept cool and protected from sunlight.",
+        "firstAid": "Skin/eye irritation is unlikely; flush with water if it occurs. If swallowed, do NOT induce vomiting -- wash mouth with water and contact the Poisons Information Centre or a doctor if symptoms develop. Poisons Information Centre 13 11 26.",
+        "hazardStatements": [
+          "H351 Suspected of causing cancer.",
+          "H410 Very toxic to aquatic life with long lasting effects."
+        ],
+        "precautions": [
+          "Obtain special instructions before use.",
+          "Do not handle until all safety precautions have been read and understood.",
+          "IF SWALLOWED: Rinse mouth. Do NOT induce vomiting.",
+          "Store in a dry place in a closed container, protected from sunlight."
+        ],
+        "hazardCategories": [
+          "Carcinogenicity - Category 2",
+          "Hazardous to the aquatic environment (short term/chronic) - Category 1"
+        ],
+        "pictograms": ["health", "environment", "vomiting"],
+        "lastReviewed": "2026-10-03"
+      },
+      {
+        "id": "csheet_241",
+        "productName": "eChem Propiconazole 250 EC Fungicide",
+        "manufacturer": "eChem Australia Pty Ltd, Indooroopilly QLD (APVMA 68709). The existing row 'Tilt' (csheet_172, 250 g/L Propiconazole) is itself a well-known Syngenta trade name, not a bare generic row -- not a safe merge target. Added as its own new row.",
+        "activeConstituent": "Propiconazole 250 g/L + Hydrocarbon liquid 640 g/L (per eChem Propiconazole 250 EC Fungicide SDS, APVMA 68709)",
+        "chemicalType": "Fungicide",
+        "hazardClass": "SUSMP Poisons Schedule 6. ADG Class 9 Miscellaneous Dangerous Goods, UN3082. GHS Signal word: DANGER. Flammable liquids Category 4; Acute Toxicity Oral Category 4; Aspiration Hazard Category 2; Skin Sensitisation Category 1; Serious eye damage/eye irritation Category 2B; STOT (single exposure) Category 3; Reproductive toxicity Category 1B; Hazardous to the aquatic environment (short term/chronic) Category 1. Clear yellowish liquid, aromatic odour, flash point >61 degC.",
+        "signalWord": "Danger",
+        "withholdingPeriod": "Not stated in the SDS sighted. Refer to the product label for the withholding period for the specific crop being sprayed.",
+        "storageRequirements": "This product is a Scheduled Poison, with flammable-liquid storage obligations (Class 4 DG storage) -- store in a cool, dry, well-ventilated area away from ignition sources.",
+        "firstAid": "Skin: wash for 5 minutes. Eyes: flush for 15 minutes. If swallowed, do NOT induce vomiting. Poisons Information Centre 13 11 26.",
+        "hazardStatements": [
+          "H227 Combustible liquid.",
+          "H302 Harmful if swallowed.",
+          "H305 May be harmful if swallowed and enters airways.",
+          "H317 May cause an allergic skin reaction.",
+          "H320 Causes eye irritation.",
+          "H335 May cause respiratory irritation.",
+          "H360D May damage the unborn child.",
+          "H410 Very toxic to aquatic life with long lasting effects."
+        ],
+        "precautions": [
+          "Keep away from heat, sparks, open flames and hot surfaces.",
+          "Wear protective gloves, protective clothing and eye or face protection.",
+          "Do NOT induce vomiting if swallowed.",
+          "Store in a cool, dry, well-ventilated area."
+        ],
+        "hazardCategories": [
+          "Acute toxicity (oral) - Category 4",
+          "Aspiration hazard - Category 2",
+          "Skin sensitisation - Category 1",
+          "Serious eye damage/eye irritation - Category 2B",
+          "STOT (single exposure) - Category 3",
+          "Reproductive toxicity - Category 1B",
+          "Hazardous to the aquatic environment (short term/chronic) - Category 1"
+        ],
+        "pictograms": ["irritant", "health", "environment", "vomiting"],
+        "lastReviewed": "2026-10-03"
+      },
+      {
+        "id": "csheet_242",
+        "productName": "eChem Pyrip 100 Insect Growth Regulator",
+        "manufacturer": "eChem Australia Pty Ltd, Indooroopilly QLD (APVMA 82036). Existing pyriproxyfen rows are both already attributed to other specific brands: 'Admiral' (csheet_4, a well-known Sumitomo trade name) and 'Lascar 100' (csheet_111, Adama Australia). Neither is a safe generic merge target. Added as its own new row.",
+        "activeConstituent": "Pyriproxyfen 10-15% + Solvent naphtha (petroleum), medium aliph. 40-50% (per eChem Pyrip 100 Insect Growth Regulator SDS, APVMA 82036)",
+        "chemicalType": "Insecticide (Insect Growth Regulator)",
+        "hazardClass": "SUSMP Poisons Schedule 5. ADG Class 9 Miscellaneous Dangerous Goods, UN3082, Marine Pollutant. GHS Signal word: DANGER. STOT (repeated exposure) Category 1; Aspiration Hazard Category 1; Hazardous to the aquatic environment (chronic) Category 2; Acute Toxicity (Inhalation) Category 4; Skin corrosion/irritation Category 2; Eye irritation Category 2A. Yellow clear liquid, characteristic odour, pH 6.6 (10%).",
+        "signalWord": "Danger",
+        "withholdingPeriod": "Not stated in the SDS sighted. Refer to the product label for the withholding period for the specific crop being sprayed.",
+        "storageRequirements": "This product is a Scheduled Poison -- store in a cool, dry, well-ventilated area, protected from heat, sparks and ignition sources, away from oxidising agents.",
+        "firstAid": "Inhalation: fresh air, artificial respiration if needed. Skin: wash with soap and water. Eyes: rinse for 15+ minutes. If swallowed, do NOT induce vomiting; never give anything by mouth to an unconscious person. Poisons Information Centre 13 11 26.",
+        "hazardStatements": [
+          "H332 Harmful if inhaled.",
+          "H315 Causes skin irritation.",
+          "H319 Causes serious eye irritation.",
+          "H372 Causes damage to organs through prolonged or repeated exposure.",
+          "H304 May be fatal if swallowed and enters airways.",
+          "H411 Toxic to aquatic life with long lasting effects."
+        ],
+        "precautions": [
+          "Protect from heat, sparks, open flames and other ignition sources.",
+          "Wear protective gloves, protective clothing and eye or face protection.",
+          "Do NOT induce vomiting if swallowed.",
+          "Store in a cool, dry, well-ventilated area."
+        ],
+        "hazardCategories": [
+          "STOT (repeated exposure) - Category 1",
+          "Aspiration hazard - Category 1",
+          "Hazardous to the aquatic environment (chronic) - Category 2",
+          "Acute toxicity (inhalation) - Category 4",
+          "Skin corrosion/irritation - Category 2",
+          "Eye irritation - Category 2A"
+        ],
+        "pictograms": ["health", "irritant", "vomiting"],
+        "lastReviewed": "2026-10-03"
+      },
+      {
+        "id": "csheet_243",
+        "productName": "eChem Quizal 200 EC Herbicide",
+        "manufacturer": "eChem Australia Pty Ltd, Indooroopilly QLD. No APVMA approval number was stated in this (recently issued, May 2026) SDS. Existing 200 g/L quizalofop-P-ethyl rows are already attributed to other specific brands: 'Elantra Xtreme' (csheet_62, Sipcam Australia) and 'Leopard' (csheet_112, Adama Australia, subject to a July 2025 voluntary recall). A third, 100 g/L quizalofop row ('Quizalofop', csheet_139) is a different concentration and is already attributed to 4Farmers. None qualify as a safe merge target. Added as its own new row.",
+        "activeConstituent": "Quizalofop-p-ethyl 200 g/L + Hydrocarbon liquid 592 g/L + N-Methyl-2-pyrrolidone 150 g/L (per eChem Quizal 200 EC Herbicide SDS)",
+        "chemicalType": "Herbicide",
+        "hazardClass": "SUSMP Poisons Schedule 6. ADG Class 9 Miscellaneous Dangerous Goods, UN3082. GHS Signal word: DANGER. Flammable liquids Category 4; Skin irritation Category 2; Eye irritation Category 2A; Reproductive toxicity Category 1B; Hazardous to the aquatic environment (acute) Category 1; Hazardous to the aquatic environment (chronic) Category 2. Dark amber liquid, faint paint-like odour, flash point >61 degC.",
+        "signalWord": "Danger",
+        "withholdingPeriod": "Not stated in the SDS sighted. Refer to the product label for the withholding period for the specific crop being sprayed.",
+        "storageRequirements": "This product is a Scheduled Poison -- store in a cool, dry, well-ventilated area away from ignition sources.",
+        "firstAid": "Skin contact is serious: seek urgent medical attention, flush for 60 minutes continuously, DO NOT INTERRUPT FLUSHING. Eyes: flush for 15 minutes. If swallowed, do NOT induce vomiting -- contact the Poisons Information Centre; if vomiting occurs naturally, lay in recovery position (aspiration risk). Poisons Information Centre 13 11 26.",
+        "hazardStatements": [
+          "H227 Combustible liquid.",
+          "H315 Causes skin irritation.",
+          "H319 Causes serious eye irritation.",
+          "H360D May damage the unborn child.",
+          "H400 Very toxic to aquatic life.",
+          "H411 Toxic to aquatic life with long lasting effects."
+        ],
+        "precautions": [
+          "Keep away from heat, sparks, open flames and hot surfaces.",
+          "Wear protective gloves, protective clothing and eye or face protection.",
+          "Do NOT induce vomiting if swallowed.",
+          "Store in a cool, dry, well-ventilated area."
+        ],
+        "hazardCategories": [
+          "Skin irritation - Category 2",
+          "Eye irritation - Category 2A",
+          "Reproductive toxicity - Category 1B",
+          "Hazardous to the aquatic environment (acute) - Category 1",
+          "Hazardous to the aquatic environment (chronic) - Category 2"
+        ],
+        "pictograms": ["irritant", "health", "environment", "vomiting"],
+        "lastReviewed": "2026-10-03"
+      },
+      {
+        "id": "csheet_244",
+        "productName": "eChem Simazine 900 WG Herbicide",
+        "manufacturer": "eChem Australia Pty Ltd, Indooroopilly QLD (APVMA 82494). Existing simazine rows, 'Simanex Farmoz' (csheet_153, Adama Australia, formerly Farmoz) and 'Simaquest' (csheet_154, Conquest Ag), are both already attributed to other specific brands. Neither is a safe merge target. Added as its own new row.",
+        "activeConstituent": "Simazine 900 g/kg (per eChem Simazine 900 WG Herbicide SDS, APVMA 82494)",
+        "chemicalType": "Herbicide",
+        "hazardClass": "SUSMP: None allocated. ADG Class 9 Miscellaneous Dangerous Goods, UN3077 (Air/Sea only). GHS Signal word: WARNING. Carcinogenicity Category 2; Hazardous to the aquatic environment (acute) Category 1; Hazardous to the aquatic environment (chronic) Category 1. Buff coloured granulated solid, mild sweet odour.",
+        "signalWord": "Warning",
+        "withholdingPeriod": "Not stated in the SDS sighted. Refer to the product label for the withholding period for the specific crop being sprayed.",
+        "storageRequirements": "Store in a cool, dry place, in the original, tightly closed container.",
+        "firstAid": "Minimal first aid generally required for any exposure route unless irritation develops; seek medical advice if symptoms persist. Poisons Information Centre 13 11 26.",
+        "hazardStatements": [
+          "H351 Suspected of causing cancer.",
+          "H410 Very toxic to aquatic life with long lasting effects."
+        ],
+        "precautions": [
+          "Obtain special instructions before use.",
+          "Avoid release to the environment.",
+          "Store in the original, tightly closed container."
+        ],
+        "hazardCategories": [
+          "Carcinogenicity - Category 2",
+          "Hazardous to the aquatic environment (acute) - Category 1",
+          "Hazardous to the aquatic environment (chronic) - Category 1"
+        ],
+        "pictograms": ["health", "environment"],
+        "lastReviewed": "2026-10-03"
+      },
+      {
+        "id": "csheet_245",
+        "productName": "eChem S-Metol 960 Herbicide",
+        "manufacturer": "eChem Australia Pty Ltd, Indooroopilly QLD (APVMA 81853). Every existing 960 g/L S-metolachlor row is already attributed to a different specific brand: 'Cropsure Bullion' (csheet_52), 'Dual Gold' (csheet_61, Syngenta), 'Heist' (csheet_95, UPL), 'S-Metol' (csheet_156, already attributed to Landmark/Genfarm despite its generic-sounding name), and 'Genfarm S-Metolachlor 960 Herbicide' (csheet_202, Genfarm's own trade name). None qualify as a safe merge target. Added as its own new row.",
+        "activeConstituent": "S-Metolachlor 960 g/L (per eChem S-Metol 960 Herbicide SDS, APVMA 81853)",
+        "chemicalType": "Herbicide",
+        "hazardClass": "SUSMP Poisons Schedule 5. ADG Class 9 Miscellaneous Dangerous Goods, UN3082. GHS Signal word: DANGER. Flammable liquids Category 4; Skin sensitisation Category 1; Serious eye damage Category 1; Hazardous to the aquatic environment (short term/chronic) Category 1. Yellowish to brown clear liquid, characteristic odour, flash point >61 degC, pH 6.5-7.5.",
+        "signalWord": "Danger",
+        "withholdingPeriod": "Not stated in the SDS sighted. Refer to the product label for the withholding period for the specific crop being sprayed.",
+        "storageRequirements": "This product is a Scheduled Poison -- store in a cool, dry, well-ventilated area away from ignition sources.",
+        "firstAid": "Skin: flush for 5 minutes if irritation occurs. Eyes: flush for 15 minutes. If swallowed, do NOT induce vomiting. Poisons Information Centre 13 11 26.",
+        "hazardStatements": [
+          "H227 Combustible liquid.",
+          "H317 May cause an allergic skin reaction.",
+          "H318 Causes serious eye damage.",
+          "H410 Very toxic to aquatic life with long lasting effects."
+        ],
+        "precautions": [
+          "Keep away from heat, sparks, open flames and hot surfaces.",
+          "Wear protective gloves, protective clothing and eye or face protection.",
+          "Do NOT induce vomiting if swallowed.",
+          "Store in a cool, dry, well-ventilated area."
+        ],
+        "hazardCategories": [
+          "Skin sensitisation - Category 1",
+          "Serious eye damage - Category 1",
+          "Hazardous to the aquatic environment (short term/chronic) - Category 1"
+        ],
+        "pictograms": ["irritant", "corrosive", "environment", "vomiting"],
+        "lastReviewed": "2026-10-03"
+      },
+      {
+        "id": "csheet_246",
+        "productName": "eChem Staroxy 200 Herbicide",
+        "manufacturer": "eChem Australia Pty Ltd, Indooroopilly QLD (APVMA 61136). Existing fluroxypyr rows -- 'Comet' (csheet_44), 'Flagship' (csheet_78, Adama), 'Flotilla' (csheet_79) and 'Starane Advanced' (csheet_160, Corteva) -- are all specific trade names in their own right, not bare generic rows. None qualify as a safe merge target. Added as its own new row. (This 200 g/L product and 'eChem Staroxy 400 Herbicide', csheet_247, are a sibling pair of eChem products at two different concentrations, similar to other eChem dual-concentration product pairs already on this register.)",
+        "activeConstituent": "Fluroxypyr methylheptyl ester 200 g/L + Hydrocarbon liquid 596 g/L (per eChem Staroxy 200 Herbicide SDS, APVMA 61136)",
+        "chemicalType": "Herbicide",
+        "hazardClass": "SUSMP: None allocated. ADG Class 9 Miscellaneous Dangerous Goods, UN3082. GHS Signal word: WARNING. Flammable liquids Category 4; Aspiration Hazard Category 1; STOT (single exposure) Category 3; Hazardous to the aquatic environment (short term/chronic) Category 1. Clear straw-coloured liquid, slight petroleum-like odour, flash point approx. 70 degC, pH 4.5-6.5.",
+        "signalWord": "Warning",
+        "withholdingPeriod": "Not stated in the SDS sighted. Refer to the product label for the withholding period for the specific crop being sprayed.",
+        "storageRequirements": "Store in a cool, dry, well-ventilated area away from ignition sources.",
+        "firstAid": "Minimal first aid generally required for inhalation/skin/eye exposure. If swallowed, do NOT induce vomiting -- low viscosity gives an aspiration risk if vomiting occurs. Poisons Information Centre 13 11 26.",
+        "hazardStatements": [
+          "H227 Combustible liquid.",
+          "AUH066 Repeated exposure may cause skin dryness or cracking.",
+          "H304 May be fatal if swallowed and enters airways.",
+          "H335 May cause respiratory irritation.",
+          "H410 Very toxic to aquatic life with long lasting effects."
+        ],
+        "precautions": [
+          "Keep away from heat, sparks, open flames and hot surfaces.",
+          "Wear protective gloves, protective clothing and eye or face protection.",
+          "Do NOT induce vomiting if swallowed.",
+          "Store in a cool, dry, well-ventilated area."
+        ],
+        "hazardCategories": [
+          "Aspiration hazard - Category 1",
+          "STOT (single exposure) - Category 3",
+          "Hazardous to the aquatic environment (short term/chronic) - Category 1"
+        ],
+        "pictograms": ["health", "irritant", "environment", "vomiting"],
+        "lastReviewed": "2026-10-03"
+      },
+      {
+        "id": "csheet_247",
+        "productName": "eChem Staroxy 400 Herbicide",
+        "manufacturer": "eChem Australia Pty Ltd, Indooroopilly QLD (APVMA 81488). Same fluroxypyr brand situation as 'eChem Staroxy 200 Herbicide' (csheet_246) -- all existing fluroxypyr rows are already other specific trade names, so this higher-concentration (400 g/L) sibling product was also added as its own new row.",
+        "activeConstituent": "Fluroxypyr methylheptyl ester 400 g/L + Liquid hydrocarbon 316 g/L + N-Methyl-2-pyrrolidone 100 g/L (per eChem Staroxy 400 Herbicide SDS, APVMA 81488)",
+        "chemicalType": "Herbicide",
+        "hazardClass": "SUSMP: None allocated. ADG Class 9 Miscellaneous Dangerous Goods, UN3082. GHS Signal word: DANGER. Flammable liquids Category 4; Aspiration Hazard Category 1; Skin corrosion/irritation Category 2; Eye irritation Category 2B; STOT (single exposure) Category 3; Reproductive toxicity Category 1B; Hazardous to the aquatic environment (short term/chronic) Category 1. Amber coloured liquid, characteristic solvent odour, flash point >63 degC. N-Methyl-2-pyrrolidone is flagged by SWA as a Class 2 reproductive-risk substance.",
+        "signalWord": "Danger",
+        "withholdingPeriod": "Not stated in the SDS sighted. Refer to the product label for the withholding period for the specific crop being sprayed.",
+        "storageRequirements": "Store in a cool, dry, well-ventilated area away from ignition sources.",
+        "firstAid": "Skin: wash for 10-20 minutes, decontaminate clothing. Eyes: flush for 15 minutes. If swallowed, do NOT induce vomiting -- aspiration risk. Poisons Information Centre 13 11 26.",
+        "hazardStatements": [
+          "H227 Combustible liquid.",
+          "AUH066 Repeated exposure may cause skin dryness or cracking.",
+          "H304 May be fatal if swallowed and enters airways.",
+          "H315 Causes skin irritation.",
+          "H320 Causes eye irritation.",
+          "H335 May cause respiratory irritation.",
+          "H360D May damage the unborn child.",
+          "H410 Very toxic to aquatic life with long lasting effects."
+        ],
+        "precautions": [
+          "Keep away from heat, sparks, open flames and hot surfaces.",
+          "Wear protective gloves, protective clothing and eye or face protection.",
+          "Do NOT induce vomiting if swallowed.",
+          "Store in a cool, dry, well-ventilated area."
+        ],
+        "hazardCategories": [
+          "Aspiration hazard - Category 1",
+          "Skin corrosion/irritation - Category 2",
+          "Eye irritation - Category 2B",
+          "STOT (single exposure) - Category 3",
+          "Reproductive toxicity - Category 1B",
+          "Hazardous to the aquatic environment (short term/chronic) - Category 1"
+        ],
+        "pictograms": ["health", "irritant", "environment", "vomiting"],
+        "lastReviewed": "2026-10-03"
+      },
+      {
+        "id": "csheet_248",
+        "productName": "eChem Tebuconazole 430 Fungicide",
+        "manufacturer": "eChem Australia Pty Ltd, Indooroopilly QLD (APVMA 68710). Existing tebuconazole rows are all already attributed to other specific brands: 'Prosaro' (c2, a tebuconazole+prothioconazole combination, Bayer), 'Hornet 430' (csheet_96, whose own note already corrects it to Nufarm's Hornet 500SC at a different concentration), 'Tebuconazole' (csheet_165, whose manufacturer note already lists it as representative of Imtrade/4Farmers/Titan Ag/Nufarm/Adama -- i.e. already understood to be one of several OTHER companies' equivalent products, not eChem's), and 'Tripod' (csheet_177, Axichem). None qualify as a safe merge target. Added as its own new row.",
+        "activeConstituent": "Tebuconazole 430 g/L (per eChem Tebuconazole 430 Fungicide SDS, APVMA 68710)",
+        "chemicalType": "Fungicide",
+        "hazardClass": "SUSMP Poisons Schedule 5. ADG Class 9 Miscellaneous Dangerous Goods, UN3082. GHS Signal word: WARNING. Acute Toxicity Oral Category 4; Reproductive toxicity Category 2; Hazardous to the aquatic environment (short term/chronic) Category 2. Off white liquid suspension, faint odour, does not burn.",
+        "signalWord": "Warning",
+        "withholdingPeriod": "Not stated in the SDS sighted. Refer to the product label for the withholding period for the specific crop being sprayed.",
+        "storageRequirements": "This product is a Scheduled Poison -- store in a cool, dry, well-ventilated area.",
+        "firstAid": "Skin: wash for 10 minutes. Eyes: flush for 5 minutes. If swallowed, do NOT induce vomiting. Poisons Information Centre 13 11 26.",
+        "hazardStatements": [
+          "H302 Harmful if swallowed.",
+          "H361d Suspected of damaging the unborn child.",
+          "H411 Toxic to aquatic life with long lasting effects."
+        ],
+        "precautions": [
+          "Wear protective gloves, protective clothing and eye or face protection.",
+          "Do NOT induce vomiting if swallowed.",
+          "Store in a cool, dry, well-ventilated area."
+        ],
+        "hazardCategories": [
+          "Acute toxicity (oral) - Category 4",
+          "Reproductive toxicity - Category 2",
+          "Hazardous to the aquatic environment (short term/chronic) - Category 2"
+        ],
+        "pictograms": ["irritant", "health", "vomiting"],
+        "lastReviewed": "2026-10-03"
+      },
+      {
+        "id": "csheet_249",
+        "productName": "eChem Terbo X 875 Herbicide",
+        "manufacturer": "eChem Australia Pty Ltd, Indooroopilly QLD (APVMA 95313). Existing terbuthylazine rows, 'Terbazine' (csheet_166, Nufarm) and 'Terbyne Xtreme' (csheet_167, itself an Adama trade name), are both already attributed to other specific brands. Neither is a safe merge target. Added as its own new row.",
+        "activeConstituent": "Terbuthylazine 87.5% (approx. 875 g/kg) (per eChem Terbo X 875 Herbicide SDS, APVMA 95313)",
+        "chemicalType": "Herbicide",
+        "hazardClass": "SUSMP Poisons Schedule 6. ADG Class 9 Miscellaneous Dangerous Goods, UN3077, Marine Pollutant. GHS Signal word: WARNING. Acute Toxicity Oral Category 4; STOT (repeated exposure) Category 2; Hazardous to the aquatic environment (acute) Category 1 (M=10); Hazardous to the aquatic environment (chronic) Category 1 (M=10). Off-white granulate, faint odour.",
+        "signalWord": "Warning",
+        "withholdingPeriod": "Not stated in the SDS sighted. Refer to the product label for the withholding period for the specific crop being sprayed.",
+        "storageRequirements": "Store in a cool, dry place, in the original, tightly closed container.",
+        "firstAid": "If swallowed, do NOT induce vomiting -- rinse mouth with water. Poisons Information Centre 13 11 26.",
+        "hazardStatements": [
+          "H302 Harmful if swallowed.",
+          "H373 May cause damage to organs through prolonged or repeated exposure.",
+          "H410 Very toxic to aquatic life with long lasting effects."
+        ],
+        "precautions": [
+          "Call a poison center if swallowed. Rinse mouth. Do NOT induce vomiting.",
+          "Get medical advice if exposed or concerned.",
+          "Avoid release to the environment."
+        ],
+        "hazardCategories": [
+          "Acute toxicity (oral) - Category 4",
+          "STOT (repeated exposure) - Category 2",
+          "Hazardous to the aquatic environment (acute) - Category 1 (M=10)",
+          "Hazardous to the aquatic environment (chronic) - Category 1 (M=10)"
+        ],
+        "pictograms": ["health", "environment", "irritant", "vomiting"],
+        "lastReviewed": "2026-10-03"
+      },
+      {
+        "id": "csheet_250",
+        "productName": "eChem Thidiazuron 500 SC Liquid Cotton Defoliant",
+        "manufacturer": "eChem Australia Pty Ltd, Indooroopilly QLD (APVMA 55963). Existing thidiazuron rows are either themselves specific trade names ('Escalate 500SC', csheet_66) or already attributed to a different real product with a DIFFERENT formulation: 'Thidiazuron' (csheet_169)'s manufacturer note already identifies the likely real match as Bayer's Dropp Ultra/UltraMax, which is a thidiazuron+DIURON combination product, not a straight thidiazuron product like this one. Because the actual chemistry differs (straight thidiazuron here vs. a thidiazuron+diuron combination there), this was added as its own new row rather than merged.",
+        "activeConstituent": "Thidiazuron 500 g/L + Propylene glycol 10-100 g/L (per eChem Thidiazuron 500 SC Liquid Cotton Defoliant SDS, APVMA 55963)",
+        "chemicalType": "Defoliant",
+        "hazardClass": "SUSMP: None allocated. Not a Dangerous Good (ADG). GHS Signal word: WARNING. Acute Toxicity Dermal Category 4; Skin irritation Category 2; Eye irritation Category 2A; Acute Toxicity Inhalation Category 4; STOT (single exposure) Category 3. Beige liquid, negligible odour, does not burn, pH approx. 7.7.",
+        "signalWord": "Warning",
+        "withholdingPeriod": "Not stated in the SDS sighted. Refer to the product label for the withholding period for the specific crop being sprayed.",
+        "storageRequirements": "Store in a cool, dry place, in the original, tightly closed container.",
+        "firstAid": "Standard first aid measures apply to all exposure routes. If swallowed, do NOT induce vomiting if symptoms worsen. Poisons Information Centre 13 11 26.",
+        "hazardStatements": [
+          "H312 Harmful in contact with skin.",
+          "H315 Causes skin irritation.",
+          "H319 Causes serious eye irritation.",
+          "H332 Harmful if inhaled.",
+          "H335 May cause respiratory irritation."
+        ],
+        "precautions": [
+          "Wear protective gloves, protective clothing and eye or face protection.",
+          "Do NOT induce vomiting if swallowed.",
+          "Store in the original, tightly closed container."
+        ],
+        "hazardCategories": [
+          "Acute toxicity (dermal) - Category 4",
+          "Skin irritation - Category 2",
+          "Eye irritation - Category 2A",
+          "Acute toxicity (inhalation) - Category 4",
+          "STOT (single exposure) - Category 3"
+        ],
+        "pictograms": ["irritant", "vomiting"],
+        "lastReviewed": "2026-10-03"
+      },
+      {
+        "id": "csheet_251",
+        "productName": "eChem Thiram 600 Fungicide",
+        "manufacturer": "eChem Australia Pty Ltd, Indooroopilly QLD (APVMA 65286). IMPORTANT for Maria: an existing register row, 'Thiram 600' (csheet_171), already lists eChem by name as one of several companies that market a near-identical generic 600 g/L thiram formulation -- but that row's filled-in signal word and Poisons Schedule data were sourced from a NUFARM label, not an eChem one, so it was kept as-is rather than overwritten. This new row is the eChem-labelled SDS specifically. If you can confirm from your container that it's an eChem-branded product, csheet_171's data may actually describe the same thing you have -- please check your label and let me know if you'd like the two rows merged or renamed.",
+        "activeConstituent": "Thiram 600 g/L + Propylene glycol <100 g/L (per eChem Thiram 600 Fungicide SDS, APVMA 65286)",
+        "chemicalType": "Fungicide",
+        "hazardClass": "SUSMP Poisons Schedule 6. ADG Class 9 Miscellaneous Dangerous Goods, UN3082. GHS Signal word: WARNING. Acute Toxicity Oral Category 4; Skin irritation Category 2; Skin sensitisation Category 1; Eye irritation Category 2A; Acute Toxicity Inhalation Category 4; Germ cell mutagenicity Category 2; STOT (repeated exposure) Category 2; Hazardous to the aquatic environment (short term/chronic) Category 1. Off-white to light brown suspension, minimal odour, pH 7-8. Avoid contact during pregnancy or while nursing.",
+        "signalWord": "Warning",
+        "withholdingPeriod": "Not stated in the SDS sighted. Refer to the product label for the withholding period for the specific crop being sprayed.",
+        "storageRequirements": "This product is a Scheduled Poison -- store in a cool, dry, well-ventilated area.",
+        "firstAid": "Inhalation is serious -- pulmonary oedema can be delayed up to 48 hours, seek medical attention. Skin: wash for 10-20 minutes, decontaminate clothing. Eyes: flush for 15 minutes. If swallowed, do NOT induce vomiting. Poisons Information Centre 13 11 26.",
+        "hazardStatements": [
+          "H302 Harmful if swallowed.",
+          "H315 Causes skin irritation.",
+          "H317 May cause an allergic skin reaction.",
+          "H319 Causes serious eye irritation.",
+          "H332 Harmful if inhaled.",
+          "H341 Suspected of causing genetic defects.",
+          "H373 May cause damage to organs through prolonged or repeated exposure.",
+          "H410 Very toxic to aquatic life with long lasting effects."
+        ],
+        "precautions": [
+          "Avoid contact during pregnancy or while nursing.",
+          "Wear protective gloves, protective clothing and eye or face protection.",
+          "Do NOT induce vomiting if swallowed.",
+          "Store in a cool, dry, well-ventilated area."
+        ],
+        "hazardCategories": [
+          "Acute toxicity (oral) - Category 4",
+          "Skin irritation - Category 2",
+          "Skin sensitisation - Category 1",
+          "Eye irritation - Category 2A",
+          "Acute toxicity (inhalation) - Category 4",
+          "Germ cell mutagenicity - Category 2",
+          "STOT (repeated exposure) - Category 2",
+          "Hazardous to the aquatic environment (short term/chronic) - Category 1"
+        ],
+        "pictograms": ["irritant", "health", "environment", "vomiting"],
+        "lastReviewed": "2026-10-03"
+      },
+      {
+        "id": "csheet_252",
+        "productName": "eChem Triasulfuron 750 WG Herbicide",
+        "manufacturer": "eChem Australia Pty Ltd, Indooroopilly QLD (APVMA 70396). The existing row 'Mandate' (csheet_116) already flags an unresolved identity ambiguity between two unrelated real products -- one candidate being Imtrade's Mandate 750 WG Selective Herbicide, also 750 g/kg triasulfuron. Because 'Mandate' already carries an unresolved, different-brand identity question of its own, this eChem product was added as its own new row rather than merged into it.",
+        "activeConstituent": "Triasulfuron 750 g/kg (per eChem Triasulfuron 750 WG Herbicide SDS, APVMA 70396)",
+        "chemicalType": "Herbicide",
+        "hazardClass": "SUSMP: None allocated. ADG Class 9 Miscellaneous Dangerous Goods, UN3077 (Air/Sea only). GHS Signal word: WARNING. Hazardous to the aquatic environment (short term/chronic) Category 1 -- no other significant risk factors identified for this product (not flammable, not acutely toxic by any route). Grey to beige free flowing granules.",
+        "signalWord": "Warning",
+        "withholdingPeriod": "Not stated in the SDS sighted. Refer to the product label for the withholding period for the specific crop being sprayed.",
+        "storageRequirements": "Store in a cool, dry place, in the original, tightly closed container.",
+        "firstAid": "Minimal first aid generally required for any exposure route. Poisons Information Centre 13 11 26.",
+        "hazardStatements": ["H410 Very toxic to aquatic life with long lasting effects."],
+        "precautions": ["Avoid release to the environment.", "Store in the original, tightly closed container."],
+        "hazardCategories": ["Hazardous to the aquatic environment (short term/chronic) - Category 1"],
+        "pictograms": ["environment"],
+        "lastReviewed": "2026-10-03"
+      }
+    ];
+    var existingSdsIds6 = {};
+    (state.chemicals.sds || []).forEach(function(c){ existingSdsIds6[c.id] = true; });
+    sdsNewChemicals6.forEach(function(nc){
+      if(!existingSdsIds6[nc.id]){ state.chemicals.sds.push(nc); }
+    });
+    state.chemicals.sdsNewChemicalsV6 = true;
     migrated = true;
   }
 
@@ -13851,10 +14619,10 @@ function renderMachineOverviewTab(m, dueLabel, dueOk, progressPct){
     '<div><div class="stat-label">Interval</div><div style="font-weight:600;">' + esc(m.serviceIntervalDesc || "—") + '</div></div>' +
   '</div>';
 
-  html += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:16px;">' +
-    '<button type="button" class="btn btn-primary" style="width:auto;" onclick="ui.machineryLogWork={id:\'' + m.id + '\',mode:\'service\'};render();">&#128295; Log service</button>' +
-    '<button type="button" class="btn btn-ghost" style="width:auto;" onclick="ui.machineryLogWork={id:\'' + m.id + '\',mode:\'other\'};render();">+ Log other work</button>' +
-    '<button type="button" class="btn btn-ghost" style="width:auto;" onclick="ui.machineryReportIssue=\'' + m.id + '\';render();">&#9888; Report issue</button>' +
+  html += '<div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:16px;">' +
+    '<button type="button" class="btn btn-primary btn-xl" onclick="ui.machineryLogWork={id:\'' + m.id + '\',mode:\'service\'};render();">&#128295; Log service</button>' +
+    '<button type="button" class="btn btn-ghost btn-xl" onclick="ui.machineryLogWork={id:\'' + m.id + '\',mode:\'other\'};render();">+ Log other work</button>' +
+    '<button type="button" class="btn btn-ghost btn-xl" onclick="ui.machineryReportIssue=\'' + m.id + '\';render();">&#9888; Report issue</button>' +
   '</div>';
   return html;
 }
@@ -17282,14 +18050,58 @@ function renderMaps(){
       } else if(m.isPDF){
         thumb = '<div style="width:100%;height:110px;border-radius:12px;margin-bottom:10px;background:var(--surface-2);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;gap:8px;color:var(--text-muted);font-size:13px;font-weight:600;cursor:pointer;" onclick="return openStoredFile(\'' + escAttr(m.url) + '\')"><span style="font-size:26px;">&#128196;</span><span>PDF map</span></div>';
       }
-      var openLabel = m.isPhoto ? "Open full size" : (m.isPDF ? "Open PDF" : "Open");
+      var openLabel = m.isPhoto ? "Open full size" : (m.isPDF ? "Open PDF to print" : "Open");
       return '<div class="card">' + thumb +
         '<div class="card-row"><div><h3 style="margin-bottom:2px;">' + esc(m.title) + '</h3>' + (m.notes ? '<p class="row-muted" style="margin:0;font-size:12.5px;">' + esc(m.notes) + '</p>' : '') + '</div>' +
-        '<div style="display:flex;gap:8px;"><a class="btn btn-ghost btn-sm" href="' + escAttr(m.url) + '" target="_blank" rel="noopener" onclick="return openStoredFile(\'' + escAttr(m.url) + '\')">' + openLabel + '</a>' +
+        '<div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;"><a class="btn btn-ghost btn-sm" href="' + escAttr(m.url) + '" target="_blank" rel="noopener" onclick="return openStoredFile(\'' + escAttr(m.url) + '\')">' + openLabel + '</a>' +
+        (m.isPhoto ? '<button type="button" class="btn btn-ghost btn-sm" onclick="printMapPhoto(\'' + escAttr(m.id) + '\')">&#128424; Print</button>' : '') +
         (isAdmin() ? '<button type="button" class="btn btn-danger btn-sm" onclick="removeMap(\'' + m.id + '\')">Remove</button>' : '') + '</div></div></div>';
     }).join("") + '</div>';
   }
   return html;
+}
+// Prints one map photo on its own sheet (title and notes as a caption, photo
+// scaled to fit the page, landscape or portrait to match the photo's shape).
+// Done with a hidden print-only sheet + a body class the @media print CSS
+// keys off (same approach as printBullsList()) rather than a popup window,
+// since popups are routinely blocked on phones. PDF maps aren't printed from
+// here -- a browser can't reliably print a cross-origin PDF from page code --
+// so those open in the browser's own PDF viewer, which has its own Print.
+function printMapPhoto(id){
+  var m = (state.maps.items || []).find(function(x){ return x.id === id; });
+  if(!m || !m.isPhoto) return;
+  var sheet = document.getElementById("print-map-sheet");
+  if(!sheet) return;
+  var img = new Image();
+  img.onload = function(){
+    var landscape = img.naturalWidth >= img.naturalHeight;
+    var pageStyle = document.createElement("style");
+    pageStyle.id = "print-map-page-style";
+    pageStyle.textContent = "@media print{ @page{ size: A4 " + (landscape ? "landscape" : "portrait") + "; margin: 10mm; } }";
+    document.head.appendChild(pageStyle);
+    sheet.innerHTML = '<h1>' + esc(m.title) + '</h1>' + (m.notes ? '<p>' + esc(m.notes) + '</p>' : "");
+    sheet.appendChild(img);
+    document.body.classList.add("printing-map");
+    var cleaned = false;
+    var cleanup = function(){
+      if(cleaned) return;
+      cleaned = true;
+      document.body.classList.remove("printing-map");
+      sheet.innerHTML = "";
+      var ps = document.getElementById("print-map-page-style");
+      if(ps) ps.remove();
+      window.removeEventListener("afterprint", cleanup);
+    };
+    window.addEventListener("afterprint", cleanup);
+    window.print();
+    // Fallback for browsers/WebViews that don't fire afterprint reliably.
+    setTimeout(cleanup, 5000);
+  };
+  img.onerror = function(){
+    setNotice("err", "Couldn't load that map to print it. If you're offline and haven't opened it on this device before, try again once you're back in range.");
+    render();
+  };
+  img.src = m.url;
 }
 function renderMapForm(){
   return '<form class="form-panel" onsubmit="addMap(event)">' +
@@ -18067,9 +18879,27 @@ function handleRegoSelectChange(select){
   if(!form) return;
   var show = select.value === "__new";
   Array.prototype.forEach.call(form.querySelectorAll(".new-rego-fields"), function(el){ el.style.display = show ? "" : "none"; });
-  if(!show && select.value && form.driverId){
+  // Only auto-resolve the Driver field from a picked rego when NO driver is
+  // selected yet -- that's the "pick rego first" workflow this was built
+  // for (ticking trucks off as they arrive by plate, before anyone's
+  // confirmed who's driving; see allRegoOptionsHtml() above). Once a driver
+  // IS already chosen (including "__keep" on the Edit form), the Rego
+  // dropdown has already been rebuilt scoped to exactly that driver's own
+  // regos (handleDriverSelectChange -> regoOptionsHtml()), so anything
+  // picked here already belongs to them -- re-deriving an "owner" from the
+  // rego string alone is not just unnecessary then, it's actively wrong if
+  // that same rego string is ALSO recorded against a different driver
+  // elsewhere on file (e.g. a shared truck/trailer, or an old copy-paste
+  // mistake): driverIdForRego() can only ever return ONE owner (first match
+  // in storage order), so it would silently overwrite a correct, explicit
+  // driver choice with whichever driver happens to come first in the saved
+  // list. Root cause of Maria's report (2026-10-04) that the docket form
+  // kept "defaulting to Clinton as the driver no matter who you select" --
+  // Clinton's record was the first match for a rego that was also saved,
+  // in error, against the driver actually being picked.
+  if(!show && select.value && form.driverId && !form.driverId.value){
     var ownerId = driverIdForRego(select.value);
-    if(ownerId && form.driverId.value !== ownerId){
+    if(ownerId){
       form.driverId.value = ownerId;
       var dr = (state.harvest.drivers || []).find(function(x){ return x.id === ownerId; });
       Array.prototype.forEach.call(form.querySelectorAll(".new-driver-fields"), function(el){ el.style.display = "none"; });
