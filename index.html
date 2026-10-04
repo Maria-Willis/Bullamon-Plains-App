@@ -641,17 +641,25 @@
      outside the borders"). Scrolls horizontally within the card instead,
      same as .table-wrap already does for a wide table; flex-shrink:0 on each
      button stops them being squashed to fit. */
+  /* (2026-10-04, at Maria's request -- "make the Overview, Parts, Service
+     Schedule and Issues easier to see. They are currently not fitting on the
+     phone screen at the same time".) The earlier fix above only stopped the
+     strip spilling out of its card by letting it scroll sideways, which left
+     "Issues" hidden off-screen until swiped. The tabs are now four equal-width
+     boxes sharing the whole row, so all four are visible at once at any width;
+     a longer label ("Service Schedule") wraps onto two lines inside its box
+     rather than widening it. Bigger text and a taller tap target too. */
   .detail-tab-row{
-    display:flex; gap:18px; border-bottom:1px solid var(--border); margin:14px 0 16px;
-    overflow-x:auto; -webkit-overflow-scrolling:touch; scrollbar-width:none;
+    display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); gap:4px; margin:14px 0 16px;
   }
-  .detail-tab-row::-webkit-scrollbar{ display:none; }
   .detail-tab-btn{
-    background:none; border:none; border-bottom:2px solid transparent;
-    padding:8px 4px; font-size:13.5px; font-weight:600; white-space:nowrap; flex-shrink:0;
+    background:var(--surface-2); border:1px solid var(--border); border-radius:12px;
+    padding:8px 1px; min-height:52px; font-size:12px; font-weight:700; line-height:1.2;
+    white-space:normal; text-align:center; overflow-wrap:normal; word-break:normal;
     color:var(--text-muted); cursor:pointer;
+    display:flex; align-items:center; justify-content:center;
   }
-  .detail-tab-btn.active{ color:var(--accent-strong); border-bottom-color:var(--accent-strong); }
+  .detail-tab-btn.active{ color:#fff; background:var(--accent-strong); border-color:var(--accent-strong); }
   .due-checklist-row{ display:flex; align-items:center; gap:10px; padding:10px 2px; border-bottom:1px solid var(--border); font-size:13.5px; }
   .due-checklist-row:last-child{ border-bottom:none; }
   .due-checklist-dot{ width:18px; height:18px; border-radius:50%; border:2px solid var(--border); flex-shrink:0; }
@@ -1648,7 +1656,7 @@ const DEFAULT_STATE = {
 // change to this file, same as CACHE_NAME in sw.js -- it gives an instant,
 // no-technical-steps-needed way to confirm whether a given device is
 // actually running the latest deploy, without comparing file contents.
-var APP_BUILD = "2026-10-04.4";
+var APP_BUILD = "2026-10-04.6";
 
 /* ======================================================================
    UTILITIES
@@ -13486,6 +13494,7 @@ function render(){
     app.innerHTML = renderCrashScreen(err);
     return;
   }
+  trackScreenForBackButton();
   if(focusId){
     var el = document.getElementById(focusId);
     if(el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA")){
@@ -13594,11 +13603,10 @@ function signOut(){
   removeLocal("bp_signed_in_name");
   ui.section = "dashboard";
   ui.mobileMenuOpen = true;
-  // If a section's content was open (a "back to menu" history entry
-  // pushed), clear it rather than leaving it stranded -- otherwise the next
-  // phone back-button press would silently consume that stale entry
-  // instead of actually leaving the app as expected.
-  if(typeof history !== "undefined" && history.state && history.state.bpMobileSection){
+  // Forget this session's screen history so the next sign-in starts a fresh
+  // one, instead of the phone back button wandering into a stale screen.
+  lastScreenKey = null;
+  if(typeof history !== "undefined" && history.state && history.state.bpScreen){
     try{ history.replaceState(null, "", location.href); }catch(e){}
   }
   render();
@@ -13742,15 +13750,7 @@ function renderMobileBackBar(){
   '</div>';
 }
 
-// On mobile, opening a section's content pushes a browser history entry, so
-// the phone's own back button (hardware key or edge-swipe gesture) backs out
-// to the menu instead of leaving the app entirely -- matching how a native
-// app's back button usually works (step back one screen at a time, then
-// exit). The in-app "<- Menu" button goes through the exact same
-// history.back() path rather than just toggling the view directly, so
-// there's only ever one mechanism to keep in sync, not two that can drift
-// apart. Desktop is unaffected -- no history entry is pushed there, since
-// the sidebar is always visible and there's nothing to "back" out of.
+// Phone back-button history: see trackScreenForBackButton() / handleMobileBackPopState() below.
 function goTo(section){
   // Defense in depth for a harvest-only team member: even if something ever
   // calls goTo() with another section's key (a stray onclick, a leftover
@@ -13761,30 +13761,70 @@ function goTo(section){
   if(isHarvestOnly()) section = "harvest";
   ui.section = section;
   ui.mobileMenuOpen = false;
-  if(typeof history !== "undefined" && typeof window !== "undefined" && window.matchMedia && window.matchMedia("(max-width: 900px)").matches){
-    try{ history.pushState({ bpMobileSection: true }, "", location.href); }catch(e){ /* pushState blocked (e.g. a sandboxed preview) -- the in-app Menu button still works, just without the phone back-button tie-in */ }
-  }
-  render();
+  render(); // render() records the new screen in the phone's back-button history (see trackScreenForBackButton())
 }
 function showMobileMenu(){
-  if(typeof history !== "undefined" && history.state && history.state.bpMobileSection){
-    history.back(); // triggers the popstate handler below, which flips ui.mobileMenuOpen and re-renders
-  } else {
-    ui.mobileMenuOpen = true;
-    render();
+  ui.mobileMenuOpen = true;
+  render();
+}
+
+// PHONE BACK BUTTON (rewritten 2026-10-04, at Maria's request -- "make the
+// back button on the phone take the app back to the previous page and not
+// back to the main menu"). The previous version only knew two screens, "a
+// section's content" and "the menu", so ANY press of the phone's back
+// button/gesture jumped straight to the main menu, no matter how deep you'd
+// gone (e.g. machine -> issue -> back dropped you out of Machinery entirely).
+// Now every distinct screen is its own browser-history entry: the
+// section, whether the menu is showing, and which detail view is open inside
+// Machinery (a machine, its Log work / Report issue screens, an issue) and
+// Safety Data Sheets (a chemical). render() records a new entry whenever
+// that combination changes, and the phone's back button (popstate) puts
+// those fields back to exactly what the previous entry held. Switching tabs
+// inside a machine (Overview/Parts/...) and typing in search boxes are
+// deliberately NOT their own entries -- they're the same page. Phone-width
+// layouts only (<= 900px); on desktop nothing is pushed, as before.
+var NAV_SCREEN_FIELDS = ["section", "mobileMenuOpen", "machinerySelected", "machineryLogWork", "machineryReportIssue", "machineryIssueSelected", "sdsSelected"];
+var lastScreenKey = null;
+var restoringScreen = false;
+function currentScreenSnapshot(){
+  var snap = {};
+  NAV_SCREEN_FIELDS.forEach(function(k){
+    var v = ui[k];
+    snap[k] = (v && typeof v === "object") ? JSON.parse(JSON.stringify(v)) : (v === undefined ? null : v);
+  });
+  return snap;
+}
+function isPhoneLayout(){
+  return typeof window !== "undefined" && window.matchMedia && window.matchMedia("(max-width: 900px)").matches;
+}
+function trackScreenForBackButton(){
+  if(typeof history === "undefined" || !isPhoneLayout()) return;
+  var snap = currentScreenSnapshot();
+  // Flipping the Service / Other work pill inside the Log work screen is the
+  // same page, so the key ignores that mode (the snapshot still keeps it).
+  var keySnap = JSON.parse(JSON.stringify(snap));
+  if(keySnap.machineryLogWork && typeof keySnap.machineryLogWork === "object") keySnap.machineryLogWork = { id: keySnap.machineryLogWork.id };
+  var key = JSON.stringify(keySnap);
+  if(restoringScreen){ lastScreenKey = key; return; }
+  if(lastScreenKey === null){
+    // First screen shown after loading/signing in: stamp the entry we're
+    // already on, rather than pushing a second one on top of it.
+    try{ history.replaceState({ bpScreen: snap }, "", location.href); }catch(e){}
+    lastScreenKey = key;
+    return;
+  }
+  if(key !== lastScreenKey){
+    try{ history.pushState({ bpScreen: snap }, "", location.href); }catch(e){ /* pushState blocked (e.g. a sandboxed preview) -- in-app buttons still work, just without the phone back-button tie-in */ }
+    lastScreenKey = key;
   }
 }
-function handleMobileBackPopState(){
-  // The phone's own back button/gesture landed on the entry from BEFORE a
-  // section's content was opened -- treat it exactly like tapping "<- Menu"
-  // ourselves. Only acts while content is actually showing, so this never
-  // interferes with the browser's own back/forward behaviour anywhere else
-  // (including a plain "back" press from the menu itself, which is left
-  // alone to exit the app as usual).
-  if(!ui.mobileMenuOpen){
-    ui.mobileMenuOpen = true;
-    render();
-  }
+function handleMobileBackPopState(e){
+  var snap = e && e.state && e.state.bpScreen;
+  if(!snap || !isSignedIn()) return; // not one of ours (or signed out) -- leave the browser's own behaviour alone
+  NAV_SCREEN_FIELDS.forEach(function(k){ ui[k] = (snap[k] === undefined) ? null : snap[k]; });
+  if(isHarvestOnly()) ui.section = "harvest";
+  restoringScreen = true;
+  try{ render(); } finally { restoringScreen = false; }
 }
 if(typeof window !== "undefined"){ window.addEventListener("popstate", handleMobileBackPopState); }
 
