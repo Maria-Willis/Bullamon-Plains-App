@@ -370,8 +370,12 @@
 // "Print" button (photo scaled to fit one sheet, title/notes as a caption);
 // PDF maps' button now reads "Open PDF to print". Also: the machinery
 // Overview tab's Log service / Log other work / Report issue buttons are
-// larger. index.html only.
-var CACHE_NAME = "bullamon-plains-shell-v50";
+// larger, and the Overview/Parts/Service Schedule/Issues tab strip is now
+// four equal boxes that all fit on a phone screen at once. index.html only.
+// v51 (2026-10-04, later still): the phone's back button now steps back one
+// screen at a time (machine -> issue -> back lands on the machine, not the
+// main menu) -- index.html changed, so the cached copy must refresh.
+var CACHE_NAME = "bullamon-plains-shell-v51";
 
 var SHELL_ASSETS = [
   "./",
