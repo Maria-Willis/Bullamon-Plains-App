@@ -375,7 +375,9 @@
 // v51 (2026-10-04, later still): the phone's back button now steps back one
 // screen at a time (machine -> issue -> back lands on the machine, not the
 // main menu) -- index.html changed, so the cached copy must refresh.
-var CACHE_NAME = "bullamon-plains-shell-v51";
+// v52 (2026-10-04, later still): machinery Parts list gains a Brand field
+// (column, add/edit form input, searchable) -- index.html changed.
+var CACHE_NAME = "bullamon-plains-shell-v52";
 
 var SHELL_ASSETS = [
   "./",
