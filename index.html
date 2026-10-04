@@ -1656,7 +1656,7 @@ const DEFAULT_STATE = {
 // change to this file, same as CACHE_NAME in sw.js -- it gives an instant,
 // no-technical-steps-needed way to confirm whether a given device is
 // actually running the latest deploy, without comparing file contents.
-var APP_BUILD = "2026-10-04.6";
+var APP_BUILD = "2026-10-04.7";
 
 /* ======================================================================
    UTILITIES
@@ -14699,7 +14699,7 @@ function renderMachinePartsTab(m){
   var q = (ui.machinePartsQuery || "").trim().toLowerCase();
   var addKey = "newPart_" + m.id;
   var html = '<div class="toolbar">' +
-    '<input class="search-input" type="text" placeholder="Search parts or part numbers" value="' + escAttr(ui.machinePartsQuery || "") + '" oninput="ui.machinePartsQuery=this.value;render();" />' +
+    '<input class="search-input" type="text" placeholder="Search parts, brands or part numbers" value="' + escAttr(ui.machinePartsQuery || "") + '" oninput="ui.machinePartsQuery=this.value;render();" />' +
     '<span style="flex:1;"></span>' +
     (canAddMachineParts() ? '<button type="button" class="btn btn-primary" style="width:auto;" onclick="toggleForm(\'' + addKey + '\')">' + (ui.openForms[addKey] ? "Cancel" : "+ Add part") + '</button>' : "") +
   '</div>';
@@ -15050,13 +15050,13 @@ function renderMachinePartsSection(m, q){
   var parts = (m.parts || []).slice().sort(function(a,b){ return String(a.name||"").localeCompare(String(b.name||"")); });
   if(q){
     parts = parts.filter(function(p){
-      return String(p.name||"").toLowerCase().indexOf(q) > -1 || String(p.partNumber||"").toLowerCase().indexOf(q) > -1;
+      return String(p.name||"").toLowerCase().indexOf(q) > -1 || String(p.partNumber||"").toLowerCase().indexOf(q) > -1 || String(p.brand||"").toLowerCase().indexOf(q) > -1;
     });
   }
   var openForms = "";
   var html = "";
   if(!parts.length){
-    html += '<div class="empty-state" style="margin-top:8px;">' + (q ? "No parts match that search." : "No parts or part numbers recorded yet.") + '</div>';
+    html += '<div class="empty-state" style="margin-top:8px;">' + (q ? "No parts match that search." : "No parts, brands or part numbers recorded yet.") + '</div>';
   } else {
     var rows = parts.map(function(p){
       var editKey = "editpart_" + p.id;
@@ -15065,6 +15065,7 @@ function renderMachinePartsSection(m, q){
       return '<tr>' +
         '<td>' + esc(p.name) + '</td>' +
         '<td class="row-muted">' + esc(p.partNumber || "—") + (p.partNumber ? ' <button type="button" class="subtle-btn" title="Copy part number" onclick="copyPartNumber(this,\'' + escAttr(p.partNumber) + '\')">&#128203;</button>' : "") + '</td>' +
+        '<td class="row-muted">' + esc(p.brand || "—") + '</td>' +
         '<td class="row-muted">' + esc(p.qty || "—") + '</td>' +
         '<td class="row-muted">' + esc(p.notes || "—") + '</td>' +
         '<td style="white-space:nowrap;">' + (canAdminMachinery() ?
@@ -15073,7 +15074,7 @@ function renderMachinePartsSection(m, q){
           : "") + '</td>' +
       '</tr>';
     }).join("");
-    html += '<div class="table-wrap" style="box-shadow:none;margin-top:8px;"><table><thead><tr><th>Part / component</th><th>Part number</th><th>Qty</th><th>Notes</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div>';
+    html += '<div class="table-wrap" style="box-shadow:none;margin-top:8px;"><table><thead><tr><th>Part / component</th><th>Part number</th><th>Brand</th><th>Qty</th><th>Notes</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div>';
   }
   if(openForms) html += '<div style="margin-top:10px;">' + openForms + '</div>';
   return html;
@@ -15087,6 +15088,7 @@ function renderMachinePartForm(m, existing){
     '<div class="form-grid">' +
       '<div class="field"><label>Part / component</label><input type="text" name="name" required value="' + escAttr(existing ? existing.name : "") + '" placeholder="e.g. Engine oil filter" /></div>' +
       '<div class="field"><label>Part number</label><input type="text" name="partNumber" value="' + escAttr(existing ? existing.partNumber : "") + '" placeholder="e.g. RE504836" /></div>' +
+      '<div class="field"><label>Brand (optional)</label><input type="text" name="brand" value="' + escAttr(existing ? existing.brand : "") + '" placeholder="e.g. John Deere, Donaldson" /></div>' +
       '<div class="field"><label>Qty on hand (optional)</label><input type="text" name="qty" value="' + escAttr(existing ? existing.qty : "") + '" placeholder="e.g. 2" /></div>' +
       '<div class="field span-2"><label>Notes (optional)</label><input type="text" name="notes" value="' + escAttr(existing ? existing.notes : "") + '" placeholder="e.g. supplier, where to order" /></div>' +
     '</div>' +
@@ -15115,7 +15117,7 @@ function saveMachinePart(e, machineId, partId){
   var m = byId(state.machinery, machineId);
   if(!m) return;
   m.parts = m.parts || [];
-  var data = { name: name, partNumber: f.partNumber.value.trim(), qty: f.qty.value.trim(), notes: f.notes.value.trim() };
+  var data = { name: name, partNumber: f.partNumber.value.trim(), brand: f.brand.value.trim(), qty: f.qty.value.trim(), notes: f.notes.value.trim() };
   if(partId){
     var existing = byId(m.parts, partId);
     if(existing) Object.assign(existing, data);
