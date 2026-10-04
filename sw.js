@@ -327,7 +327,28 @@
 // because every other existing candidate match was already attributed
 // to a specific different brand, or had a conflicting GHS signal
 // word/hazard-category claim on file. index.html only.
-var CACHE_NAME = "bullamon-plains-shell-v46";
+//
+// v47 (2026-10-03, batch 9): 20 more real eChem/CropSure product PDFs,
+// all added as brand-new rows (csheet_233-csheet_252) -- no enrichment
+// pass this batch, since every existing candidate match for this
+// batch's active ingredients was already attributed to a specific
+// different brand. index.html only.
+//
+// v48 (2026-10-04): two bug fixes Maria reported after testing with no/poor
+// signal. (1) "Very slow to load or it simply won't load" -- boot()'s
+// initial Supabase read had no timeout, so on a POOR (not dead) signal the
+// request could just hang indefinitely with nothing to fall back to the
+// device's own offline copy; it's now raced against a 7s timeout, same
+// fallback as a hard failure. (2) "Defaulting to Clinton as the driver no
+// matter who you select" on the Harvest Docket form -- handleRegoSelectChange
+// re-derived the Driver field's owner from the picked rego EVERY time, even
+// once a driver was already explicitly chosen and the Rego dropdown was
+// already scoped to just that driver, so a rego duplicated (by mistake)
+// across two drivers' saved lists silently flipped the form back to
+// whichever driver came first in storage order. Now only auto-resolves the
+// driver from a picked rego when no driver is selected yet (the intentional
+// "pick rego first" workflow this was built for). index.html only.
+var CACHE_NAME = "bullamon-plains-shell-v48";
 
 var SHELL_ASSETS = [
   "./",
