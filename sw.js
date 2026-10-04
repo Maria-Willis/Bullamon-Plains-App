@@ -365,7 +365,13 @@
 // lands is left untouched, so a genuine conflict (someone else really did
 // save first) is still caught and handled exactly as before. index.html
 // only.
-var CACHE_NAME = "bullamon-plains-shell-v49";
+//
+// v50 (2026-10-04, later still): map photos on the Maps page now have a
+// "Print" button (photo scaled to fit one sheet, title/notes as a caption);
+// PDF maps' button now reads "Open PDF to print". Also: the machinery
+// Overview tab's Log service / Log other work / Report issue buttons are
+// larger. index.html only.
+var CACHE_NAME = "bullamon-plains-shell-v50";
 
 var SHELL_ASSETS = [
   "./",
