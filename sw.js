@@ -377,7 +377,9 @@
 // main menu) -- index.html changed, so the cached copy must refresh.
 // v52 (2026-10-04, later still): machinery Parts list gains a Brand field
 // (column, add/edit form input, searchable) -- index.html changed.
-var CACHE_NAME = "bullamon-plains-shell-v52";
+// v53 (2026-10-04, later still): a part / component can now list several
+// brands, each with its own part number -- index.html changed.
+var CACHE_NAME = "bullamon-plains-shell-v53";
 
 var SHELL_ASSETS = [
   "./",
