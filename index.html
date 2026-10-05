@@ -1656,7 +1656,7 @@ const DEFAULT_STATE = {
 // change to this file, same as CACHE_NAME in sw.js -- it gives an instant,
 // no-technical-steps-needed way to confirm whether a given device is
 // actually running the latest deploy, without comparing file contents.
-var APP_BUILD = "2026-10-04.8";
+var APP_BUILD = "2026-10-05.2";
 
 /* ======================================================================
    UTILITIES
@@ -2034,6 +2034,24 @@ function isAdmin(){ var u = currentUser(); return !!(u && u.isAdmin); }
 // every other check (sidebar, section dispatch, post-sign-in landing page)
 // calls this rather than reading u.harvestOnly directly.
 function isHarvestOnly(){ var u = currentUser(); return !!(u && u.harvestOnly && !u.isAdmin); }
+// "Limited access" (state.team[].limitedAccess), added 2026-10-05 at Maria's
+// request ("I need to have some people only have access to Harvest Dockets,
+// Dashboard, Jobs, Maps, Emergency, WHS & Safety Data Sheets"). Same idea as
+// harvestOnly but with a fixed, wider list of sections. Admin always wins
+// (nobody can lock an admin out by ticking it), and harvestOnly wins over it
+// when both are ticked (the narrower restriction applies). Everything that
+// decides what a person may open goes through isSectionAllowed() below, so
+// the sidebar, goTo(), renderSection(), post-sign-in landing and the phone
+// back button can't drift apart.
+var LIMITED_ACCESS_SECTIONS = ["dashboard", "jobs", "maps", "emergency", "whs", "sds", "sops", "harvest"];
+function isLimitedAccess(){ var u = currentUser(); return !!(u && u.limitedAccess && !u.isAdmin && !u.harvestOnly); }
+function isSectionAllowed(key){
+  if(isHarvestOnly()) return key === "harvest";
+  if(isLimitedAccess()) return LIMITED_ACCESS_SECTIONS.indexOf(key) > -1;
+  return true;
+}
+// Where a restricted person lands when they ask for a section they can't open.
+function fallbackSection(){ return isHarvestOnly() ? "harvest" : "dashboard"; }
 // A team member can be flagged "can add parts" (state.team[].canAddParts,
 // same shape as canAllocate/harvestOnly), at Maria's request ("Give
 // permission to certain people to add parts to the machinery section").
@@ -13594,7 +13612,7 @@ function attachSignInHandlers(){
     // -- renderSection() would redirect them there anyway, but setting it
     // here too keeps the sidebar's "active" highlight and the mobile back
     // bar's title correct from the very first render after signing in.
-    if(isHarvestOnly()) ui.section = "harvest";
+    if(!isSectionAllowed(ui.section)) ui.section = fallbackSection();
     render();
   });
 }
@@ -13662,6 +13680,8 @@ function sidebarSections(){
   // below, so this alone collapses the whole menu down to just Harvest
   // Dockets, standalone, with no empty heading labels left behind.
   if(isHarvestOnly()) visibleNav = visibleNav.filter(function(n){ return n.key === "harvest"; });
+  // Limited-access members see only their allowed sections (see isSectionAllowed()).
+  else if(isLimitedAccess()) visibleNav = visibleNav.filter(function(n){ return isSectionAllowed(n.key); });
   var byKey = {};
   visibleNav.forEach(function(n){ byKey[n.key] = n; });
   var headingsById = {};
@@ -13758,7 +13778,7 @@ function goTo(section){
   // Dockets -- the sidebar already only offers that one link, but this means
   // it's not the ONLY thing stopping them. renderSection() below carries the
   // same guard for anything that sets ui.section directly, bypassing goTo().
-  if(isHarvestOnly()) section = "harvest";
+  if(!isSectionAllowed(section)) section = fallbackSection();
   ui.section = section;
   ui.mobileMenuOpen = false;
   render(); // render() records the new screen in the phone's back-button history (see trackScreenForBackButton())
@@ -13822,7 +13842,7 @@ function handleMobileBackPopState(e){
   var snap = e && e.state && e.state.bpScreen;
   if(!snap || !isSignedIn()) return; // not one of ours (or signed out) -- leave the browser's own behaviour alone
   NAV_SCREEN_FIELDS.forEach(function(k){ ui[k] = (snap[k] === undefined) ? null : snap[k]; });
-  if(isHarvestOnly()) ui.section = "harvest";
+  if(!isSectionAllowed(ui.section)) ui.section = fallbackSection();
   restoringScreen = true;
   try{ render(); } finally { restoringScreen = false; }
 }
@@ -13867,7 +13887,10 @@ function renderSection(){
   // Same guard as goTo() above, but checked again here so it also covers a
   // stale ui.section value goTo() never touched (e.g. restored from history
   // state, or set before harvestOnly was switched on for this person).
-  if(isHarvestOnly() && ui.section !== "harvest") return renderHarvest();
+  if(!isSectionAllowed(ui.section)){
+    ui.section = fallbackSection();
+    return isHarvestOnly() ? renderHarvest() : renderDashboard();
+  }
   switch(ui.section){
     case "jobs": return renderJobs();
     case "bulls": return renderBulls();
@@ -13904,10 +13927,13 @@ function renderDashboard(){
   html += '<div class="stat-row">' +
     '<div class="stat"><div class="stat-num">' + openJobs.length + '</div><div class="stat-label">Open jobs</div></div>' +
     '<div class="stat"><div class="stat-num">' + mine.length + '</div><div class="stat-label">Assigned to you</div></div>' +
-    '<div class="stat"><div class="stat-num">' + dueService.length + '</div><div class="stat-label">Machinery due for service</div></div>' +
+    (isLimitedAccess() ? '' : '<div class="stat"><div class="stat-num">' + dueService.length + '</div><div class="stat-label">Machinery due for service</div></div>') +
   '</div>';
-  html += renderDashboardOpenIssuesCard();
-  html += renderDashboardServiceRemindersCard();
+  // Machinery cards are hidden for limited-access members (no Machinery section for them).
+  if(!isLimitedAccess()){
+    html += renderDashboardOpenIssuesCard();
+    html += renderDashboardServiceRemindersCard();
+  }
   html += renderDashboardNotes();
   return html;
 }
@@ -19887,6 +19913,7 @@ function renderTeam(){
           (t.isAdmin ? '<span class="pill pill-admin" style="margin:0;">Admin</span>' : '') +
           (t.canAllocate ? '<span>Can allocate jobs</span>' : '') +
           (t.harvestOnly ? '<span>Harvest dockets only</span>' : '') +
+          (t.limitedAccess ? '<span>Limited access</span>' : '') +
           (t.canAddParts ? '<span>Can add machinery parts</span>' : '') +
           (t.machineryAdmin ? '<span>Full access: Machinery</span>' : '') +
           (t.sopsAdmin ? '<span>Full access: Operating Procedures</span>' : '') +
@@ -20078,6 +20105,7 @@ function renderStaffForm(existing){
       '<div class="checkbox-row field"><input type="checkbox" name="isAdmin" id="admin_cb" ' + (existing && existing.isAdmin ? 'checked' : '') + ' /><label for="admin_cb" style="text-transform:none;font-weight:400;">Admin (Team page + edit reference content)</label></div>' +
       '<div class="checkbox-row field"><input type="checkbox" name="canAllocate" id="alloc_cb" ' + (existing && existing.canAllocate ? 'checked' : '') + ' /><label for="alloc_cb" style="text-transform:none;font-weight:400;">Can allocate jobs to others</label></div>' +
       '<div class="checkbox-row field"><input type="checkbox" name="harvestOnly" id="harvestonly_cb" ' + (existing && existing.harvestOnly ? 'checked' : '') + ' /><label for="harvestonly_cb" style="text-transform:none;font-weight:400;">Harvest dockets only (hides every other section)</label></div>' +
+      '<div class="checkbox-row field"><input type="checkbox" name="limitedAccess" id="limitedaccess_cb" ' + (existing && existing.limitedAccess ? 'checked' : '') + ' /><label for="limitedaccess_cb" style="text-transform:none;font-weight:400;">Limited access (only Dashboard, Jobs, Maps, Emergency, WHS, Safety Data Sheets, Operating Procedures &amp; Harvest Dockets)</label></div>' +
       '<div class="checkbox-row field"><input type="checkbox" name="canAddParts" id="addparts_cb" ' + (existing && existing.canAddParts ? 'checked' : '') + ' /><label for="addparts_cb" style="text-transform:none;font-weight:400;">Can add parts to machinery records</label></div>' +
       '<div class="checkbox-row field"><input type="checkbox" name="machineryAdmin" id="machineryadmin_cb" ' + (existing && existing.machineryAdmin ? 'checked' : '') + ' /><label for="machineryadmin_cb" style="text-transform:none;font-weight:400;">Full access to Machinery Maintenance</label></div>' +
       '<div class="checkbox-row field"><input type="checkbox" name="sopsAdmin" id="sopsadmin_cb" ' + (existing && existing.sopsAdmin ? 'checked' : '') + ' /><label for="sopsadmin_cb" style="text-transform:none;font-weight:400;">Full access to Operating Procedures</label></div>' +
@@ -20092,7 +20120,7 @@ function saveStaff(e, origName){
   var f = e.target;
   var name = f.name.value.trim();
   if(!name) return;
-  var data = { name: name, passcode: f.passcode.value.trim(), active: f.active.checked, isAdmin: f.isAdmin.checked, canAllocate: f.canAllocate.checked, harvestOnly: f.harvestOnly.checked, canAddParts: f.canAddParts.checked, machineryAdmin: f.machineryAdmin.checked, sopsAdmin: f.sopsAdmin.checked, canViewReceipts: f.canViewReceipts.checked };
+  var data = { name: name, passcode: f.passcode.value.trim(), active: f.active.checked, isAdmin: f.isAdmin.checked, canAllocate: f.canAllocate.checked, harvestOnly: f.harvestOnly.checked, limitedAccess: !!(f.limitedAccess && f.limitedAccess.checked), canAddParts: f.canAddParts.checked, machineryAdmin: f.machineryAdmin.checked, sopsAdmin: f.sopsAdmin.checked, canViewReceipts: f.canViewReceipts.checked };
   if(origName){
     var t = findTeam(origName);
     Object.assign(t, data);
