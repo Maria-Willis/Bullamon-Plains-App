@@ -1656,7 +1656,7 @@ const DEFAULT_STATE = {
 // change to this file, same as CACHE_NAME in sw.js -- it gives an instant,
 // no-technical-steps-needed way to confirm whether a given device is
 // actually running the latest deploy, without comparing file contents.
-var APP_BUILD = "2026-10-04.7";
+var APP_BUILD = "2026-10-04.8";
 
 /* ======================================================================
    UTILITIES
@@ -15046,11 +15046,65 @@ function addMachineWorkLog(e, machineId, mode, milestoneHoursKey){
 // editing/deleting entries is admin-only, same as the machine's own Edit
 // form and maintenance schedule, since it's reference data staff rely on
 // being accurate rather than a running log anyone should freely add to.
+// A part / component can come in several brands, each with its own part
+// number (2026-10-04, Maria: "I need to have different brands and part number
+// under the same part / component"). Stored as p.options = [{brand, partNumber}].
+// Parts saved before this (a single p.brand / p.partNumber) are read as a
+// one-entry list by partOptions(), with no data migration needed; they're
+// converted to the new shape the next time the part is edited and saved.
+function partOptions(p){
+  if(p && Array.isArray(p.options)) return p.options;
+  if(p && (p.brand || p.partNumber)) return [{ brand: p.brand || "", partNumber: p.partNumber || "" }];
+  return [];
+}
+function renderPartOptionsCell(p){
+  var opts = partOptions(p).filter(function(o){ return o.brand || o.partNumber; });
+  if(!opts.length) return '<span class="row-muted">—</span>';
+  // Brand on one line, its part number underneath, so the column stays narrow
+  // enough to see on a phone without sideways scrolling.
+  return opts.map(function(o){
+    return '<div style="margin:0 0 8px;line-height:1.3;">' +
+      (o.brand ? '<div><strong>' + esc(o.brand) + '</strong></div>' : (o.partNumber ? '<div class="row-muted">No brand</div>' : "")) +
+      (o.partNumber ? '<div class="row-muted">' + esc(o.partNumber) + ' <button type="button" class="subtle-btn" title="Copy part number" onclick="copyPartNumber(this,\'' + escAttr(o.partNumber) + '\')">&#128203;</button></div>' : "") +
+    '</div>';
+  }).join("");
+}
+function renderPartOptionRow(o){
+  o = o || {};
+  return '<div class="part-option-row" style="display:flex;gap:6px;align-items:center;margin-bottom:6px;">' +
+    '<input type="text" class="opt-brand" value="' + escAttr(o.brand || "") + '" placeholder="Brand" style="flex:1;min-width:0;" />' +
+    '<input type="text" class="opt-partno" value="' + escAttr(o.partNumber || "") + '" placeholder="Part number" style="flex:1;min-width:0;" />' +
+    '<button type="button" class="btn btn-ghost btn-sm" style="width:auto;" title="Remove this brand" onclick="removePartOptionRow(this)">&times;</button>' +
+  '</div>';
+}
+// Plain DOM add/remove (no render()) so whatever's already typed in the form
+// isn't wiped, same approach as the parts-used picker.
+function addPartOptionRow(btn){
+  var box = btn.parentElement.querySelector(".part-option-rows");
+  if(!box) return;
+  var tmp = document.createElement("div");
+  tmp.innerHTML = renderPartOptionRow({});
+  box.appendChild(tmp.firstChild);
+  var inputs = box.querySelectorAll(".opt-brand");
+  if(inputs.length) inputs[inputs.length - 1].focus();
+}
+function removePartOptionRow(btn){
+  var row = btn.parentElement, box = row.parentElement;
+  if(box.querySelectorAll(".part-option-row").length <= 1){
+    // keep one (blank) row so there's always somewhere to type
+    Array.prototype.forEach.call(row.querySelectorAll("input"), function(i){ i.value = ""; });
+    return;
+  }
+  box.removeChild(row);
+}
 function renderMachinePartsSection(m, q){
   var parts = (m.parts || []).slice().sort(function(a,b){ return String(a.name||"").localeCompare(String(b.name||"")); });
   if(q){
     parts = parts.filter(function(p){
-      return String(p.name||"").toLowerCase().indexOf(q) > -1 || String(p.partNumber||"").toLowerCase().indexOf(q) > -1 || String(p.brand||"").toLowerCase().indexOf(q) > -1;
+      if(String(p.name||"").toLowerCase().indexOf(q) > -1) return true;
+      return partOptions(p).some(function(o){
+        return String(o.partNumber||"").toLowerCase().indexOf(q) > -1 || String(o.brand||"").toLowerCase().indexOf(q) > -1;
+      });
     });
   }
   var openForms = "";
@@ -15064,8 +15118,7 @@ function renderMachinePartsSection(m, q){
       if(editing) openForms += renderMachinePartForm(m, p);
       return '<tr>' +
         '<td>' + esc(p.name) + '</td>' +
-        '<td class="row-muted">' + esc(p.partNumber || "—") + (p.partNumber ? ' <button type="button" class="subtle-btn" title="Copy part number" onclick="copyPartNumber(this,\'' + escAttr(p.partNumber) + '\')">&#128203;</button>' : "") + '</td>' +
-        '<td class="row-muted">' + esc(p.brand || "—") + '</td>' +
+        '<td>' + renderPartOptionsCell(p) + '</td>' +
         '<td class="row-muted">' + esc(p.qty || "—") + '</td>' +
         '<td class="row-muted">' + esc(p.notes || "—") + '</td>' +
         '<td style="white-space:nowrap;">' + (canAdminMachinery() ?
@@ -15074,7 +15127,7 @@ function renderMachinePartsSection(m, q){
           : "") + '</td>' +
       '</tr>';
     }).join("");
-    html += '<div class="table-wrap" style="box-shadow:none;margin-top:8px;"><table><thead><tr><th>Part / component</th><th>Part number</th><th>Brand</th><th>Qty</th><th>Notes</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div>';
+    html += '<div class="table-wrap" style="box-shadow:none;margin-top:8px;"><table><thead><tr><th>Part / component</th><th>Brand &amp; part number</th><th>Qty</th><th>Notes</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div>';
   }
   if(openForms) html += '<div style="margin-top:10px;">' + openForms + '</div>';
   return html;
@@ -15087,8 +15140,10 @@ function renderMachinePartForm(m, existing){
     (err ? '<p style="color:var(--danger);font-size:12.5px;font-weight:600;margin:0 0 10px;">' + esc(err) + '</p>' : '') +
     '<div class="form-grid">' +
       '<div class="field"><label>Part / component</label><input type="text" name="name" required value="' + escAttr(existing ? existing.name : "") + '" placeholder="e.g. Engine oil filter" /></div>' +
-      '<div class="field"><label>Part number</label><input type="text" name="partNumber" value="' + escAttr(existing ? existing.partNumber : "") + '" placeholder="e.g. RE504836" /></div>' +
-      '<div class="field"><label>Brand (optional)</label><input type="text" name="brand" value="' + escAttr(existing ? existing.brand : "") + '" placeholder="e.g. John Deere, Donaldson" /></div>' +
+      '<div class="field span-2"><label>Brands &amp; part numbers</label>' +
+        '<div class="part-option-rows">' + (partOptions(existing).length ? partOptions(existing) : [{}]).map(renderPartOptionRow).join("") + '</div>' +
+        '<button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="addPartOptionRow(this)">+ Add another brand / part number</button>' +
+      '</div>' +
       '<div class="field"><label>Qty on hand (optional)</label><input type="text" name="qty" value="' + escAttr(existing ? existing.qty : "") + '" placeholder="e.g. 2" /></div>' +
       '<div class="field span-2"><label>Notes (optional)</label><input type="text" name="notes" value="' + escAttr(existing ? existing.notes : "") + '" placeholder="e.g. supplier, where to order" /></div>' +
     '</div>' +
@@ -15117,10 +15172,16 @@ function saveMachinePart(e, machineId, partId){
   var m = byId(state.machinery, machineId);
   if(!m) return;
   m.parts = m.parts || [];
-  var data = { name: name, partNumber: f.partNumber.value.trim(), brand: f.brand.value.trim(), qty: f.qty.value.trim(), notes: f.notes.value.trim() };
+  var options = [];
+  Array.prototype.forEach.call(f.querySelectorAll(".part-option-row"), function(row){
+    var brand = row.querySelector(".opt-brand").value.trim();
+    var pn = row.querySelector(".opt-partno").value.trim();
+    if(brand || pn) options.push({ brand: brand, partNumber: pn });
+  });
+  var data = { name: name, options: options, qty: f.qty.value.trim(), notes: f.notes.value.trim() };
   if(partId){
     var existing = byId(m.parts, partId);
-    if(existing) Object.assign(existing, data);
+    if(existing){ Object.assign(existing, data); delete existing.brand; delete existing.partNumber; }
   } else {
     m.parts.push(Object.assign({ id: uid("part") }, data));
   }
@@ -15135,7 +15196,7 @@ function confirmDeleteMachinePart(machineId, partId){
   if(!m) return;
   var p = byId(m.parts || [], partId);
   if(!p) return;
-  if(confirm("Delete part \"" + p.name + "\"" + (p.partNumber ? " (" + p.partNumber + ")" : "") + "? This cannot be undone.")){
+  if(confirm("Delete part \"" + p.name + "\"" + (partOptions(p).length ? " (" + partOptions(p).map(function(o){ return [o.brand, o.partNumber].filter(Boolean).join(" "); }).join(", ") + ")" : "") + "? This cannot be undone.")){
     deleteMachinePart(machineId, partId);
   }
 }
