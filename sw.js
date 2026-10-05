@@ -379,7 +379,10 @@
 // (column, add/edit form input, searchable) -- index.html changed.
 // v53 (2026-10-04, later still): a part / component can now list several
 // brands, each with its own part number -- index.html changed.
-var CACHE_NAME = "bullamon-plains-shell-v53";
+// v54 (2026-10-05): new per-person "Limited access" setting on the Team page
+// (Dashboard, Jobs, Maps, Emergency, WHS, Safety Data Sheets, Operating
+// Procedures & Harvest Dockets only) -- index.html changed.
+var CACHE_NAME = "bullamon-plains-shell-v54";
 
 var SHELL_ASSETS = [
   "./",
