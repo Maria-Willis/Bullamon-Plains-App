@@ -402,7 +402,9 @@
 // "Upload my own picture", and an "Edit menu icons" shortcut on the menu --
 // index.html changed.
 // v64 (2026-10-06, later): box outlines blue, headings blue -- index.html changed.
-var CACHE_NAME = "bullamon-plains-shell-v64";
+// v65 (2026-10-06, later): machinery Overview/Parts/Service Schedule/Issues
+// tab buttons redesigned (bigger, icons, 2x2 on phones) -- index.html changed.
+var CACHE_NAME = "bullamon-plains-shell-v65";
 
 var SHELL_ASSETS = [
   "./",
