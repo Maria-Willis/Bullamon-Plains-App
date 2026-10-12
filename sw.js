@@ -416,7 +416,9 @@
 // v73 (2026-10-07, later): PDF maps get a real Print button (straight to the print dialog) -- index.html changed.
 // v74 (2026-10-07, later): page background light grey -> light blue -- index.html changed.
 // v75 (2026-10-09): page background same blue as the main menu (text on the page turned white) -- index.html changed.
-var CACHE_NAME = "bullamon-plains-shell-v75";
+// v76 (2026-10-12): Edit machine "Next service due" is now hours, not a date -- index.html changed.
+// v77 (2026-10-12, later): "Edit next service due" button on the machine page -- index.html changed.
+var CACHE_NAME = "bullamon-plains-shell-v77";
 
 var SHELL_ASSETS = [
   "./",
