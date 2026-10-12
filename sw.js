@@ -422,7 +422,9 @@
 // v79 (2026-10-12, later): "current reading" hours no longer shown on the machine page -- index.html changed.
 // v80 (2026-10-12, later): "Edit hours" on each Schedule & history row -- index.html changed.
 // v81 (2026-10-12, later): no "hrs to go"; maintenance schedule ignores starting hours -- index.html changed.
-var CACHE_NAME = "bullamon-plains-shell-v81";
+// v82 (2026-10-12, later): old next-service dates no longer shown ("Next service not set" until hours entered) -- index.html changed.
+// v83 (2026-10-12, later): Starting hours kept as a record (Edit machine + Overview), not used by the schedule -- index.html changed.
+var CACHE_NAME = "bullamon-plains-shell-v83";
 
 var SHELL_ASSETS = [
   "./",
