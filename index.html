@@ -1745,7 +1745,7 @@ const DEFAULT_STATE = {
 // change to this file, same as CACHE_NAME in sw.js -- it gives an instant,
 // no-technical-steps-needed way to confirm whether a given device is
 // actually running the latest deploy, without comparing file contents.
-var APP_BUILD = "2026-10-12.8";
+var APP_BUILD = "2026-10-12.9";
 
 /* ======================================================================
    UTILITIES
@@ -20822,8 +20822,10 @@ function renderPrivateInfoCard(){
   var groups = info.groups || [];
   var editing = !!ui.openForms.editPrivateInfo;
   var html = '<div class="card"><div class="card-row"><h3 style="margin:0;">Information</h3>' +
-    '<button type="button" class="btn btn-ghost btn-sm" onclick="toggleForm(\'editPrivateInfo\')">' + (editing ? "Done" : "Edit") + '</button></div>' +
+    '<span style="display:flex;gap:6px;"><button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="toggleForm(\'importPrivateInfo\')">' + (ui.openForms.importPrivateInfo ? "Close import" : "Import summary") + '</button>' +
+    '<button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="toggleForm(\'editPrivateInfo\')">' + (editing ? "Done" : "Edit") + '</button></span></div>' +
     '<p class="row-muted" style="margin:4px 0 12px;font-size:12.5px;">Whatever the two of you need to keep track of here -- add headings and fields freely.</p>';
+  if(ui.openForms.importPrivateInfo) html += renderPrivateInfoImport();
 
   if(groups.length === 0){
     html += '<div class="empty-state">Nothing here yet' + (editing ? " -- add a heading below." : ".") + '</div>';
@@ -20868,6 +20870,76 @@ function renderPrivateInfoCard(){
     '</p>';
   html += '</div>';
   return html;
+}
+/* "Import summary": paste a block of totals (e.g. from the spreadsheet chat)
+   and merge it into the Information card. Format:
+     ## Heading
+     Label: Value
+   Headings and labels are matched ignoring case; matches get the new value,
+   anything new is added, nothing is ever removed. */
+function renderPrivateInfoImport(){
+  var txt = ui.privateImportText || "";
+  var msg = ui.privateImportMsg ? '<p style="margin:8px 0 0;font-size:12.5px;font-weight:600;">' + esc(ui.privateImportMsg) + '</p>' : "";
+  return '<div style="background:var(--bg-soft, #f4f7fb);border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:14px;">' +
+    '<p class="row-muted" style="margin:0 0 8px;font-size:12.5px;">Paste the summary here. Use a <b>## Heading</b> line for each heading, then one <b>Label: Value</b> line per figure. Existing figures with the same heading and label are updated; new ones are added; nothing is deleted.</p>' +
+    '<textarea id="privateImportBox" rows="9" style="width:100%;font-family:inherit;font-size:13px;" placeholder="## Cotton&#10;Bales sold: 1,200&#10;Revenue to date: $0&#10;&#10;## Dryland&#10;Tonnes sold: 0" oninput="ui.privateImportText=this.value;">' + esc(txt) + '</textarea>' +
+    '<div style="margin-top:8px;display:flex;gap:8px;"><button type="button" class="btn btn-primary btn-sm" style="width:auto;" onclick="importPrivateInfo()">Import</button>' +
+    '<button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="ui.privateImportText=\'\';ui.privateImportMsg=\'\';render();">Clear</button></div>' + msg + '</div>';
+}
+function parsePrivateSummary(text){
+  var groups = [], cur = null, bad = [];
+  String(text || "").split(/\r?\n/).forEach(function(raw){
+    var line = raw.replace(/\*\*/g, "").replace(/^\s*[-*•]\s+/, "").trim();
+    if(!line) return;
+    var h = line.match(/^#{1,6}\s*(.+)$/);
+    if(h){ cur = { title: h[1].trim().replace(/:$/, ""), fields: [] }; groups.push(cur); return; }
+    var i = line.indexOf(":");
+    if(i < 1){ bad.push(line); return; }
+    if(!cur){ bad.push(line); return; }
+    var label = line.slice(0, i).trim(), value = line.slice(i + 1).trim();
+    if(!label){ bad.push(line); return; }
+    cur.fields.push({ label: label, value: value });
+  });
+  return { groups: groups, bad: bad };
+}
+function importPrivateInfo(){
+  var parsed = parsePrivateSummary(ui.privateImportText);
+  var total = parsed.groups.reduce(function(n, g){ return n + g.fields.length; }, 0);
+  if(!total){
+    ui.privateImportMsg = "Nothing to import. Each figure needs a heading line (## Cotton) above it and a Label: Value line.";
+    render(); return;
+  }
+  state.privateInfo = state.privateInfo || { groups: [] };
+  state.privateInfo.groups = state.privateInfo.groups || [];
+  var norm = function(x){ return String(x || "").trim().toLowerCase(); };
+  var plan = { updated: 0, added: 0, same: 0, newHeadings: 0 };
+  parsed.groups.forEach(function(g){
+    var ex = state.privateInfo.groups.find(function(x){ return norm(x.title) === norm(g.title); });
+    if(!ex){ plan.newHeadings++; plan.added += g.fields.length; return; }
+    g.fields.forEach(function(f){
+      var ef = (ex.fields || []).find(function(x){ return norm(x.label) === norm(f.label); });
+      if(!ef) plan.added++;
+      else if(String(ef.value) === f.value) plan.same++;
+      else plan.updated++;
+    });
+  });
+  var summary = plan.updated + " updated, " + plan.added + " added, " + plan.same + " unchanged" +
+    (plan.newHeadings ? (", " + plan.newHeadings + " new heading" + (plan.newHeadings === 1 ? "" : "s")) : "") + ".";
+  if(!confirm("Import into the Information card?\n\n" + summary)) return;
+  parsed.groups.forEach(function(g){
+    var ex = state.privateInfo.groups.find(function(x){ return norm(x.title) === norm(g.title); });
+    if(!ex){ ex = { id: uid("pgrp"), title: g.title, fields: [] }; state.privateInfo.groups.push(ex); }
+    ex.fields = ex.fields || [];
+    g.fields.forEach(function(f){
+      var ef = ex.fields.find(function(x){ return norm(x.label) === norm(f.label); });
+      if(ef) ef.value = f.value;
+      else ex.fields.push({ id: uid("pfld"), label: f.label, value: f.value });
+    });
+  });
+  touchPrivateInfo();
+  ui.privateImportText = "";
+  ui.privateImportMsg = "Imported: " + summary + (parsed.bad.length ? (" " + parsed.bad.length + " line(s) skipped.") : "");
+  persist();
 }
 function touchPrivateInfo(){
   var u = currentUser();
