@@ -420,7 +420,8 @@
 // v77 (2026-10-12, later): "Edit next service due" button on the machine page -- index.html changed.
 // v78 (2026-10-12, later): Schedule & history "Next due" row matches maintenance status and its hours are editable -- index.html changed.
 // v79 (2026-10-12, later): "current reading" hours no longer shown on the machine page -- index.html changed.
-var CACHE_NAME = "bullamon-plains-shell-v79";
+// v80 (2026-10-12, later): "Edit hours" on each Schedule & history row -- index.html changed.
+var CACHE_NAME = "bullamon-plains-shell-v80";
 
 var SHELL_ASSETS = [
   "./",
