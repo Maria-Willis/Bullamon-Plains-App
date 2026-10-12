@@ -1745,7 +1745,7 @@ const DEFAULT_STATE = {
 // change to this file, same as CACHE_NAME in sw.js -- it gives an instant,
 // no-technical-steps-needed way to confirm whether a given device is
 // actually running the latest deploy, without comparing file contents.
-var APP_BUILD = "2026-10-12.6";
+var APP_BUILD = "2026-10-12.8";
 
 /* ======================================================================
    UTILITIES
@@ -14613,13 +14613,14 @@ function machineServiceStatus(m){
       progressPct: Math.max(0, Math.min(100, 100 * (1 - remaining / win)))
     };
   }
-  var d = daysUntil(m.nextServiceDue);
-  var dl = m.nextServiceDue ? ("Service due " + fmtDate(m.nextServiceDue)) : "Service due —";
+  // No hours to go on. The old date (m.nextServiceDue, from before service
+  // due became hours) is no longer used or shown -- a machine with only an
+  // old date reads "not set" until its hours are entered (Edit machine, or
+  // "Edit next service due" on its page).
   return {
-    kind: "date", d: d,
-    tone: d != null && d <= 7 ? "pill-high" : d != null && d <= 21 ? "pill-medium" : "pill-todo",
-    due: d != null && d <= 21, ok: d == null || d > 21,
-    label: dl, labelLong: dl, progressPct: null
+    kind: "none",
+    tone: "pill-todo", due: false, ok: true,
+    label: "Next service not set", labelLong: "Next service due not set", progressPct: null
   };
 }
 
@@ -14630,7 +14631,7 @@ function machineScheduleConfigured(m){
 }
 
 // The maintenance schedule no longer uses a "starting hours" reading (removed
-// at Maria's request, 2026-10-12): it is anchored on when the NEXT service is
+// at Maria's request, 2026-10-12; the value is still kept and shown as a record): it is anchored on when the NEXT service is
 // due instead -- the hand-entered "Next service due" if there is one,
 // otherwise the last logged service's reading plus the service interval. The
 // services after that are one interval apart. If that due point has already
@@ -15016,6 +15017,7 @@ function renderMachineOverviewTab(m, dueLabel, dueOk, progressPct){
   html += '<div class="form-grid" style="margin:12px 0;">' +
     '<div><div class="stat-label">Last service</div><div style="font-weight:600;">' + fmtNum(m.lastServiceReading, "hrs") + ' &middot; ' + fmtDate(m.lastServiceDate) + '</div></div>' +
     '<div><div class="stat-label">Interval</div><div style="font-weight:600;">' + esc(m.serviceIntervalDesc || "—") + '</div></div>' +
+    '<div><div class="stat-label">Starting hours</div><div style="font-weight:600;">' + (m.scheduleStartHours != null ? fmtNum(m.scheduleStartHours, "hrs") : "—") + '</div></div>' +
   '</div>';
 
   html += '<div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:16px;">' +
@@ -16364,10 +16366,10 @@ function renderMachineForm(existing){
       '<div class="field"><label>Rego / ID</label><input type="text" name="regNo" value="' + escAttr(existing ? existing.regNo : "") + '" /></div>' +
       '<div class="field"><label>Service interval</label><input type="text" name="serviceIntervalDesc" value="' + escAttr(existing ? existing.serviceIntervalDesc : "") + '" placeholder="e.g. Every 250 hours" /></div>' +
       '<div class="field"><label>Next service due (hours)</label><input type="text" inputmode="decimal" name="nextServiceHours" value="' + escAttr(existing && existing.nextServiceHours != null ? existing.nextServiceHours : "") + '" placeholder="e.g. 2250" />' +
-        (existing && existing.nextServiceDue && (existing.nextServiceHours == null || existing.nextServiceHours === "") ? '<span class="row-muted" style="font-size:11.5px;">Currently set by date (' + esc(fmtDate(existing.nextServiceDue)) + '). Enter the hour-meter reading to switch it to hours.</span>' : '') +
       '</div>' +
+      '<div class="field"><label>Starting hours (record only)</label><input type="text" inputmode="decimal" name="scheduleStartHours" value="' + escAttr(existing && existing.scheduleStartHours != null ? existing.scheduleStartHours : "") + '" placeholder="e.g. 1800" /></div>' +
     '</div>' +
-    '<p class="row-muted" style="margin:8px 0 0;font-size:11.5px;">Set how often it needs a service (in hours) via "+ Set maintenance schedule" on the Service Schedule tab. The schedule counts on from the next service due above (or, if that is blank, from the last service logged).</p>' +
+    '<p class="row-muted" style="margin:8px 0 0;font-size:11.5px;">Starting hours is kept as a record of the hour-meter reading when this machine was first added; the maintenance schedule does not use it. Set how often it needs a service (in hours) via "+ Set maintenance schedule" on the Service Schedule tab. The schedule counts on from the next service due above (or, if that is blank, from the last service logged).</p>' +
     '<div class="form-actions" style="margin-top:10px;"><button type="submit" class="btn btn-primary" style="width:auto;">' + (existing ? "Save changes" : "Add machine") + '</button>' +
     '<button type="button" class="btn btn-ghost" onclick="delete ui.formErrors[\'' + formKey + '\'];' + (existing ? "ui.editing.machine=null;render();" : "toggleForm('newMachine')") + '">Cancel</button></div>' +
   '</form>';
@@ -16394,6 +16396,19 @@ function saveMachine(e, id){
   } else {
     data.nextServiceHours = null;
     if(!id) data.nextServiceDue = "";
+  }
+  // Starting hours: kept purely as a record (the schedule doesn't use it).
+  var startRaw = f.scheduleStartHours.value;
+  if(startRaw != null && String(startRaw).trim() !== ""){
+    var startHours = parseHoursInput(startRaw);
+    if(isNaN(startHours)){
+      ui.formErrors[formKey] = "Enter a valid starting hours reading (e.g. 1800), or leave it blank.";
+      render();
+      return;
+    }
+    data.scheduleStartHours = startHours;
+  } else {
+    data.scheduleStartHours = null;
   }
   delete ui.formErrors[formKey];
   if(id){ Object.assign(byId(state.machinery, id), data); ui.editing.machine = null; }
