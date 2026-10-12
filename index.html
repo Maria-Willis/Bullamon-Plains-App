@@ -1745,7 +1745,7 @@ const DEFAULT_STATE = {
 // change to this file, same as CACHE_NAME in sw.js -- it gives an instant,
 // no-technical-steps-needed way to confirm whether a given device is
 // actually running the latest deploy, without comparing file contents.
-var APP_BUILD = "2026-10-12.9";
+var APP_BUILD = "2026-10-12.10";
 
 /* ======================================================================
    UTILITIES
@@ -20821,10 +20821,10 @@ function renderPrivateInfoCard(){
   var info = state.privateInfo || { groups: [] };
   var groups = info.groups || [];
   var editing = !!ui.openForms.editPrivateInfo;
-  var html = '<div class="card"><div class="card-row"><h3 style="margin:0;">Information</h3>' +
+  var html = '<div class="card"><div class="card-row"><h3 style="margin:0;">Cropping Summary</h3>' +
     '<span style="display:flex;gap:6px;"><button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="toggleForm(\'importPrivateInfo\')">' + (ui.openForms.importPrivateInfo ? "Close import" : "Import summary") + '</button>' +
     '<button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="toggleForm(\'editPrivateInfo\')">' + (editing ? "Done" : "Edit") + '</button></span></div>' +
-    '<p class="row-muted" style="margin:4px 0 12px;font-size:12.5px;">Whatever the two of you need to keep track of here -- add headings and fields freely.</p>';
+    '<p class="row-muted" style="margin:4px 0 12px;font-size:12.5px;">Season totals for cotton and dryland. Paste the latest figures with Import summary, or press Edit to change headings and fields.</p>';
   if(ui.openForms.importPrivateInfo) html += renderPrivateInfoImport();
 
   if(groups.length === 0){
@@ -20872,7 +20872,7 @@ function renderPrivateInfoCard(){
   return html;
 }
 /* "Import summary": paste a block of totals (e.g. from the spreadsheet chat)
-   and merge it into the Information card. Format:
+   and merge it into the Cropping Summary card. Format:
      ## Heading
      Label: Value
    Headings and labels are matched ignoring case; matches get the new value,
@@ -20925,7 +20925,7 @@ function importPrivateInfo(){
   });
   var summary = plan.updated + " updated, " + plan.added + " added, " + plan.same + " unchanged" +
     (plan.newHeadings ? (", " + plan.newHeadings + " new heading" + (plan.newHeadings === 1 ? "" : "s")) : "") + ".";
-  if(!confirm("Import into the Information card?\n\n" + summary)) return;
+  if(!confirm("Import into the Cropping Summary?\n\n" + summary)) return;
   parsed.groups.forEach(function(g){
     var ex = state.privateInfo.groups.find(function(x){ return norm(x.title) === norm(g.title); });
     if(!ex){ ex = { id: uid("pgrp"), title: g.title, fields: [] }; state.privateInfo.groups.push(ex); }
