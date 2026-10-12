@@ -1745,7 +1745,7 @@ const DEFAULT_STATE = {
 // change to this file, same as CACHE_NAME in sw.js -- it gives an instant,
 // no-technical-steps-needed way to confirm whether a given device is
 // actually running the latest deploy, without comparing file contents.
-var APP_BUILD = "2026-10-09.1";
+var APP_BUILD = "2026-10-12.2";
 
 /* ======================================================================
    UTILITIES
@@ -14137,7 +14137,7 @@ function renderDashboard(){
   var u = currentUser();
   var openJobs = (state.jobs || []).filter(function(j){ return j.status !== "Done"; });
   var mine = openJobs.filter(function(j){ return j.assignee === u.name; });
-  var dueService = (state.machinery || []).filter(function(m){ if(m.status === "archived") return false; var d = daysUntil(m.nextServiceDue); return d != null && d <= 21; });
+  var dueService = (state.machinery || []).filter(function(m){ return m.status !== "archived" && machineDueForService(m); });
 
   var html = pageHead("Welcome back, " + u.name.split(" ")[0], "Here's what's happening on Bullamon Plains today.");
   html += '<div class="stat-row">' +
@@ -14578,8 +14578,51 @@ function deleteJob(id){
    MACHINERY
    ====================================================================== */
 function machineDueForService(m){
+  return machineServiceStatus(m).due;
+}
+// Where a machine is up to with its next service, in ONE place so the fleet
+// list, the machine's own page and the Dashboard count always agree.
+// Next service is in HOURS (changed from a date on 2026-10-12, at Maria's
+// request): a hand-entered reading if there is one (editable), otherwise the
+// next milestone of the maintenance schedule when one is set, otherwise the "Next service due (hours)" typed into Edit machine
+// (m.nextServiceHours). A machine that still only has an old date
+// (m.nextServiceDue, from before this change) keeps working off that date
+// until its hours are entered. "Due" means within a quarter of the service
+// interval (250 hrs if none is set) -- the same amber threshold the pills
+// already used for the schedule.
+function machineServiceStatus(m){
+  var cur = m.currentReading || 0;
+  var targetHours = null;
+  var nm = machineScheduleConfigured(m) ? machineNextMilestone(m) : null;
+  var manual = (m.nextServiceHours != null && m.nextServiceHours !== "" && !isNaN(Number(m.nextServiceHours))) ? Number(m.nextServiceHours) : null;
+  // A hand-entered next-service reading (Edit machine, or "Edit next service
+  // due" on the machine's page) wins over the schedule while it is still
+  // ahead of the machine's current reading. Once the machine has passed it
+  // (i.e. that service has been done), a maintenance schedule takes over
+  // again by itself, so an old override can't leave it stuck as overdue.
+  if(manual != null && (!nm || manual > cur)){ targetHours = manual; }
+  else if(nm){ targetHours = nm.hours; }
+  if(targetHours != null){
+    var remaining = targetHours - cur;
+    var win = m.serviceIntervalHours || 250;
+    var base = "Service due at " + fmtNum(targetHours, "hrs");
+    return {
+      kind: "hours", target: targetHours, remaining: remaining,
+      tone: remaining <= win * 0.1 ? "pill-high" : remaining <= win * 0.25 ? "pill-medium" : "pill-todo",
+      due: remaining <= win * 0.25, ok: remaining > win * 0.25,
+      label: base,
+      labelLong: base + (remaining > 0 ? " (" + fmtNum(remaining, "hrs") + " to go)" : " (" + fmtNum(-remaining, "hrs") + " overdue)"),
+      progressPct: Math.max(0, Math.min(100, 100 * (1 - remaining / win)))
+    };
+  }
   var d = daysUntil(m.nextServiceDue);
-  return d != null && d <= 21;
+  var dl = m.nextServiceDue ? ("Service due " + fmtDate(m.nextServiceDue)) : "Service due —";
+  return {
+    kind: "date", d: d,
+    tone: d != null && d <= 7 ? "pill-high" : d != null && d <= 21 ? "pill-medium" : "pill-todo",
+    due: d != null && d <= 21, ok: d == null || d > 21,
+    label: dl, labelLong: dl, progressPct: null
+  };
 }
 
 // A maintenance schedule is "configured" once a starting hour reading and an
@@ -14755,21 +14798,10 @@ function renderMachineryList(){
 // The whole row is the click target and always navigates into that
 // machine's own detail screen (renderMachineDetail); nothing expands here.
 function renderMachineFleetCard(m){
-  var d = daysUntil(m.nextServiceDue);
   var issues = m.issues || [];
   var openIssues = issues.filter(function(i){ return i.status !== "Resolved"; });
-  var scheduleConfigured = machineScheduleConfigured(m);
-  var nextMilestone = machineNextMilestone(m);
-  var dueLabel, dueTone;
-  if(scheduleConfigured && nextMilestone){
-    var hoursRemaining = nextMilestone.hours - (m.currentReading || 0);
-    var toneWindow = m.serviceIntervalHours || 250;
-    dueTone = hoursRemaining <= toneWindow * 0.1 ? "pill-high" : hoursRemaining <= toneWindow * 0.25 ? "pill-medium" : "pill-todo";
-    dueLabel = "Service due at " + fmtNum(nextMilestone.hours, "hrs");
-  } else {
-    dueTone = d != null && d <= 7 ? "pill-high" : d != null && d <= 21 ? "pill-medium" : "pill-todo";
-    dueLabel = "Service due " + fmtDate(m.nextServiceDue);
-  }
+  var st = machineServiceStatus(m);
+  var dueLabel = st.label, dueTone = st.tone;
   return '<div class="card" style="cursor:pointer;" onclick="ui.machinerySelected=\'' + m.id + '\';render();">' +
     '<div class="card-row">' +
       '<div style="display:flex;gap:12px;align-items:center;min-width:0;">' +
@@ -14829,20 +14861,8 @@ function renderMachineDetail(m){
   var issues = m.issues || [];
   var scheduleConfigured = machineScheduleConfigured(m);
   var nextMilestone = machineNextMilestone(m);
-  var d = daysUntil(m.nextServiceDue);
-  var dueLabel, dueTone, dueOk, progressPct = null;
-  if(scheduleConfigured && nextMilestone){
-    var hoursRemaining = nextMilestone.hours - (m.currentReading || 0);
-    var toneWindow = m.serviceIntervalHours || 250;
-    dueOk = hoursRemaining > toneWindow * 0.25;
-    dueTone = hoursRemaining <= toneWindow * 0.1 ? "pill-high" : hoursRemaining <= toneWindow * 0.25 ? "pill-medium" : "pill-todo";
-    dueLabel = "Service due at " + fmtNum(nextMilestone.hours, "hrs") + " (" + fmtNum(Math.max(0, hoursRemaining), "hrs") + " to go)";
-    progressPct = Math.max(0, Math.min(100, 100 * (1 - hoursRemaining / toneWindow)));
-  } else {
-    dueOk = d == null || d > 21;
-    dueTone = d != null && d <= 7 ? "pill-high" : d != null && d <= 21 ? "pill-medium" : "pill-todo";
-    dueLabel = "Service due " + fmtDate(m.nextServiceDue);
-  }
+  var st = machineServiceStatus(m);
+  var dueLabel = st.labelLong, dueTone = st.tone, dueOk = st.ok, progressPct = st.progressPct;
 
   html += '<div class="card-row" style="align-items:flex-start;">' +
     '<div style="display:flex;gap:14px;align-items:center;min-width:0;">' +
@@ -14914,10 +14934,58 @@ function renderMachineDetail(m){
 // Log Work form either way; it reads the same m.serviceChecklistItems
 // either way too, so nothing about what gets logged changed, just where the
 // checklist is shown/edited.
+// Small inline form to set (or change) when a machine's next service is due,
+// as an hour-meter reading. Works whether or not a maintenance schedule is
+// set -- a reading entered here overrides the schedule's next milestone until
+// the machine passes it. "Use schedule" clears it again.
+function renderNextServiceDueForm(m){
+  var st = machineServiceStatus(m);
+  var key = "nextdue_" + m.id;
+  var err = ui.formErrors[key];
+  var hasManual = m.nextServiceHours != null && m.nextServiceHours !== "";
+  return '<form style="margin-top:10px;" onsubmit="saveNextServiceDue(event,\'' + m.id + '\')">' +
+    (err ? '<p style="color:var(--danger);font-size:12.5px;font-weight:600;margin:0 0 8px;">' + esc(err) + '</p>' : '') +
+    '<div class="field"><label>Next service due at (hours)</label><input type="text" inputmode="decimal" name="nextServiceHours" value="' + escAttr(st.kind === "hours" ? st.target : "") + '" placeholder="e.g. 2250" /></div>' +
+    '<div class="form-actions" style="margin-top:8px;">' +
+      '<button type="submit" class="btn btn-primary" style="width:auto;">Save</button>' +
+      (hasManual ? '<button type="button" class="btn btn-ghost" onclick="clearNextServiceDue(\'' + m.id + '\')">' + (machineScheduleConfigured(m) ? 'Use schedule' : 'Clear') + '</button>' : '') +
+    '</div>' +
+  '</form>';
+}
+function saveNextServiceDue(e, machineId){
+  e.preventDefault();
+  if(!canAdminMachinery()) return;
+  var m = byId(state.machinery, machineId);
+  if(!m) return;
+  var key = "nextdue_" + machineId;
+  var raw = e.target.nextServiceHours.value;
+  var hrs = parseHoursInput(raw);
+  if(isNaN(hrs)){
+    ui.formErrors[key] = "Enter the next service as an hours reading (e.g. 2250).";
+    render();
+    return;
+  }
+  delete ui.formErrors[key];
+  m.nextServiceHours = hrs;
+  m.nextServiceDue = "";
+  ui.openForms[key] = false;
+  persist();
+}
+function clearNextServiceDue(machineId){
+  if(!canAdminMachinery()) return;
+  var m = byId(state.machinery, machineId);
+  if(!m) return;
+  m.nextServiceHours = null;
+  delete ui.formErrors["nextdue_" + machineId];
+  ui.openForms["nextdue_" + machineId] = false;
+  persist();
+}
 function renderMachineOverviewTab(m, dueLabel, dueOk, progressPct){
   var html = '<div class="due-progress-card' + (dueOk ? " ok" : "") + '"><div class="stat-label">Maintenance status</div>' +
     '<div style="font-weight:700;font-size:14.5px;margin-top:2px;">' + dueLabel + '</div>' +
     (progressPct != null ? '<div style="height:8px;border-radius:99px;background:var(--surface-2);margin-top:10px;overflow:hidden;"><div style="height:100%;width:' + progressPct.toFixed(1) + '%;background:var(--accent-strong);"></div></div>' : '') +
+    (canAdminMachinery() ? '<button type="button" class="btn btn-ghost btn-sm" style="margin-top:10px;" onclick="toggleForm(\'nextdue_' + m.id + '\')">' + (ui.openForms["nextdue_" + m.id] ? "Cancel" : "Edit next service due") + '</button>' : '') +
+    (ui.openForms["nextdue_" + m.id] && canAdminMachinery() ? renderNextServiceDueForm(m) : '') +
   '</div>';
 
   html += '<div class="form-grid" style="margin:12px 0;">' +
@@ -16193,7 +16261,9 @@ function renderMachineForm(existing){
       '<div class="field"><label>Type</label><input type="text" name="type" value="' + escAttr(existing ? existing.type : "") + '" /></div>' +
       '<div class="field"><label>Rego / ID</label><input type="text" name="regNo" value="' + escAttr(existing ? existing.regNo : "") + '" /></div>' +
       '<div class="field"><label>Service interval</label><input type="text" name="serviceIntervalDesc" value="' + escAttr(existing ? existing.serviceIntervalDesc : "") + '" placeholder="e.g. Every 250 hours" /></div>' +
-      '<div class="field"><label>Next service due</label><input type="date" name="nextServiceDue" value="' + escAttr(existing ? existing.nextServiceDue : "") + '" /></div>' +
+      '<div class="field"><label>Next service due (hours)</label><input type="text" inputmode="decimal" name="nextServiceHours" value="' + escAttr(existing && existing.nextServiceHours != null ? existing.nextServiceHours : "") + '" placeholder="e.g. 2250" />' +
+        (existing && existing.nextServiceDue && (existing.nextServiceHours == null || existing.nextServiceHours === "") ? '<span class="row-muted" style="font-size:11.5px;">Currently set by date (' + esc(fmtDate(existing.nextServiceDue)) + '). Enter the hour-meter reading to switch it to hours.</span>' : '') +
+      '</div>' +
       '<div class="field"><label>Starting hours (maintenance schedule)</label><input type="text" inputmode="decimal" name="scheduleStartHours" value="' + escAttr(existing && existing.scheduleStartHours != null ? existing.scheduleStartHours : "") + '" placeholder="e.g. 1800" /></div>' +
     '</div>' +
     '<p class="row-muted" style="margin:8px 0 0;font-size:11.5px;">Starting hours is the hour-meter reading the maintenance schedule counts from -- leave it blank if this machine has no hours-based schedule yet. Set how often it needs a service (in hours) separately via "+ Set maintenance schedule" below.</p>' +
@@ -16205,8 +16275,25 @@ function saveMachine(e, id){
   e.preventDefault();
   var f = e.target;
   var formKey = "machineForm_" + (id || "new");
-  var data = { name: f.name.value.trim(), type: f.type.value.trim(), regNo: f.regNo.value.trim(), serviceIntervalDesc: f.serviceIntervalDesc.value.trim(), nextServiceDue: f.nextServiceDue.value };
+  var data = { name: f.name.value.trim(), type: f.type.value.trim(), regNo: f.regNo.value.trim(), serviceIntervalDesc: f.serviceIntervalDesc.value.trim() };
   if(!data.name) return;
+  // Next service is now entered as an hour-meter reading rather than a date.
+  // Entering hours replaces any old date (cleared so it can't be used
+  // instead); leaving it blank keeps an older date, if there was one.
+  var nextRaw = f.nextServiceHours.value;
+  if(nextRaw != null && String(nextRaw).trim() !== ""){
+    var nextHours = parseHoursInput(nextRaw);
+    if(isNaN(nextHours)){
+      ui.formErrors[formKey] = "Enter the next service as an hours reading (e.g. 2250), or leave it blank.";
+      render();
+      return;
+    }
+    data.nextServiceHours = nextHours;
+    data.nextServiceDue = "";
+  } else {
+    data.nextServiceHours = null;
+    if(!id) data.nextServiceDue = "";
+  }
   var startRaw = f.scheduleStartHours.value;
   if(startRaw != null && String(startRaw).trim() !== ""){
     var startHours = parseHoursInput(startRaw);
