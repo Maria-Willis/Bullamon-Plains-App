@@ -418,7 +418,9 @@
 // v75 (2026-10-09): page background same blue as the main menu (text on the page turned white) -- index.html changed.
 // v76 (2026-10-12): Edit machine "Next service due" is now hours, not a date -- index.html changed.
 // v77 (2026-10-12, later): "Edit next service due" button on the machine page -- index.html changed.
-var CACHE_NAME = "bullamon-plains-shell-v77";
+// v78 (2026-10-12, later): Schedule & history "Next due" row matches maintenance status and its hours are editable -- index.html changed.
+// v79 (2026-10-12, later): "current reading" hours no longer shown on the machine page -- index.html changed.
+var CACHE_NAME = "bullamon-plains-shell-v79";
 
 var SHELL_ASSETS = [
   "./",
