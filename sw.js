@@ -425,7 +425,8 @@
 // v82 (2026-10-12, later): old next-service dates no longer shown ("Next service not set" until hours entered) -- index.html changed.
 // v83 (2026-10-12, later): Starting hours kept as a record (Edit machine + Overview), not used by the schedule -- index.html changed.
 // v84 (2026-10-12, later): Private > Information card gets an "Import summary" paste box -- index.html changed.
-var CACHE_NAME = "bullamon-plains-shell-v84";
+// v85 (2026-10-12, later): Private "Information" card renamed Cropping Summary -- index.html changed.
+var CACHE_NAME = "bullamon-plains-shell-v85";
 
 var SHELL_ASSETS = [
   "./",
