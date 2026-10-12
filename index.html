@@ -1745,7 +1745,7 @@ const DEFAULT_STATE = {
 // change to this file, same as CACHE_NAME in sw.js -- it gives an instant,
 // no-technical-steps-needed way to confirm whether a given device is
 // actually running the latest deploy, without comparing file contents.
-var APP_BUILD = "2026-10-12.2";
+var APP_BUILD = "2026-10-12.4";
 
 /* ======================================================================
    UTILITIES
@@ -14600,14 +14600,15 @@ function machineServiceStatus(m){
   // ahead of the machine's current reading. Once the machine has passed it
   // (i.e. that service has been done), a maintenance schedule takes over
   // again by itself, so an old override can't leave it stuck as overdue.
-  if(manual != null && (!nm || manual > cur)){ targetHours = manual; }
-  else if(nm){ targetHours = nm.hours; }
+  var source = null;
+  if(manual != null && (!nm || manual > cur)){ targetHours = manual; source = "manual"; }
+  else if(nm){ targetHours = nm.hours; source = "schedule"; }
   if(targetHours != null){
     var remaining = targetHours - cur;
     var win = m.serviceIntervalHours || 250;
     var base = "Service due at " + fmtNum(targetHours, "hrs");
     return {
-      kind: "hours", target: targetHours, remaining: remaining,
+      kind: "hours", source: source, target: targetHours, remaining: remaining,
       tone: remaining <= win * 0.1 ? "pill-high" : remaining <= win * 0.25 ? "pill-medium" : "pill-todo",
       due: remaining <= win * 0.25, ok: remaining > win * 0.25,
       label: base,
@@ -14869,7 +14870,7 @@ function renderMachineDetail(m){
       '<div class="machine-photo machine-photo-lg">' + machineIconHtml(m, "machine-icon-img") + '</div>' +
       '<div style="min-width:0;"><h3 style="margin-bottom:2px;font-size:22px;color:var(--accent-strong);">' + esc(m.name) + '</h3>' +
       '<p class="row-muted" style="margin:0;font-size:13px;">' + esc(m.type) + (m.regNo ? " &middot; " + esc(m.regNo) : "") + '</p>' +
-      '<p class="row-muted" style="margin:4px 0 0;font-size:12.5px;">' + fmtNum(m.currentReading, "hrs") + ' current reading</p></div>' +
+      '</div>' +
     '</div>' +
     '<div style="display:flex;gap:6px;align-items:center;flex-shrink:0;">' +
       (machineOutOfAction(m) ? '<span class="pill pill-high">' + iconSvg("alert-triangle") + ' Out of action</span>' : '') +
@@ -16088,10 +16089,30 @@ function renderMachineServiceHistory(m){
   var scheduleConfigured = machineScheduleConfigured(m);
   var openForms = "";
   var rows = "";
+  // The "Next due" row has to match the Maintenance status on the Overview
+  // tab, which can be a hand-entered "next service due" reading rather than
+  // the schedule's own next milestone (and which can exist with no schedule
+  // at all). That reading is editable from here too ("Edit due at").
+  var st = machineServiceStatus(m);
+  var manualNext = (st.kind === "hours" && st.source === "manual") ? st : null;
+  var dueKey = "nextdue_" + m.id;
+  var dueOpen = !!ui.openForms[dueKey];
+  var editDueBtn = canAdminMachinery() ? '<button type="button" class="btn btn-ghost btn-sm" onclick="toggleForm(\'' + dueKey + '\')">' + (dueOpen ? "Cancel" : "Edit due at") + '</button> ' : '';
+  if(dueOpen && canAdminMachinery()) openForms += '<div class="due-progress-card" style="margin-top:10px;"><div class="stat-label">Next service due</div>' + renderNextServiceDueForm(m) + '</div>';
+  if(manualNext){
+    rows += '<tr>' +
+      '<td class="row-muted">—</td>' +
+      '<td class="num">' + fmtNum(manualNext.target) + '</td>' +
+      '<td class="row-muted">Not logged yet<br/><span class="row-muted" style="font-size:11px;">Next service due (set by hand)</span></td>' +
+      '<td class="row-muted">—</td>' +
+      '<td><span class="pill ' + (manualNext.remaining <= 0 ? "pill-high" : manualNext.tone) + '">' + (manualNext.remaining <= 0 ? "Overdue" : "Next due") + '</span></td>' +
+      '<td style="white-space:nowrap;">' + editDueBtn + (canAdminMachinery() ? '<button type="button" class="btn btn-ghost btn-sm" onclick="ui.machineryLogWork={id:\'' + m.id + '\',mode:\'service\'};render();">Log service</button>' : '') + '</td>' +
+    '</tr>';
+  }
 
   if(scheduleConfigured){
     var milestones = machineScheduleMilestones(m) || [];
-    rows += milestones.filter(function(ms){ return !machineMilestoneLog(m, milestoneKey(ms.hours)); }).map(function(ms){
+    rows += milestones.filter(function(ms){ return !machineMilestoneLog(m, milestoneKey(ms.hours)) && !(manualNext && ms.status === "next"); }).map(function(ms){
       // A milestone can be computed as "done" (the current reading has
       // already passed it) and still have no matching log entry -- e.g. a
       // schedule set up after some service history already existed, where
@@ -16114,7 +16135,7 @@ function renderMachineServiceHistory(m){
         '<td class="row-muted">' + whatCell + '</td>' +
         '<td class="row-muted">—</td>' +
         '<td><span class="pill ' + tone + '">' + label + '</span></td>' +
-        '<td style="white-space:nowrap;">' + (canAdminMachinery() ? '<button type="button" class="btn btn-ghost btn-sm" onclick="ui.openForms[\'ms_' + m.id + '_' + key + '\']=!ui.openForms[\'ms_' + m.id + '_' + key + '\'];render();">' + (open ? "Cancel" : "Log this service") + '</button> <button type="button" class="btn btn-ghost btn-sm" onclick="ui.openForms[\'' + reminderFormKey + '\']=!ui.openForms[\'' + reminderFormKey + '\'];render();">' + (reminderOpen ? "Cancel" : (reminderText ? "Edit reminder" : "Set reminder")) + '</button>' : '') + '</td>' +
+        '<td style="white-space:nowrap;">' + (canAdminMachinery() ? (ms.status === "next" ? editDueBtn : '') + '<button type="button" class="btn btn-ghost btn-sm" onclick="ui.openForms[\'ms_' + m.id + '_' + key + '\']=!ui.openForms[\'ms_' + m.id + '_' + key + '\'];render();">' + (open ? "Cancel" : "Log this service") + '</button> <button type="button" class="btn btn-ghost btn-sm" onclick="ui.openForms[\'' + reminderFormKey + '\']=!ui.openForms[\'' + reminderFormKey + '\'];render();">' + (reminderOpen ? "Cancel" : (reminderText ? "Edit reminder" : "Set reminder")) + '</button>' : '') + '</td>' +
       '</tr>';
     }).join("");
   }
@@ -16148,7 +16169,7 @@ function renderMachineServiceHistory(m){
   var html = '<div class="table-wrap" style="box-shadow:none;margin-top:8px;"><table><thead><tr><th>Date</th><th>Hours</th><th>What was done</th><th>By</th><th>Status</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div>';
   if(openForms) html += '<div style="margin-top:10px;">' + openForms + '</div>';
   if(scheduleConfigured){
-    html += '<p class="row-muted" style="margin:8px 0 0;font-size:11.5px;">Starting from ' + fmtNum(m.scheduleStartHours) + ' hrs, every ' + fmtNum(m.serviceIntervalHours) + ' hrs. Current reading: ' + fmtNum(m.currentReading) + ' hrs.</p>';
+    html += '<p class="row-muted" style="margin:8px 0 0;font-size:11.5px;">Starting from ' + fmtNum(m.scheduleStartHours) + ' hrs, every ' + fmtNum(m.serviceIntervalHours) + ' hrs.</p>';
   }
   return html;
 }
