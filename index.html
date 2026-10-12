@@ -1745,7 +1745,7 @@ const DEFAULT_STATE = {
 // change to this file, same as CACHE_NAME in sw.js -- it gives an instant,
 // no-technical-steps-needed way to confirm whether a given device is
 // actually running the latest deploy, without comparing file contents.
-var APP_BUILD = "2026-10-12.4";
+var APP_BUILD = "2026-10-12.5";
 
 /* ======================================================================
    UTILITIES
@@ -14645,13 +14645,22 @@ function machineScheduleMilestones(m){
   var fromK = Math.max(1, kLastDone - 1);
   var toK = kLastDone + 3;
   var milestones = [];
-  var markedNext = false;
+  var overrides = m.scheduleOverrides || {};
   for(var k = fromK; k <= toK; k++){
-    var hours = start + k * interval;
-    var status = hours <= current ? "done" : (markedNext ? "upcoming" : "next");
-    if(status === "next") markedNext = true;
-    milestones.push({ k: k, hours: hours, status: status });
+    var base = start + k * interval;
+    // Any single row's hours can be changed by hand ("Edit hours" in
+    // Schedule & history); the change is kept against that row's calculated
+    // hours so the rest of the schedule is left as it was.
+    var ov = overrides[milestoneKey(base)];
+    var hours = (ov != null && !isNaN(Number(ov))) ? Number(ov) : base;
+    milestones.push({ k: k, base: base, hours: hours });
   }
+  milestones.sort(function(a, b){ return a.hours - b.hours; });
+  var markedNext = false;
+  milestones.forEach(function(ms){
+    ms.status = ms.hours <= current ? "done" : (markedNext ? "upcoming" : "next");
+    if(ms.status === "next") markedNext = true;
+  });
   return milestones;
 }
 
@@ -16085,6 +16094,61 @@ function addMilestoneServiceLog(e, machineId, key){
 // machineScheduleMilestones() ever returns -- it was never meant to be a
 // full history). One shared table/header for both kinds of row, rather than
 // two separate tables under two separate toggles.
+// Change the hours of ONE row in Schedule & history (an upcoming or passed
+// service that hasn't been logged). Stored as an override against that row's
+// calculated hours so the other rows are untouched; "Use calculated" removes
+// it. A reminder already set on the row moves with it.
+function renderMilestoneHoursForm(m, ms){
+  var fkey = "mshrs_" + m.id + "_" + milestoneKey(ms.base);
+  var err = ui.formErrors[fkey];
+  var changed = milestoneKey(ms.hours) !== milestoneKey(ms.base);
+  return '<form class="form-panel" style="margin-top:10px;" onsubmit="saveMilestoneHours(event,\'' + m.id + '\',' + milestoneKey(ms.base) + ')">' +
+    '<h4 style="margin-top:0;">Service hours — ' + esc(m.name) + '</h4>' +
+    (err ? '<p style="color:var(--danger);font-size:12.5px;font-weight:600;margin:0 0 8px;">' + esc(err) + '</p>' : '') +
+    '<div class="field"><label>Due at (hours)</label><input type="text" inputmode="decimal" name="hours" value="' + escAttr(ms.hours) + '" required /></div>' +
+    '<div class="form-actions" style="margin-top:8px;"><button type="submit" class="btn btn-primary" style="width:auto;">Save</button>' +
+      (changed ? '<button type="button" class="btn btn-ghost" onclick="resetMilestoneHours(\'' + m.id + '\',' + milestoneKey(ms.base) + ')">Use calculated (' + fmtNum(ms.base) + ')</button>' : '') +
+    '</div>' +
+  '</form>';
+}
+function setMilestoneHours(m, baseKey, newHours){
+  var ms = (machineScheduleMilestones(m) || []).filter(function(x){ return milestoneKey(x.base) === baseKey; })[0];
+  var oldKey = ms ? milestoneKey(ms.hours) : baseKey;
+  m.scheduleOverrides = m.scheduleOverrides || {};
+  if(newHours == null || milestoneKey(newHours) === baseKey){ delete m.scheduleOverrides[baseKey]; newHours = baseKey; }
+  else { m.scheduleOverrides[baseKey] = newHours; }
+  var newKey = milestoneKey(newHours);
+  if(m.reminders && oldKey !== newKey && m.reminders[oldKey] != null){
+    m.reminders[newKey] = m.reminders[oldKey];
+    delete m.reminders[oldKey];
+  }
+}
+function saveMilestoneHours(e, machineId, baseKey){
+  e.preventDefault();
+  if(!canAdminMachinery()) return;
+  var m = byId(state.machinery, machineId);
+  if(!m) return;
+  var fkey = "mshrs_" + machineId + "_" + baseKey;
+  var hrs = parseHoursInput(e.target.hours.value);
+  if(isNaN(hrs) || hrs <= 0){
+    ui.formErrors[fkey] = "Enter the service hours as a number (e.g. 2500).";
+    render();
+    return;
+  }
+  delete ui.formErrors[fkey];
+  setMilestoneHours(m, baseKey, hrs);
+  ui.openForms[fkey] = false;
+  persist();
+}
+function resetMilestoneHours(machineId, baseKey){
+  if(!canAdminMachinery()) return;
+  var m = byId(state.machinery, machineId);
+  if(!m) return;
+  setMilestoneHours(m, baseKey, null);
+  delete ui.formErrors["mshrs_" + machineId + "_" + baseKey];
+  ui.openForms["mshrs_" + machineId + "_" + baseKey] = false;
+  persist();
+}
 function renderMachineServiceHistory(m){
   var scheduleConfigured = machineScheduleConfigured(m);
   var openForms = "";
@@ -16127,6 +16191,10 @@ function renderMachineServiceHistory(m){
       var reminderFormKey = "mres_" + m.id + "_" + key;
       var reminderOpen = ui.openForms[reminderFormKey];
       if(reminderOpen) openForms += renderMilestoneReminderForm(m, ms.hours);
+      var hoursKey = "mshrs_" + m.id + "_" + milestoneKey(ms.base);
+      var hoursOpen = ui.openForms[hoursKey];
+      if(hoursOpen && canAdminMachinery()) openForms += renderMilestoneHoursForm(m, ms);
+      var editHoursBtn = (canAdminMachinery() && ms.status !== "next") ? '<button type="button" class="btn btn-ghost btn-sm" onclick="toggleForm(\'' + hoursKey + '\')">' + (hoursOpen ? "Cancel" : "Edit hours") + '</button> ' : '';
       var reminderText = (m.reminders && m.reminders[key]) || "";
       var whatCell = "Not logged yet" + (reminderText ? '<br/><span class="row-muted" style="font-size:11px;white-space:pre-wrap;">' + iconSvg("bell") + ' ' + esc(reminderText) + '</span>' : '');
       return '<tr>' +
@@ -16135,7 +16203,7 @@ function renderMachineServiceHistory(m){
         '<td class="row-muted">' + whatCell + '</td>' +
         '<td class="row-muted">—</td>' +
         '<td><span class="pill ' + tone + '">' + label + '</span></td>' +
-        '<td style="white-space:nowrap;">' + (canAdminMachinery() ? (ms.status === "next" ? editDueBtn : '') + '<button type="button" class="btn btn-ghost btn-sm" onclick="ui.openForms[\'ms_' + m.id + '_' + key + '\']=!ui.openForms[\'ms_' + m.id + '_' + key + '\'];render();">' + (open ? "Cancel" : "Log this service") + '</button> <button type="button" class="btn btn-ghost btn-sm" onclick="ui.openForms[\'' + reminderFormKey + '\']=!ui.openForms[\'' + reminderFormKey + '\'];render();">' + (reminderOpen ? "Cancel" : (reminderText ? "Edit reminder" : "Set reminder")) + '</button>' : '') + '</td>' +
+        '<td style="white-space:nowrap;">' + (canAdminMachinery() ? (ms.status === "next" ? editDueBtn : editHoursBtn) + '<button type="button" class="btn btn-ghost btn-sm" onclick="ui.openForms[\'ms_' + m.id + '_' + key + '\']=!ui.openForms[\'ms_' + m.id + '_' + key + '\'];render();">' + (open ? "Cancel" : "Log this service") + '</button> <button type="button" class="btn btn-ghost btn-sm" onclick="ui.openForms[\'' + reminderFormKey + '\']=!ui.openForms[\'' + reminderFormKey + '\'];render();">' + (reminderOpen ? "Cancel" : (reminderText ? "Edit reminder" : "Set reminder")) + '</button>' : '') + '</td>' +
       '</tr>';
     }).join("");
   }
