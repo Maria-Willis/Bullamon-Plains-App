@@ -1745,7 +1745,7 @@ const DEFAULT_STATE = {
 // change to this file, same as CACHE_NAME in sw.js -- it gives an instant,
 // no-technical-steps-needed way to confirm whether a given device is
 // actually running the latest deploy, without comparing file contents.
-var APP_BUILD = "2026-10-12.10";
+var APP_BUILD = "2026-10-13.2";
 
 /* ======================================================================
    UTILITIES
@@ -16447,6 +16447,32 @@ function bullTestDisplay(summary){
 // request -- see the Bulls architecture note for the full history.
 var BULL_ARCHIVED_YEARS = ["2025", "2024", "2023", "2022", "2021 Retest", "2021", "2020", "2018"];
 
+// The Sold / Dead table's year columns (2026-10-13, at Maria's request: "in the
+// sold / dead bulls I need to be able to see the latest years including
+// retests"). Previously fixed at BULL_ARCHIVED_YEARS (2018-2025), so a 2026
+// result -- or a "2026 Retest" -- recorded on a sold/dead bull was stored but
+// never shown. Now the columns are everything in the fixed historical list,
+// plus every year any sold/dead bull actually has a result for, plus every
+// year column the active table has (active or archived there), so the latest
+// years and retests always appear. Newest first; within the same year the
+// "Retest" column sits to the left of the plain year, as in the active table.
+function archivedBullTableYears(archivedBulls){
+  var yc = bullYearColumns();
+  var seen = {}, years = [];
+  function add(y){ y = String(y || "").trim(); if(y && !seen[y]){ seen[y] = true; years.push(y); } }
+  BULL_ARCHIVED_YEARS.forEach(add);
+  (yc.active || []).concat(yc.archived || []).forEach(add);
+  (archivedBulls || []).forEach(function(b){ (b.testLog || []).forEach(function(t){ add(t.year); }); });
+  years.sort(function(a, b){
+    var d = parseInt(b, 10) - parseInt(a, 10);
+    if(d) return d;
+    var aPlain = /^[0-9]+$/.test(a), bPlain = /^[0-9]+$/.test(b);
+    if(aPlain !== bPlain) return aPlain ? 1 : -1;
+    return a < b ? -1 : (a > b ? 1 : 0);
+  });
+  return years;
+}
+
 // The active bulls table's year columns (2026-09-27, at Maria's request:
 // "archive 2022 and 2023. I also need to be able to add new years") --
 // unlike BULL_ARCHIVED_YEARS above, this list is no longer fixed in code:
@@ -16651,7 +16677,7 @@ function renderBulls(){
     '</div>';
     if(archivedOpen){
       html += '<p class="row-muted" style="margin:12px 0 12px;font-size:12px;">Bulls moved out of the active list. Full test history and any attached PDFs are kept, and any of them can be restored to the active list at any time.</p>';
-      html += renderBullsTable(archived, BULL_ARCHIVED_YEARS, true);
+      html += renderBullsTable(archived, archivedBullTableYears(archived), true);
     }
   }
 
@@ -18936,7 +18962,7 @@ function receiptCardHtml(r){
 function renderReceiptForm(){
   return '<form class="form-panel" onsubmit="addReceipt(event)">' +
     '<div class="form-grid">' +
-      '<div class="field span-2"><label>Photo of the receipt</label><input type="file" name="photo" accept="image/*" capture="environment" required /></div>' +
+      '<div class="field span-2"><label>Photo of the receipt</label><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;"><label class="btn btn-ghost btn-sm" style="width:auto;cursor:pointer;margin:0;">' + iconSvg("camera") + ' Take Photo / Choose File<input type="file" name="photo" accept="image/*" style="display:none;" onchange="markPhotoAttached(this)" /></label><span data-photo-label class="row-muted" style="font-size:12.5px;"></span></div></div>' +
       '<div class="field"><label>Amount (optional)</label><input type="text" inputmode="decimal" name="amount" placeholder="e.g. 45.90" /></div>' +
       '<div class="field"><label>What’s it for? (optional)</label><input type="text" name="note" placeholder="e.g. Fuel, parts, vet supplies" /></div>' +
     '</div>' +
