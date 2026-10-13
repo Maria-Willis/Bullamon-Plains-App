@@ -428,7 +428,8 @@
 // v85 (2026-10-12, later): Private "Information" card renamed Cropping Summary -- index.html changed.
 // v86 (2026-10-13): Receipts upload button now reads "Take Photo / Choose File" -- index.html changed.
 // v87 (2026-10-13, later): Sold / Dead bulls table shows the latest years incl. retests -- index.html changed.
-var CACHE_NAME = "bullamon-plains-shell-v87";
+// v88 (2026-10-13, later): new "My Time in Lieu" section -- index.html changed.
+var CACHE_NAME = "bullamon-plains-shell-v88";
 
 var SHELL_ASSETS = [
   "./",
