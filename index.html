@@ -1063,6 +1063,9 @@ const DEFAULT_STATE = {
   "receipts": {
     "items": []
   },
+  "timeInLieu": {
+    "entries": []
+  },
   "harvest": {
     "items": [],
     "drivers": [],
@@ -1745,7 +1748,7 @@ const DEFAULT_STATE = {
 // change to this file, same as CACHE_NAME in sw.js -- it gives an instant,
 // no-technical-steps-needed way to confirm whether a given device is
 // actually running the latest deploy, without comparing file contents.
-var APP_BUILD = "2026-10-13.2";
+var APP_BUILD = "2026-10-13.3";
 
 /* ======================================================================
    UTILITIES
@@ -2132,7 +2135,7 @@ function isHarvestOnly(){ var u = currentUser(); return !!(u && u.harvestOnly &&
 // decides what a person may open goes through isSectionAllowed() below, so
 // the sidebar, goTo(), renderSection(), post-sign-in landing and the phone
 // back button can't drift apart.
-var LIMITED_ACCESS_SECTIONS = ["dashboard", "jobs", "maps", "emergency", "whs", "sds", "sops", "harvest"];
+var LIMITED_ACCESS_SECTIONS = ["dashboard", "jobs", "maps", "emergency", "whs", "sds", "sops", "harvest", "til"];
 function isLimitedAccess(){ var u = currentUser(); return !!(u && u.limitedAccess && !u.isAdmin && !u.harvestOnly); }
 function isSectionAllowed(key){
   if(isHarvestOnly()) return key === "harvest";
@@ -13855,6 +13858,7 @@ var NAV = [
   { key: "bulls",       label: "Bulls",        icon: iconSvg("cow") },
   { key: "maps",        label: "Maps",         icon: iconSvg("map") },
   { key: "receipts",    label: "Receipts",     icon: iconSvg("receipt") },
+  { key: "til",         label: "My Time in Lieu", icon: iconSvg("clock") },
   { key: "harvest",     label: "Harvest Dockets", icon: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="9" y="18" width="6" height="2.5" rx="1.25" fill="currentColor"/><path d="M12 19 L7 5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M12 19 L12 3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M12 19 L17 5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="8.3" cy="10" r="1" fill="currentColor"/><circle cx="7.6" cy="7.5" r="1" fill="currentColor"/><circle cx="9.3" cy="12.5" r="1" fill="currentColor"/><circle cx="12" cy="9" r="1" fill="currentColor"/><circle cx="12" cy="6" r="1" fill="currentColor"/><circle cx="12" cy="12.5" r="1" fill="currentColor"/><circle cx="15.7" cy="10" r="1" fill="currentColor"/><circle cx="16.4" cy="7.5" r="1" fill="currentColor"/><circle cx="14.7" cy="12.5" r="1" fill="currentColor"/></svg>' },
   { key: "sops",        label: "Operating Procedures", icon: iconSvg("file-text") },
   { key: "sds",         label: "Safety Data Sheets", icon: iconSvg("clipboard-list") },
@@ -14119,11 +14123,131 @@ function renderSection(){
     case "emergency": return renderEmergency();
     case "maps": return renderMaps();
     case "receipts": return renderReceipts();
+    case "til": return renderTimeInLieu();
     case "harvest": return renderHarvest();
     case "team": return isAdmin() ? renderTeam() : renderDashboard();
     case "private": return canSeePrivateSection() ? renderPrivate() : renderDashboard();
     default: return renderDashboard();
   }
+}
+
+/* ======================================================================
+   MY TIME IN LIEU (added 2026-10-13, at Maria's request: "a section under
+   each individual that shows their time in lieu transactions. This should
+   only be visible to the person who is logged into the account").
+   Everyone signed in gets a "My Time in Lieu" menu item that shows ONLY
+   their own transactions and balance. Only admins record transactions
+   (Maria's choice), via a card at the bottom of the page where they pick a
+   team member -- so an admin can see the person they are entering for (that
+   is unavoidable if they are to correct a mistake). Nobody else can see
+   anyone else's entries in the app.
+   NOTE: like the Private section, this is hidden by the app's screens, not
+   locked at database level -- all app data is one shared record that every
+   signed-in device loads.
+   Data model: state.timeInLieu = { entries: [{id, person, date (YYYY-MM-DD),
+   type ("earned"|"taken"), hours (positive number), note, addedBy, addedAt}] }.
+   ====================================================================== */
+function tilData(){
+  if(!state.timeInLieu) state.timeInLieu = { entries: [] };
+  if(!state.timeInLieu.entries) state.timeInLieu.entries = [];
+  return state.timeInLieu;
+}
+function tilFmtHours(n){ return String(Math.round((Number(n) || 0) * 100) / 100); }
+function tilLocalToday(){
+  var d = new Date();
+  return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+}
+// One person's transactions oldest-first with a running balance; returns
+// { rows: newest-first [{e, bal}], balance, earned, taken }.
+function tilLedger(name){
+  var list = tilData().entries.filter(function(e){ return e.person === name; }).sort(function(a, b){
+    return (a.date || "").localeCompare(b.date || "") || (a.addedAt || "").localeCompare(b.addedAt || "");
+  });
+  var bal = 0, earned = 0, taken = 0;
+  var rows = list.map(function(e){
+    var h = Number(e.hours) || 0;
+    if(e.type === "taken"){ bal -= h; taken += h; } else { bal += h; earned += h; }
+    return { e: e, bal: bal };
+  });
+  rows.reverse();
+  return { rows: rows, balance: bal, earned: earned, taken: taken };
+}
+function tilTableHtml(ledger, canRemove){
+  if(!ledger.rows.length) return '<div class="empty-state">No time in lieu transactions yet.</div>';
+  return '<div class="table-wrap" style="box-shadow:none;"><table><thead><tr><th>Date</th><th>Type</th><th>Hours</th><th>Note</th><th>Balance</th>' + (canRemove ? '<th></th>' : '') + '</tr></thead><tbody>' +
+    ledger.rows.map(function(r){
+      var e = r.e, taken = e.type === "taken";
+      return '<tr><td style="white-space:nowrap;">' + (e.date ? fmtDate(e.date) : "—") + '</td>' +
+        '<td>' + (taken ? "Taken" : "Earned") + '</td>' +
+        '<td style="white-space:nowrap;font-weight:600;">' + (taken ? "−" : "+") + tilFmtHours(e.hours) + '</td>' +
+        '<td>' + (e.note ? esc(e.note) : '<span class="row-muted">—</span>') + '</td>' +
+        '<td style="white-space:nowrap;">' + tilFmtHours(r.bal) + ' hrs</td>' +
+        (canRemove ? '<td><button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="removeTilEntry(\'' + e.id + '\')">Remove</button></td>' : '') +
+      '</tr>';
+    }).join("") + '</tbody></table></div>';
+}
+function renderTimeInLieu(){
+  var me = currentUser();
+  var html = pageHead("My Time in Lieu", "Your own time in lieu balance and transactions. Only you can see your entries.");
+  if(!me){ return html + '<div class="empty-state">Sign in to see your time in lieu.</div>'; }
+  var L = tilLedger(me.name);
+  html += '<div class="stat-row">' +
+    '<div class="stat"><div class="stat-num">' + tilFmtHours(L.balance) + '</div><div class="stat-label">Balance (hours)</div></div>' +
+    '<div class="stat"><div class="stat-num">' + tilFmtHours(L.earned) + '</div><div class="stat-label">Earned</div></div>' +
+    '<div class="stat"><div class="stat-num">' + tilFmtHours(L.taken) + '</div><div class="stat-label">Taken</div></div>' +
+  '</div>';
+  html += '<div class="card"><h3 style="margin:0 0 10px;">My transactions</h3>' + tilTableHtml(L, false) + '</div>';
+  if(isAdmin()) html += renderTilAdminCard();
+  return html;
+}
+function renderTilAdminCard(){
+  var people = activeTeam();
+  if(!people.length) return "";
+  var sel = ui.tilPerson && findTeam(ui.tilPerson) ? ui.tilPerson : people[0].name;
+  var L = tilLedger(sel);
+  var html = '<div class="card"><h3 style="margin:0 0 4px;">Record time in lieu (admin)</h3>' +
+    '<p class="row-muted" style="margin:0 0 12px;font-size:12.5px;">Only admins can add or remove transactions. Pick a team member to enter or correct theirs; this is the only place their entries are shown to anyone but them.</p>' +
+    '<div class="field" style="max-width:320px;margin-bottom:12px;"><label>Team member</label><select onchange="ui.tilPerson=this.value;render();">' +
+      people.map(function(t){ return '<option value="' + escAttr(t.name) + '"' + (t.name === sel ? " selected" : "") + '>' + esc(t.name) + '</option>'; }).join("") +
+    '</select></div>' +
+    '<form class="form-panel" onsubmit="addTilEntry(event)">' +
+      '<div class="form-grid">' +
+        '<div class="field"><label>Date</label><input type="date" name="date" value="' + tilLocalToday() + '" required /></div>' +
+        '<div class="field"><label>Type</label><select name="type"><option value="earned">Earned (adds to balance)</option><option value="taken">Taken (reduces balance)</option></select></div>' +
+        '<div class="field"><label>Hours</label><input type="text" inputmode="decimal" name="hours" placeholder="e.g. 7.5" required /></div>' +
+        '<div class="field"><label>Note (optional)</label><input type="text" name="note" placeholder="e.g. Harvest overtime" /></div>' +
+      '</div>' +
+      '<div class="form-actions"><button type="submit" class="btn btn-primary" style="width:auto;">Add transaction</button></div>' +
+    '</form>' +
+    '<p style="margin:14px 0 6px;font-size:13px;font-weight:600;">' + esc(sel) + ' — balance ' + tilFmtHours(L.balance) + ' hrs</p>' +
+    tilTableHtml(L, true) + '</div>';
+  return html;
+}
+function addTilEntry(e){
+  e.preventDefault();
+  if(!isAdmin()) return;
+  var f = e.target;
+  var people = activeTeam();
+  var person = ui.tilPerson && findTeam(ui.tilPerson) ? ui.tilPerson : (people[0] && people[0].name);
+  var hours = parseFloat(String(f.hours.value).replace(/,/g, ""));
+  if(!person){ setNotice("err", "Pick a team member first."); return; }
+  if(!f.date.value){ setNotice("err", "Enter the date."); return; }
+  if(!isFinite(hours) || hours <= 0 || hours > 1000){ setNotice("err", "Enter the hours as a number above 0, e.g. 7.5."); return; }
+  tilData().entries.push({
+    id: uid("til"), person: person, date: f.date.value,
+    type: f.type.value === "taken" ? "taken" : "earned",
+    hours: Math.round(hours * 100) / 100, note: f.note.value.trim(),
+    addedBy: currentUser() ? currentUser().name : null, addedAt: new Date().toISOString()
+  });
+  persist();
+}
+function removeTilEntry(id){
+  if(!isAdmin()) return;
+  var entry = byId(tilData().entries, id);
+  if(!entry) return;
+  if(!confirm("Remove this " + (entry.type === "taken" ? "taken" : "earned") + " entry of " + tilFmtHours(entry.hours) + " hrs for " + entry.person + "? This cannot be undone.")) return;
+  removeById(tilData().entries, id);
+  persist();
 }
 
 function pageHead(title, desc){
