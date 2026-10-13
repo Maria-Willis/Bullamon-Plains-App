@@ -429,7 +429,8 @@
 // v86 (2026-10-13): Receipts upload button now reads "Take Photo / Choose File" -- index.html changed.
 // v87 (2026-10-13, later): Sold / Dead bulls table shows the latest years incl. retests -- index.html changed.
 // v88 (2026-10-13, later): new "My Time in Lieu" section -- index.html changed.
-var CACHE_NAME = "bullamon-plains-shell-v88";
+// v89 (2026-10-13, later): My Time in Lieu shows the balance only (Earned/Taken tiles removed) -- index.html changed.
+var CACHE_NAME = "bullamon-plains-shell-v89";
 
 var SHELL_ASSETS = [
   "./",
