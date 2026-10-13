@@ -1748,7 +1748,7 @@ const DEFAULT_STATE = {
 // change to this file, same as CACHE_NAME in sw.js -- it gives an instant,
 // no-technical-steps-needed way to confirm whether a given device is
 // actually running the latest deploy, without comparing file contents.
-var APP_BUILD = "2026-10-13.4";
+var APP_BUILD = "2026-10-13.6";
 
 /* ======================================================================
    UTILITIES
@@ -13709,6 +13709,48 @@ function attachSignInHandlers(){
     refreshPushSubscriptionStatus();
   });
 }
+/* Employees changing their own access code (added 2026-10-13, at Maria's
+   request). Writes straight to the same state.team[].passcode field the admin's
+   Team > Edit form uses, so an admin can always set a new code for anyone
+   afterwards, whatever the person changed it to. A code can't be blanked
+   from here (that would unlock the account) -- only an admin can do that. */
+var MIN_CODE_LENGTH = 4;
+function toggleChangeMyCode(){
+  ui.changeCodeError = "";
+  toggleForm("changeMyCode");
+}
+function renderChangeCodePanel(){
+  var u = currentUser();
+  if(!u) return "";
+  return '<div class="card" style="max-width:460px;margin-bottom:16px;">' +
+    '<h3 style="margin:0 0 4px;">Change my access code</h3>' +
+    '<p class="row-muted" style="margin:0 0 12px;font-size:12.5px;">Pick something you can remember, at least ' + MIN_CODE_LENGTH + ' characters. An admin can still reset it for you if you forget it.</p>' +
+    (ui.changeCodeError ? '<div class="signin-error" style="margin-bottom:10px;">' + esc(ui.changeCodeError) + '</div>' : '') +
+    '<form onsubmit="saveMyCode(event)" autocomplete="off">' +
+      (u.passcode ? '<div class="field"><label>Current code</label><input type="password" name="current" autocomplete="off" required /></div>' : '') +
+      '<div class="field"><label>New code</label><input type="password" name="newCode" autocomplete="new-password" required /></div>' +
+      '<div class="field"><label>New code again</label><input type="password" name="newCode2" autocomplete="new-password" required /></div>' +
+      '<div class="form-actions"><button type="submit" class="btn btn-primary" style="width:auto;">Save new code</button>' +
+      '<button type="button" class="btn btn-ghost" onclick="toggleChangeMyCode()">Cancel</button></div>' +
+    '</form></div>';
+}
+function saveMyCode(e){
+  e.preventDefault();
+  var u = currentUser();
+  if(!u) return;
+  var f = e.target;
+  var fail = function(msg){ ui.changeCodeError = msg; render(); };
+  if(u.passcode && f.current.value !== u.passcode) return fail("Your current code doesn't match.");
+  var a = f.newCode.value, b = f.newCode2.value;
+  if(a.trim().length < MIN_CODE_LENGTH) return fail("The new code needs at least " + MIN_CODE_LENGTH + " characters (not counting spaces at the ends).");
+  if(a !== b) return fail("The two new codes don't match.");
+  if(a === u.passcode) return fail("That's the same as your current code.");
+  u.passcode = a.trim();
+  ui.changeCodeError = "";
+  ui.openForms.changeMyCode = false;
+  persist();
+  setNotice("ok", "Your access code has been changed. Use the new one next time you sign in.");
+}
 function signOut(){
   session.name = null;
   removeLocal("bp_signed_in_name");
@@ -13971,10 +14013,11 @@ function renderShell(){
       '<div class="whoami">' +
         '<div class="whoami-name">' + esc(u.name) + (u.isAdmin ? ' &middot; Admin' : '') + '</div>' +
         '<div class="whoami-role">' + (writeChecked && !writable ? "View only" : "Signed in") + '</div>' +
+        '<button type="button" class="signout-btn" style="margin-bottom:6px;" onclick="toggleChangeMyCode()">' + (ui.openForms.changeMyCode ? "Cancel code change" : "Change my access code") + '</button>' +
         '<button type="button" class="signout-btn" onclick="signOut()">Sign out</button>' +
       '</div>' +
     '</nav>' +
-    '<main>' + renderMobileBackBar() + renderOfflineBanner() + renderNotice() + renderSection() + '</main>' +
+    '<main>' + renderMobileBackBar() + renderOfflineBanner() + renderNotice() + (ui.openForms.changeMyCode ? renderChangeCodePanel() : "") + renderSection() + '</main>' +
   '</div>';
 }
 
@@ -20910,7 +20953,9 @@ function saveStaff(e, origName){
   var data = { name: name, passcode: f.passcode.value.trim(), active: f.active.checked, isAdmin: f.isAdmin.checked, canAllocate: f.canAllocate.checked, harvestOnly: f.harvestOnly.checked, limitedAccess: !!(f.limitedAccess && f.limitedAccess.checked), canAddParts: f.canAddParts.checked, machineryAdmin: f.machineryAdmin.checked, sopsAdmin: f.sopsAdmin.checked, canViewReceipts: f.canViewReceipts.checked };
   if(origName){
     var t = findTeam(origName);
+    var wasActive = t.active;
     Object.assign(t, data);
+    if(wasActive && !data.active) dropPushSubscriptionsFor(origName);
     if(origName === session.name && origName !== name){ session.name = name; setLocal("bp_signed_in_name", name); }
     ui.editing.staff = null;
   } else {
@@ -20920,10 +20965,23 @@ function saveStaff(e, origName){
   }
   persist();
 }
+// Stops a person's phones/computers getting "new note" push notifications
+// (2026-10-13). Their subscriptions live in Supabase keyed by team name, and
+// the notification sender doesn't check the team list, so without this a
+// removed or deactivated person would keep being notified. Best effort.
+function dropPushSubscriptionsFor(name){
+  try{
+    if(supabaseClient && name){
+      var p = supabaseClient.from("push_subscriptions").delete().eq("user_name", name);
+      if(p && p.then) p.then(function(){}, function(){});
+    }
+  }catch(e){}
+}
 function removeStaff(name){
-  if(!confirm('Remove ' + name + ' from the team? They will no longer be able to sign in.')) return;
+  if(!confirm('Remove ' + name + ' from the team? They will no longer be able to sign in, and will stop getting note notifications.')) return;
   var idx = state.team.findIndex(function(t){ return t.name === name; });
   if(idx > -1) state.team.splice(idx, 1);
+  dropPushSubscriptionsFor(name);
   persist();
 }
 
