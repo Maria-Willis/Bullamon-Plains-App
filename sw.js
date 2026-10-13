@@ -426,7 +426,9 @@
 // v83 (2026-10-12, later): Starting hours kept as a record (Edit machine + Overview), not used by the schedule -- index.html changed.
 // v84 (2026-10-12, later): Private > Information card gets an "Import summary" paste box -- index.html changed.
 // v85 (2026-10-12, later): Private "Information" card renamed Cropping Summary -- index.html changed.
-var CACHE_NAME = "bullamon-plains-shell-v85";
+// v86 (2026-10-13): Receipts upload button now reads "Take Photo / Choose File" -- index.html changed.
+// v87 (2026-10-13, later): Sold / Dead bulls table shows the latest years incl. retests -- index.html changed.
+var CACHE_NAME = "bullamon-plains-shell-v87";
 
 var SHELL_ASSETS = [
   "./",
