@@ -430,7 +430,9 @@
 // v87 (2026-10-13, later): Sold / Dead bulls table shows the latest years incl. retests -- index.html changed.
 // v88 (2026-10-13, later): new "My Time in Lieu" section -- index.html changed.
 // v89 (2026-10-13, later): My Time in Lieu shows the balance only (Earned/Taken tiles removed) -- index.html changed.
-var CACHE_NAME = "bullamon-plains-shell-v89";
+// v90 (2026-10-13, later): staff can change their own access code -- index.html changed.
+// v91 (2026-10-13, later): removing/deactivating staff also stops their note notifications -- index.html changed.
+var CACHE_NAME = "bullamon-plains-shell-v91";
 
 var SHELL_ASSETS = [
   "./",
