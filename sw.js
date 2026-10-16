@@ -438,7 +438,9 @@
 // v95 (2026-10-16, later): clearer message when the time sheet email function is not uploaded (HTTP 404) -- index.html changed.
 // v96 (2026-10-16, later): time sheet paid 30 mins applies to smoko only; lunch always deducted -- index.html changed.
 // v97 (2026-10-16, later): new "Silo Storage" section -- index.html changed.
-var CACHE_NAME = "bullamon-plains-shell-v97";
+// v98 (2026-10-16, later): Silo Storage button renamed "Edit silo & crop" -- index.html changed.
+// v99 (2026-10-16, later): Silo Storage forms keep what you typed, show errors inside the form -- index.html changed.
+var CACHE_NAME = "bullamon-plains-shell-v99";
 
 var SHELL_ASSETS = [
   "./",
