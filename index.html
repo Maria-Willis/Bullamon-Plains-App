@@ -519,27 +519,35 @@
   textarea.cell-edit{resize:vertical;min-height:32px;font-family:inherit;}
   td.num{font-variant-numeric:tabular-nums;}
   /* Silo Storage tiles */
-  .silo-row{display:flex;flex-wrap:wrap;gap:10px 14px;margin-bottom:16px;}
+  .silo-head{display:flex;align-items:center;gap:10px 14px;flex-wrap:wrap;margin-bottom:14px;}
+  .silo-north{font-size:12.5px;color:var(--text-muted);border:1px solid var(--border,#d6dee5);border-radius:999px;padding:3px 10px;}
+  .silo-north b{color:var(--text);}
+  .silo-cols{display:flex;flex-wrap:wrap;justify-content:center;align-items:flex-start;gap:12px 26px;padding:6px 0 4px;}
+  .silo-col{display:flex;flex-direction:column;align-items:center;gap:10px;}
+  .silo-stagger .silo-col:nth-child(even){margin-top:64px;}
   .silo-cell{display:flex;flex-direction:column;align-items:center;gap:4px;}
   .silo-code{font-weight:700;font-size:13px;}
   .silo{position:relative;display:flex;align-items:center;justify-content:center;text-align:center;cursor:pointer;color:var(--accent);padding:0;font:inherit;}
   .silo-round{width:112px;height:112px;border-radius:50%;border:2px solid var(--accent);background:#fff;}
-  .silo-cone{width:78px;height:130px;border:none;background:transparent;}
-  .silo-svg{position:absolute;inset:0;width:100%;height:100%;}
+  .silo-cone{width:104px;height:172px;border:none;background:transparent;align-items:flex-start;}
+  .silo-svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible;}
   .silo-body{position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;gap:2px;padding:0 10px;max-width:100%;color:var(--text);}
-  .silo-cone .silo-body{padding-bottom:26px;}
+  .silo-cone .silo-body{margin-top:38px;}
   .silo-crop{font-weight:700;font-size:12px;line-height:1.15;overflow-wrap:anywhere;}
   .silo-notes{font-size:10.5px;line-height:1.15;color:var(--text-muted);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere;}
   .silo-t{font-weight:700;font-size:13px;}
   .silo:hover{background:#eef5fc;}
-  .silo-cone:hover .silo-svg path{fill:#eef5fc;}
+  .silo-cone:hover{background:transparent;}
+  .silo-cone:hover .silo-tank{fill:#eef5fc;}
   .silo-empty{border-style:dashed;}
   .silo-cone.silo-empty{border:none;}
-  .silo-cone.silo-empty .silo-svg path{stroke-dasharray:5 4;}
+  .silo-cone.silo-empty .silo-tank{stroke-dasharray:5 4;}
   @media (max-width:480px){
-    .silo-row{gap:8px 10px;justify-content:flex-start;}
+    .silo-cols{gap:10px 14px;}
+    .silo-stagger .silo-col:nth-child(even){margin-top:50px;}
     .silo-round{width:84px;height:84px;}
-    .silo-cone{width:62px;height:108px;}
+    .silo-cone{width:80px;height:132px;}
+    .silo-cone .silo-body{margin-top:28px;}
     .silo-body{padding:0 5px;}
     .silo-crop{font-size:10.5px;} .silo-t{font-size:11.5px;} .silo-notes{font-size:9px;}
   }
@@ -1813,7 +1821,7 @@ const DEFAULT_STATE = {
 // change to this file, same as CACHE_NAME in sw.js -- it gives an instant,
 // no-technical-steps-needed way to confirm whether a given device is
 // actually running the latest deploy, without comparing file contents.
-var APP_BUILD = "2026-10-16.8";
+var APP_BUILD = "2026-10-16.9";
 
 /* ======================================================================
    UTILITIES
@@ -13243,6 +13251,14 @@ async function boot(){
     state.settings.siloSeedV1 = true;
     migrated = true;
   }
+  // one-time: Silo Storage's column layout (2026-10-16) -- silos saved earlier get a
+  // column/position (Airstrip becomes two columns like Maria's drawing). Balances and
+  // transactions are not touched.
+  if(!state.settings.siloLayoutV1){
+    siloLayoutDefaults(siloData());
+    state.settings.siloLayoutV1 = true;
+    migrated = true;
+  }
   // one-time migration: the sidebar's Daily Work/Safety & Compliance/People
   // grouping (added 2026-09-24) used to be hardcoded as a `group` field on
   // each NAV entry. Moved into an editable state.sidebarConfig here, at
@@ -14787,12 +14803,14 @@ function siloSeed(){
   mk(C, "2", 1, "round", "", "", 0);
   mk(C, "3", 1, "round", "Captain", "West Ginnibri (spreadsheet said \"183t Total\" -- may cover silos 1 and 3 together)", 183);
   mk(C, "4", 1, "round", "FABA", "24 Harvest", 0);
-  return { sites: sites, items: items };
+  var d = { sites: sites, items: items };
+  siloLayoutDefaults(d);
+  return d;
 }
 function siloFmt(n){ return (Math.round((Number(n) || 0) * 100) / 100).toLocaleString("en-AU", { maximumFractionDigits: 2 }); }
 function siloFind(id){ return byId(siloData().items, id); }
 function siloSiteOf(s){ return byId(siloData().sites, s.site); }
-function siloLabel(s){ var st = siloSiteOf(s); return (st ? st.short + " " : "") + s.code; }
+function siloLabel(s){ var st = siloSiteOf(s); return (st ? (st.short || st.name) + " " : "") + s.code; }
 function siloBalance(s){
   var t = 0;
   (s.transactions || []).forEach(function(x){ t += Number(x.delta) || 0; });
@@ -14857,6 +14875,37 @@ function siloDraftVal(name, fallback){
 }
 function siloSelectSite(id){ ui.siloSite = id; render(); }
 
+function siloCol(s){ return parseInt(s.col, 10) || parseInt(s.row, 10) || 1; }
+// Order within a heading: by column, then by position inside the column.
+function siloSortedItems(items){
+  return items.map(function(s, i){ return { s: s, i: i }; }).sort(function(a, b){
+    var pa = a.s.pos == null ? a.i : Number(a.s.pos), pb = b.s.pos == null ? b.i : Number(b.s.pos);
+    return siloCol(a.s) - siloCol(b.s) || pa - pb || a.i - b.i;
+  }).map(function(o){ return o.s; });
+}
+// Gives silos saved before the column layout (2026-10-16) a column and position:
+// Airstrip's old "rows" become its two columns (D1-D8 | 1-7, F1-F3), as in Maria's
+// new drawing; Cooks Dam/Camerons stays side by side. Only touches silos with no column yet.
+function siloLayoutDefaults(d){
+  var counters = {}, siteCount = {};
+  d.items.forEach(function(s){
+    if(s.col != null) return;
+    siteCount[s.site] = (siteCount[s.site] || 0) + 1;
+    var col = s.site === "site_cooks" ? siteCount[s.site] : (parseInt(s.row, 10) || 1);
+    var k = s.site + "|" + col;
+    counters[k] = (counters[k] || 0) + 1;
+    s.col = col; s.pos = counters[k];
+  });
+  d.sites.forEach(function(st){
+    if(st.id === "site_airstrip" && st.north == null) st.north = "Chemical Shed & Airstrip";
+  });
+}
+function siloAdminFail(msg){
+  ui.siloAdminError = msg; render();
+  setTimeout(function(){ var el = document.getElementById("silo-admin"); if(el && el.scrollIntoView) el.scrollIntoView({ block: "center", behavior: "smooth" }); }, 30);
+}
+function siloToggleSiteEdit(){ ui.siloEditSite = !ui.siloEditSite; ui.siloAdminError = ""; render(); }
+
 function renderSilos(){
   if(!siloCanRecord()) return pageHead("Silo Storage", "") + '<div class="empty-state">You don\'t have access to this section.</div>';
   var open = ui.siloOpen ? siloFind(ui.siloOpen) : null;
@@ -14864,7 +14913,7 @@ function renderSilos(){
   var d = siloData();
   var html = pageHead("Silo Storage", "What is in each silo. Tap a silo to see its balance and transactions, or to add, take out, transfer or record an event.");
   if(ui.siloError) html += '<div class="signin-error" style="margin-bottom:12px;">' + esc(ui.siloError) + '</div>';
-  if(!d.sites.length){ return html + '<div class="empty-state">No silos set up yet.</div>'; }
+  if(!d.sites.length){ return html + '<div class="empty-state">No silos set up yet.</div>' + (isAdmin() ? renderSiloManageCard() : ''); }
   var siteId = ui.siloSite && byId(d.sites, ui.siloSite) ? ui.siloSite : d.sites[0].id;
   // totals by crop (all silos)
   var totals = {}, order = [], grand = 0;
@@ -14880,20 +14929,25 @@ function renderSilos(){
     (order.length ? '<div class="row-muted" style="font-size:12.5px;margin-top:6px;">' + order.sort(function(a, b){ return totals[b].t - totals[a].t; }).map(function(k){ return esc(totals[k].label) + ' ' + siloFmt(totals[k].t) + ' t'; }).join(' &middot; ') + '</div>' : '') + '</div>';
   var site = byId(d.sites, siteId);
   var items = d.items.filter(function(s){ return s.site === siteId; });
-  var rows = [];
-  items.forEach(function(s){ if(rows.indexOf(s.row) === -1) rows.push(s.row); });
-  rows.sort(function(a, b){ return a - b; });
-  html += '<div class="card">' + (function(){
-  return '<div class="filter-pill-row" style="margin:0 0 14px;">' + d.sites.map(function(st){
+  html += '<div class="card"><div class="filter-pill-row" style="margin:0 0 14px;">' + d.sites.map(function(st){
     return '<button type="button" class="filter-pill' + (st.id === siteId ? " active" : "") + '" onclick="siloSelectSite(\'' + st.id + '\')">' + esc(st.name) + '</button>';
   }).join("") + '</div>';
-  })();
-  if(!items.length) html += '<div class="empty-state">No silos here yet.</div>';
-  rows.forEach(function(r){
-    html += '<div class="silo-row">' + items.filter(function(s){ return s.row === r; }).map(siloTileHtml).join("") + '</div>';
+  html += '<div class="silo-head"><h3 style="margin:0;">' + esc(site.name) + '</h3>' +
+    (site.north ? '<span class="silo-north"><b>N</b> &#10142; ' + esc(site.north) + '</span>' : '') +
+    (isAdmin() ? '<button type="button" class="btn btn-ghost btn-sm" style="width:auto;margin-left:auto;" onclick="siloToggleSiteEdit()">' + (ui.siloEditSite ? 'Close' : 'Edit heading') + '</button>' : '') + '</div>';
+  if(isAdmin() && ui.siloEditSite) html += renderSiloSiteEdit(site);
+  if(!items.length) html += '<div class="empty-state">No silos under this heading yet.</div>';
+  var cols = [];
+  siloSortedItems(items).forEach(function(s){
+    var c = siloCol(s), last = cols[cols.length - 1];
+    if(!last || last.c !== c){ last = { c: c, items: [] }; cols.push(last); }
+    last.items.push(s);
   });
+  html += '<div class="silo-cols' + (cols.length === 2 ? ' silo-stagger' : '') + '">' + cols.map(function(c){
+    return '<div class="silo-col">' + c.items.map(siloTileHtml).join("") + '</div>';
+  }).join("") + '</div>';
   var siteTotal = items.reduce(function(sum, s){ return sum + siloBalance(s); }, 0);
-  html += '<p class="row-muted" style="margin:6px 0 0;font-size:12.5px;">' + esc(site.short) + ' total: <b>' + siloFmt(siteTotal) + ' t</b></p></div>';
+  html += '<p class="row-muted" style="margin:10px 0 0;font-size:12.5px;">' + esc(site.name) + ' total: <b>' + siloFmt(siteTotal) + ' t</b></p></div>';
   if(isAdmin()) html += renderSiloManageCard();
   return html;
 }
@@ -14911,39 +14965,106 @@ function siloTileHtml(s){
     (s.notes ? '<div class="silo-notes">' + esc(s.notes) + '</div>' : '') +
     '<div class="silo-t">' + (b > 0 ? siloFmt(b) + ' t' : '<span class="row-muted">Empty</span>') + '</div>' +
     (pct !== null && b > 0 ? '<div class="silo-notes">' + pct + '% full</div>' : '');
+  // Cone-bottom silo on a braced frame, like the F1-F3 drawing on the Airstrip sheet.
+  var tank = 'M8 24 Q50 2 92 24 L92 84 L58 108 L42 108 L8 84 Z';
   var shape = s.shape === "cone"
-    ? '<svg class="silo-svg" viewBox="0 0 100 130" preserveAspectRatio="none" aria-hidden="true">' + (pct !== null ? '<defs><linearGradient id="sg_' + s.id + '" x1="0" y1="1" x2="0" y2="0"><stop offset="' + pct + '%" stop-color="#cfe3f6"/><stop offset="' + pct + '%" stop-color="#ffffff"/></linearGradient></defs>' : '') + '<path d="M4 14 Q4 4 14 4 L86 4 Q96 4 96 14 L96 90 L50 126 L4 90 Z" fill="' + (pct !== null ? 'url(#sg_' + s.id + ')' : '#fff') + '" stroke="currentColor" stroke-width="2"/></svg>'
+    ? '<svg class="silo-svg" viewBox="0 0 100 150" preserveAspectRatio="none" aria-hidden="true">' +
+        (pct !== null ? '<defs><linearGradient id="sg_' + s.id + '" x1="0" y1="1" x2="0" y2="0"><stop offset="' + pct + '%" stop-color="#cfe3f6"/><stop offset="' + pct + '%" stop-color="#ffffff"/></linearGradient></defs>' : '') +
+        '<g fill="none" stroke="currentColor" stroke-width="1.6" vector-effect="non-scaling-stroke"><path d="M14 92 V148 M86 92 V148 M14 112 H86 M14 148 H86 M14 112 L86 148 M86 112 L14 148" vector-effect="non-scaling-stroke"/></g>' +
+        '<path class="silo-tank" d="' + tank + '" fill="' + (pct !== null ? 'url(#sg_' + s.id + ')' : '#fff') + '" stroke="currentColor" stroke-width="2" vector-effect="non-scaling-stroke"/></svg>'
     : '';
   var fillStyle = (s.shape !== "cone" && pct !== null) ? ' style="background:linear-gradient(to top,#cfe3f6 ' + pct + '%,#fff ' + pct + '%);"' : '';
   return '<div class="silo-cell"><div class="silo-code">' + esc(s.code) + '</div>' +
     '<button type="button" class="silo silo-' + (s.shape === "cone" ? "cone" : "round") + (b > 0 ? "" : " silo-empty") + '"' + fillStyle + ' onclick="siloOpen(\'' + s.id + '\')" title="' + escAttr(siloLabel(s) + (pct !== null ? " - " + pct + "% full" : "")) + '">' + shape + '<span class="silo-body">' + body + '</span></button></div>';
 }
+function renderSiloSiteEdit(site){
+  var empty = siloData().items.filter(function(s){ return s.site === site.id; }).every(function(s){ return siloBalance(s) <= 0; });
+  return '<form id="silo-admin" class="form-panel" style="margin:0 0 14px;" onsubmit="siloSaveSite(event,\'' + site.id + '\')">' +
+    (ui.siloAdminError ? '<div class="signin-error" role="alert" style="margin-bottom:12px;">' + esc(ui.siloAdminError) + '</div>' : '') +
+    '<div class="form-grid"><div class="field"><label>Heading</label><input type="text" name="heading" required value="' + escAttr(site.name) + '" /></div>' +
+    '<div class="field"><label>North of it (optional)</label><input type="text" name="north" value="' + escAttr(site.north || "") + '" placeholder="e.g. Chemical Shed" /></div></div>' +
+    '<div class="form-actions"><button type="submit" class="btn btn-primary" style="width:auto;">Save heading</button>' +
+    '<button type="button" class="btn btn-danger" style="width:auto;" onclick="removeSiloSite(\'' + site.id + '\')"' + (empty ? '' : ' disabled title="Empty its silos first"') + '>Remove heading</button></div>' +
+    (empty ? '' : '<p class="row-muted" style="margin:8px 0 0;font-size:12px;">A heading can only be removed once every silo under it is empty.</p>') + '</form>';
+}
 function renderSiloManageCard(){
   var d = siloData();
-  return '<div class="card" style="margin-top:14px;"><h3 style="margin:0 0 4px;">Add a silo (admin)</h3>' +
-    '<p class="row-muted" style="margin:0 0 10px;font-size:12.5px;">Adds another silo to a site. Rename or remove a silo from its own page.</p>' +
+  var err = ui.siloAdminError && !ui.siloEditSite ? '<div class="signin-error" role="alert" style="margin-bottom:12px;">' + esc(ui.siloAdminError) + '</div>' : '';
+  return '<div id="silo-admin-cards">' +
+    '<div class="card" style="margin-top:14px;"' + (ui.siloEditSite ? '' : ' id="silo-admin"') + '><h3 style="margin:0 0 4px;">Add a new heading (admin)</h3>' +
+    '<p class="row-muted" style="margin:0 0 10px;font-size:12.5px;">Creates a new group of silos with its own heading and tab, e.g. another site. They are numbered 1, 2, 3&hellip; and you can rename each one afterwards.</p>' + err +
+    '<form onsubmit="addSiloSite(event)"><div class="form-grid">' +
+      '<div class="field"><label>Heading</label><input type="text" name="heading" required placeholder="e.g. Home Farm Silos" /></div>' +
+      '<div class="field"><label>How many silos</label><input type="number" name="count" min="1" max="30" step="1" value="4" required /></div>' +
+      '<div class="field"><label>Laid out</label><select name="layout"><option value="side">Side by side (in a row)</option><option value="two">In two columns</option><option value="one">In one column</option></select></div>' +
+      '<div class="field"><label>North of it (optional)</label><input type="text" name="north" placeholder="e.g. Machinery Shed" /></div>' +
+    '</div><div class="form-actions"><button type="submit" class="btn btn-primary" style="width:auto;">Add heading</button></div></form></div>' +
+    '<div class="card" style="margin-top:14px;"><h3 style="margin:0 0 4px;">Add a silo (admin)</h3>' +
+    '<p class="row-muted" style="margin:0 0 10px;font-size:12.5px;">Adds one more silo under a heading. Rename, move or remove a silo from its own page.</p>' +
     '<form onsubmit="addSilo(event)"><div class="form-grid">' +
-      '<div class="field"><label>Site</label><select name="site">' + d.sites.map(function(s){ return '<option value="' + escAttr(s.id) + '">' + esc(s.name) + '</option>'; }).join("") + '</select></div>' +
+      '<div class="field"><label>Heading</label><select name="site">' + d.sites.map(function(s){ return '<option value="' + escAttr(s.id) + '"' + (s.id === ui.siloSite ? " selected" : "") + '>' + esc(s.name) + '</option>'; }).join("") + '</select></div>' +
       '<div class="field"><label>Silo name / number</label><input type="text" name="code" required placeholder="e.g. 8 or F4" /></div>' +
-      '<div class="field"><label>Shape</label><select name="shape"><option value="round">Round</option><option value="cone">Cone-bottom</option></select></div>' +
-      '<div class="field"><label>Row</label><input type="number" name="row" min="1" max="6" step="1" value="2" /></div>' +
-    '</div><div class="form-actions"><button type="submit" class="btn btn-primary" style="width:auto;">Add silo</button></div></form></div>';
+      '<div class="field"><label>Shape</label><select name="shape"><option value="round">Round</option><option value="cone">Cone-bottom on frame</option></select></div>' +
+      '<div class="field"><label>Column</label><input type="number" name="col" min="1" max="12" step="1" value="1" /></div>' +
+    '</div><div class="form-actions"><button type="submit" class="btn btn-primary" style="width:auto;">Add silo</button></div></form></div></div>';
+}
+function addSiloSite(e){
+  e.preventDefault();
+  if(!isAdmin()) return;
+  var f = e.target, d = siloData();
+  var name = f.heading.value.trim();
+  var n = parseInt(f.count.value, 10);
+  if(!name) return siloAdminFail("Enter a heading.");
+  if(d.sites.some(function(s){ return s.name.toLowerCase() === name.toLowerCase(); })) return siloAdminFail("There is already a heading called " + name + ".");
+  if(!(n >= 1 && n <= 30)) return siloAdminFail("Enter how many silos (1 to 30).");
+  var id = uid("site");
+  d.sites.push({ id: id, name: name, short: name, north: f.north.value.trim() });
+  var layout = f.layout.value, half = Math.ceil(n / 2);
+  for(var i = 1; i <= n; i++){
+    var col = layout === "side" ? i : (layout === "two" ? (i <= half ? 1 : 2) : 1);
+    var pos = layout === "two" ? (i <= half ? i : i - half) : 1 + (layout === "one" ? i - 1 : 0);
+    d.items.push({ id: uid("silo"), site: id, code: String(i), row: col, col: col, pos: pos, shape: "round", crop: "", notes: "", transactions: [] });
+  }
+  ui.siloAdminError = ""; ui.siloSite = id; ui.siloEditSite = false;
+  persist();
+}
+function siloSaveSite(e, id){
+  e.preventDefault();
+  if(!isAdmin()) return;
+  var d = siloData(), st = byId(d.sites, id); if(!st) return;
+  var name = e.target.heading.value.trim();
+  if(!name) return siloAdminFail("Enter a heading.");
+  if(d.sites.some(function(o){ return o.id !== id && o.name.toLowerCase() === name.toLowerCase(); })) return siloAdminFail("There is already a heading called " + name + ".");
+  st.name = name; st.short = name; st.north = e.target.north.value.trim();
+  ui.siloAdminError = ""; ui.siloEditSite = false;
+  persist();
+}
+function removeSiloSite(id){
+  if(!isAdmin()) return;
+  var d = siloData(), st = byId(d.sites, id); if(!st) return;
+  var its = d.items.filter(function(s){ return s.site === id; });
+  if(its.some(function(s){ return siloBalance(s) > 0; })) return siloAdminFail("Empty every silo under this heading first (Take out or Transfer).");
+  if(!confirm("Remove the heading " + st.name + " and its " + its.length + " silo" + (its.length === 1 ? "" : "s") + ", including their transaction history? This cannot be undone.")) return;
+  d.items = d.items.filter(function(s){ return s.site !== id; });
+  removeById(d.sites, id);
+  ui.siloSite = d.sites.length ? d.sites[0].id : null; ui.siloEditSite = false; ui.siloAdminError = "";
+  persist();
 }
 function addSilo(e){
   e.preventDefault();
   if(!isAdmin()) return;
-  var f = e.target;
+  var f = e.target, d = siloData();
   var code = f.code.value.trim();
   if(!code) return;
   var site = f.site.value;
-  if(siloData().items.some(function(s){ return s.site === site && s.code.toLowerCase() === code.toLowerCase(); })){
-    ui.siloError = "That site already has a silo called " + code + "."; render(); return;
-  }
-  ui.siloError = "";
-  siloData().items.push({ id: uid("silo"), site: site, code: code, row: parseInt(f.row.value, 10) || 2, shape: f.shape.value === "cone" ? "cone" : "round", crop: "", notes: "", transactions: [] });
+  if(d.items.some(function(s){ return s.site === site && s.code.toLowerCase() === code.toLowerCase(); })) return siloAdminFail("That heading already has a silo called " + code + ".");
+  var col = Math.max(1, Math.min(12, parseInt(f.col.value, 10) || 1));
+  var pos = 0;
+  d.items.forEach(function(s){ if(s.site === site && siloCol(s) === col) pos = Math.max(pos, Number(s.pos) || 0); });
+  ui.siloAdminError = "";
+  d.items.push({ id: uid("silo"), site: site, code: code, row: col, col: col, pos: pos + 1, shape: f.shape.value === "cone" ? "cone" : "round", crop: "", notes: "", transactions: [] });
   persist();
 }
-
 function renderSiloDetail(s){
   var b = siloBalance(s);
   var rows = siloLedger(s).slice().reverse();
@@ -15016,7 +15137,11 @@ function renderSiloActionForm(s, act){
       '<div class="field"><label>Crop type</label><input type="text" name="crop" value="' + escAttr(siloDraftVal("crop", s.crop || "")) + '" placeholder="e.g. Captain chickpeas" /></div>' +
       '<div class="field"><label>Capacity (tonnes, optional)</label><input type="text" inputmode="decimal" name="capacity" value="' + escAttr(siloDraftVal("capacity", s.capacity ? String(s.capacity) : "")) + '" placeholder="shows how full it is" /></div>' +
       '<div class="field span-2"><label>Paddock / source / notes</label><input type="text" name="notes" value="' + escAttr(siloDraftVal("notes", s.notes || "")) + '" /></div>' +
-      (isAdmin() ? '<div class="field"><label>Silo name / number (admin)</label><input type="text" name="code" value="' + escAttr(siloDraftVal("code", s.code)) + '" required /></div>' : '') +
+      (isAdmin() ? '<div class="field"><label>Silo name / number (admin)</label><input type="text" name="code" value="' + escAttr(siloDraftVal("code", s.code)) + '" required /></div>' +
+        '<div class="field"><label>Heading (admin)</label><select name="site">' + siloData().sites.map(function(st){ return '<option value="' + escAttr(st.id) + '"' + (siloDraftVal("site", s.site) === st.id ? " selected" : "") + '>' + esc(st.name) + '</option>'; }).join("") + '</select></div>' +
+        '<div class="field"><label>Column (admin)</label><input type="number" name="col" min="1" max="12" step="1" value="' + escAttr(siloDraftVal("col", String(siloCol(s)))) + '" /></div>' +
+        '<div class="field"><label>Position in column (admin)</label><input type="number" name="pos" min="1" max="99" step="1" value="' + escAttr(siloDraftVal("pos", String(s.pos == null ? "" : s.pos))) + '" /></div>' +
+        '<div class="field"><label>Shape (admin)</label><select name="shape"><option value="round"' + (siloDraftVal("shape", s.shape) !== "cone" ? " selected" : "") + '>Round</option><option value="cone"' + (siloDraftVal("shape", s.shape) === "cone" ? " selected" : "") + '>Cone-bottom on frame</option></select></div>' : '') +
       '</div><div class="form-actions"><button type="submit" class="btn btn-primary" style="width:auto;">Save</button>' + cancel +
       (isAdmin() ? '<button type="button" class="btn btn-danger" style="width:auto;" onclick="removeSilo(\'' + s.id + '\')">Remove this silo</button>' : '') + '</div></form>';
   }
@@ -15114,11 +15239,15 @@ function siloSaveDetails(e, id){
     s.capacity = cap;
   }
   if(isAdmin() && f.code){
-    var code = f.code.value.trim();
-    if(code && code !== s.code){
-      if(siloData().items.some(function(o){ return o.id !== s.id && o.site === s.site && o.code.toLowerCase() === code.toLowerCase(); })) return siloFail("That site already has a silo called " + code + ".");
-      s.code = code;
-    }
+    var code = f.code.value.trim() || s.code;
+    var site = f.site.value || s.site;
+    if((code !== s.code || site !== s.site) && siloData().items.some(function(o){ return o.id !== s.id && o.site === site && o.code.toLowerCase() === code.toLowerCase(); })) return siloFail("That heading already has a silo called " + code + ".");
+    s.code = code; s.site = site;
+    var col = parseInt(f.col.value, 10);
+    if(col >= 1 && col <= 12){ s.col = col; s.row = col; }
+    var pos = parseInt(f.pos.value, 10);
+    if(pos >= 1) s.pos = pos;
+    s.shape = f.shape.value === "cone" ? "cone" : "round";
   }
   siloDone("Saved.");
 }
