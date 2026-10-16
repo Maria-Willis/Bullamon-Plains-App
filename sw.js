@@ -436,7 +436,8 @@
 // v93 (2026-10-16, later): time sheet nett hours treat the first 30 mins of breaks as paid -- index.html changed.
 // v94 (2026-10-16, later): time sheet fields no longer jump back while typing -- index.html changed.
 // v95 (2026-10-16, later): clearer message when the time sheet email function is not uploaded (HTTP 404) -- index.html changed.
-var CACHE_NAME = "bullamon-plains-shell-v95";
+// v96 (2026-10-16, later): time sheet paid 30 mins applies to smoko only; lunch always deducted -- index.html changed.
+var CACHE_NAME = "bullamon-plains-shell-v96";
 
 var SHELL_ASSETS = [
   "./",
