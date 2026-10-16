@@ -520,8 +520,11 @@
   td.num{font-variant-numeric:tabular-nums;}
   /* Silo Storage tiles */
   .silo-head{display:flex;align-items:center;gap:10px 14px;flex-wrap:wrap;margin-bottom:14px;}
-  .silo-north{font-size:12.5px;color:var(--text-muted);border:1px solid var(--border,#d6dee5);border-radius:999px;padding:3px 10px;}
-  .silo-north b{color:var(--text);}
+  .silo-title{margin:0;font-size:28px;line-height:1.1;font-weight:800;color:var(--text);letter-spacing:-.01em;}
+  .silo-north{display:inline-flex;align-items:center;gap:8px;color:var(--accent);border:2px solid var(--accent);border-radius:10px;padding:5px 12px 5px 6px;background:#eef5fc;}
+  .silo-n{display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:6px;background:var(--accent);color:var(--accent-contrast,#fff);font-weight:800;font-size:20px;line-height:1;}
+  .silo-arrow{width:44px;height:16px;flex:none;}
+  .silo-north-text{font-weight:700;font-size:14px;color:var(--text);}
   .silo-cols{display:flex;flex-wrap:wrap;justify-content:center;align-items:flex-start;gap:12px 26px;padding:6px 0 4px;}
   .silo-col{display:flex;flex-direction:column;align-items:center;gap:10px;}
   .silo-cell{display:flex;flex-direction:column;align-items:center;gap:4px;}
@@ -543,6 +546,8 @@
   .silo-cone.silo-empty .silo-tank{stroke-dasharray:5 4;}
   @media (max-width:480px){
     .silo-cols{gap:10px 14px;}
+    .silo-title{font-size:23px;}
+    .silo-north-text{font-size:13px;}
     .silo-round{width:84px;height:84px;}
     .silo-cone{width:80px;height:132px;}
     .silo-cone .silo-body{margin-top:28px;}
@@ -1819,7 +1824,7 @@ const DEFAULT_STATE = {
 // change to this file, same as CACHE_NAME in sw.js -- it gives an instant,
 // no-technical-steps-needed way to confirm whether a given device is
 // actually running the latest deploy, without comparing file contents.
-var APP_BUILD = "2026-10-16.11";
+var APP_BUILD = "2026-10-16.12";
 
 /* ======================================================================
    UTILITIES
@@ -14930,8 +14935,8 @@ function renderSilos(){
   html += '<div class="card"><div class="filter-pill-row" style="margin:0 0 14px;">' + d.sites.map(function(st){
     return '<button type="button" class="filter-pill' + (st.id === siteId ? " active" : "") + '" onclick="siloSelectSite(\'' + st.id + '\')">' + esc(st.name) + '</button>';
   }).join("") + '</div>';
-  html += '<div class="silo-head"><h3 style="margin:0;">' + esc(site.name) + '</h3>' +
-    (site.north ? '<span class="silo-north"><b>N</b> &#10142; ' + esc(site.north) + '</span>' : '') +
+  html += '<div class="silo-head"><h2 class="silo-title">' + esc(site.name) + '</h2>' +
+    (site.north ? '<span class="silo-north" title="North is towards ' + escAttr(site.north) + '"><span class="silo-n">N</span><svg class="silo-arrow" viewBox="0 0 56 20" aria-hidden="true"><path d="M0 4 H38 V0 L56 10 L38 20 V16 H0 L5 10 Z" fill="currentColor"/></svg><span class="silo-north-text">' + esc(site.north) + '</span></span>' : '') +
     (isAdmin() ? '<button type="button" class="btn btn-ghost btn-sm" style="width:auto;margin-left:auto;" onclick="siloToggleSiteEdit()">' + (ui.siloEditSite ? 'Close' : 'Edit heading') + '</button>' : '') + '</div>';
   if(isAdmin() && ui.siloEditSite) html += renderSiloSiteEdit(site);
   if(!items.length) html += '<div class="empty-state">No silos under this heading yet.</div>';
