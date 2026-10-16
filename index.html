@@ -1824,7 +1824,7 @@ const DEFAULT_STATE = {
 // change to this file, same as CACHE_NAME in sw.js -- it gives an instant,
 // no-technical-steps-needed way to confirm whether a given device is
 // actually running the latest deploy, without comparing file contents.
-var APP_BUILD = "2026-10-16.13";
+var APP_BUILD = "2026-10-16.14";
 
 /* ======================================================================
    UTILITIES
@@ -14920,18 +14920,23 @@ function siloAdminFail(msg){
 function siloToggleSiteEdit(){ ui.siloEditSite = !ui.siloEditSite; ui.siloAdminError = ""; ui.siloNorthDraft = null; render(); }
 // Compass marker: an arrow with an N at its tip. northDeg = degrees clockwise from "up" (0 = up, 90 = right).
 function siloNorthDeg(site){ var n = Number(site && site.northDeg); return isFinite(n) ? ((Math.round(n) % 360) + 360) % 360 : 0; }
+// The N always stays upright and sits just beyond the arrow's tip, wherever the arrow points.
+function siloNPos(deg){
+  var r = 39, a = deg * Math.PI / 180;
+  return { x: Math.round((50 + r * Math.sin(a)) * 10) / 10, y: Math.round((50 - r * Math.cos(a) + 8) * 10) / 10 };
+}
 function siloCompassSvg(deg, cls){
+  var n = siloNPos(deg);
   return '<svg class="' + cls + '" viewBox="0 0 100 100" role="img" aria-label="North is ' + deg + ' degrees clockwise from up">' +
-    '<circle cx="50" cy="50" r="46" fill="#fff" stroke="currentColor" stroke-width="3"/>' +
-    '<g class="silo-compass-g" transform="rotate(' + deg + ' 50 50)">' +
-      '<text x="50" y="26" text-anchor="middle" font-size="26" font-weight="800" fill="currentColor" font-family="inherit">N</text>' +
-      '<path d="M50 32 L64 72 L50 63 L36 72 Z" fill="currentColor"/>' +
-    '</g></svg>';
+    '<g class="silo-compass-g" transform="rotate(' + deg + ' 50 50)"><path d="M50 22 L65 70 L50 60 L35 70 Z" fill="currentColor"/></g>' +
+    '<text class="silo-compass-n" x="' + n.x + '" y="' + n.y + '" text-anchor="middle" font-size="22" font-weight="800" fill="currentColor" font-family="inherit">N</text></svg>';
 }
 function siloPreviewNorth(v){
   var deg = ((Math.round(Number(v) || 0) % 360) + 360) % 360;
   ui.siloNorthDraft = deg;
   document.querySelectorAll(".silo-compass-g").forEach(function(g){ g.setAttribute("transform", "rotate(" + deg + " 50 50)"); });
+  var np = siloNPos(deg);
+  document.querySelectorAll(".silo-compass-n").forEach(function(t){ t.setAttribute("x", np.x); t.setAttribute("y", np.y); });
   var out = document.getElementById("silo-deg-val"); if(out) out.textContent = deg + "\u00b0";
   var sl = document.getElementById("silo-deg-range"); if(sl && String(sl.value) !== String(deg)) sl.value = deg;
 }
