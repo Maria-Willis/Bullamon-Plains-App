@@ -525,19 +525,21 @@
   .silo-compass{width:88px;height:88px;display:block;}
   .silo-compass-edit{margin:0 0 4px;}
   .silo-compass-edit input[type=range]{width:100%;}
-  .silo-cols{display:flex;flex-wrap:wrap;justify-content:center;align-items:flex-start;gap:12px 26px;padding:6px 0 4px;}
-  .silo-col{display:flex;flex-direction:column;align-items:center;gap:10px;}
-  .silo-cell{display:flex;flex-direction:column;align-items:center;gap:4px;}
-  .silo-code{font-weight:800;font-size:16px;line-height:1;background:var(--accent);color:var(--accent-contrast,#fff);border-radius:999px;padding:5px 14px;min-width:38px;text-align:center;}
+  /* The two (or more) columns are stretched to the same height, so the last silo in each ends at the same level. */
+  .silo-cols{--k:1;display:flex;flex-wrap:wrap;justify-content:center;align-items:stretch;gap:12px 30px;padding:14px 0 4px;}
+  .silo-col{display:flex;flex-direction:column;align-items:center;justify-content:space-between;gap:22px;}
+  .silo-cell{position:relative;display:flex;flex-direction:column;align-items:center;}
+  .silo-code{position:absolute;z-index:3;top:-11px;left:-12px;font-weight:800;font-size:15px;line-height:1;background:var(--accent);color:var(--accent-contrast,#fff);border-radius:999px;padding:5px 11px;min-width:34px;text-align:center;box-shadow:0 0 0 2px #fff;}
   .silo{position:relative;display:flex;align-items:center;justify-content:center;text-align:center;cursor:pointer;color:var(--accent);padding:0;font:inherit;}
-  .silo-round{width:112px;height:112px;border-radius:50%;border:2px solid var(--accent);background:#fff;}
-  .silo-cone{width:104px;height:172px;border:none;background:transparent;align-items:flex-start;}
+  .silo-round{width:calc(var(--d) * 1px * var(--k));height:calc(var(--d) * 1px * var(--k));border-radius:50%;border:2px solid var(--accent);background:#fff;}
+  .silo-cone{width:calc(var(--d) * 1px * var(--k));height:calc(var(--d) * 1.2px * var(--k));border:none;background:transparent;}
   .silo-svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible;}
-  .silo-body{position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;gap:2px;padding:0 10px;max-width:100%;color:var(--text);}
-  .silo-cone .silo-body{margin-top:38px;}
+  .silo-body{position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;gap:2px;padding:0 8px;max-width:100%;color:var(--text);}
+  .silo-cone .silo-body{padding-bottom:14%;}
   .silo-crop{font-weight:700;font-size:12px;line-height:1.15;overflow-wrap:anywhere;}
   .silo-notes{font-size:10.5px;line-height:1.15;color:var(--text-muted);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere;}
   .silo-t{font-weight:700;font-size:13px;}
+  .silo-small .silo-crop{font-size:11px;} .silo-small .silo-t{font-size:12px;} .silo-small .silo-pct{display:none;}
   .silo-nolevel{font-size:10px;font-weight:700;color:var(--danger);}
   .silo:hover{background:#eef5fc;}
   .silo-cone:hover{background:transparent;}
@@ -546,14 +548,13 @@
   .silo-cone.silo-empty{border:none;}
   .silo-cone.silo-empty .silo-tank{stroke-dasharray:5 4;}
   @media (max-width:480px){
-    .silo-cols{gap:10px 14px;}
+    .silo-cols{--k:.9;gap:12px 20px;padding-top:10px;}
     .silo-title{font-size:23px;}
     .silo-compass{width:70px;height:70px;}
-    .silo-round{width:84px;height:84px;}
-    .silo-cone{width:80px;height:132px;}
-    .silo-cone .silo-body{margin-top:28px;}
-    .silo-body{padding:0 5px;}
-    .silo-crop{font-size:10.5px;} .silo-t{font-size:11.5px;} .silo-notes{font-size:9px;}
+    .silo-code{font-size:13px;padding:4px 9px;min-width:28px;top:-9px;left:-10px;}
+    .silo-body{padding:0 4px;}
+    .silo-crop{font-size:10px;} .silo-t{font-size:11px;} .silo-notes{font-size:8.5px;}
+    .silo-small .silo-notes{display:none;} .silo-small .silo-crop{font-size:9.5px;} .silo-small .silo-t{font-size:10.5px;}
   }
   /* Time Sheets grid inputs: one consistent look for time/number/text cells. */
   #app input.ts-in, #app textarea.ts-in{font:inherit;font-size:13px;color:inherit;background:#fff;border:1px solid var(--divider);border-radius:6px;padding:5px 6px;height:32px;width:100%;box-sizing:border-box;min-width:0;}
@@ -1825,7 +1826,7 @@ const DEFAULT_STATE = {
 // change to this file, same as CACHE_NAME in sw.js -- it gives an instant,
 // no-technical-steps-needed way to confirm whether a given device is
 // actually running the latest deploy, without comparing file contents.
-var APP_BUILD = "2026-10-16.15";
+var APP_BUILD = "2026-10-16.16";
 
 /* ======================================================================
    UTILITIES
@@ -13263,6 +13264,12 @@ async function boot(){
     state.settings.siloLayoutV1 = true;
     migrated = true;
   }
+  // one-time: fill levels for the Airstrip silos from Maria (2026-10-16). Never overwrites a level already set.
+  if(!state.settings.siloAirstripLevelsV1){
+    siloApplyAirstripLevels(siloData());
+    state.settings.siloAirstripLevelsV1 = true;
+    migrated = true;
+  }
   // one-time: the "north of it" text note is replaced by a rotatable compass marker
   // (2026-10-16). Airstrip's drawing has its N arrow pointing right, so start at 90 degrees.
   if(!state.settings.siloCompassV1){
@@ -14819,7 +14826,23 @@ function siloSeed(){
   mk(C, "4", 1, "round", "FABA", "24 Harvest", 0);
   var d = { sites: sites, items: items };
   siloLayoutDefaults(d);
+  siloApplyAirstripLevels(d);
   return d;
+}
+// Fill levels Maria gave for the Airstrip silos (tonnes): D1-D8 100; 1-2 50; 3-5 80; 6-7 72; F1-F3 65.
+var SILO_AIRSTRIP_LEVELS = { D1:100, D2:100, D3:100, D4:100, D5:100, D6:100, D7:100, D8:100, "1":50, "2":50, "3":80, "4":80, "5":80, "6":72, "7":72, F1:65, F2:65, F3:65 };
+// Only fills in silos that have no fill level yet, so anything already entered by hand is kept.
+function siloApplyAirstripLevels(d){
+  d.items.forEach(function(x){
+    if(x.site === "site_airstrip" && !(Number(x.capacity) > 0) && SILO_AIRSTRIP_LEVELS[x.code]) x.capacity = SILO_AIRSTRIP_LEVELS[x.code];
+  });
+}
+// Drawn size of a silo follows how much it holds: a 100 t silo is bigger than an 80, 72, 65 or 50 t one.
+// (Chosen so the two Airstrip columns come out about the same height; the columns are then stretched
+// to end at exactly the same level.)
+function siloSizePx(s){
+  var cap = siloCap(s) || 80;
+  return Math.round(Math.max(64, Math.min(140, 24 + 1.12 * cap)));
 }
 function siloFmt(n){ return (Math.round((Number(n) || 0) * 100) / 100).toLocaleString("en-AU", { maximumFractionDigits: 2 }); }
 function siloFind(id){ return byId(siloData().items, id); }
@@ -15077,23 +15100,23 @@ function siloFillPct(s){
 function siloTileHtml(s){
   var b = siloBalance(s);
   var pct = siloFillPct(s);
+  var d = siloSizePx(s);
   var hasCrop = !!(s.crop && s.crop.trim());
   var body = '<div class="silo-crop">' + (hasCrop ? esc(s.crop) : '<span class="row-muted">&nbsp;</span>') + '</div>' +
     (s.notes ? '<div class="silo-notes">' + esc(s.notes) + '</div>' : '') +
     '<div class="silo-t">' + (b > 0 ? siloFmt(b) + ' t' : '<span class="row-muted">Empty</span>') + '</div>' +
-    (pct !== null && b > 0 ? '<div class="silo-notes">' + pct + '% full</div>' : '') +
+    (pct !== null && b > 0 ? '<div class="silo-notes silo-pct">' + pct + '% full</div>' : '') +
     (!siloCap(s) ? '<div class="silo-nolevel">No fill level</div>' : '');
-  // Cone-bottom silo on a braced frame, like the F1-F3 drawing on the Airstrip sheet.
-  var tank = 'M8 24 Q50 2 92 24 L92 84 L58 108 L42 108 L8 84 Z';
+  // Cone-bottom silo (F1-F3): just the tank shape - domed top, straight sides, tapered bottom.
+  var tank = 'M6 22 Q50 -2 94 22 L94 80 L60 106 L40 106 L6 80 Z';
   var shape = s.shape === "cone"
-    ? '<svg class="silo-svg" viewBox="0 0 100 150" preserveAspectRatio="none" aria-hidden="true">' +
+    ? '<svg class="silo-svg" viewBox="0 0 100 110" preserveAspectRatio="none" aria-hidden="true">' +
         (pct !== null ? '<defs><linearGradient id="sg_' + s.id + '" x1="0" y1="1" x2="0" y2="0"><stop offset="' + pct + '%" stop-color="#cfe3f6"/><stop offset="' + pct + '%" stop-color="#ffffff"/></linearGradient></defs>' : '') +
-        '<g fill="none" stroke="currentColor" stroke-width="1.6" vector-effect="non-scaling-stroke"><path d="M14 92 V148 M86 92 V148 M14 112 H86 M14 148 H86 M14 112 L86 148 M86 112 L14 148" vector-effect="non-scaling-stroke"/></g>' +
         '<path class="silo-tank" d="' + tank + '" fill="' + (pct !== null ? 'url(#sg_' + s.id + ')' : '#fff') + '" stroke="currentColor" stroke-width="2" vector-effect="non-scaling-stroke"/></svg>'
     : '';
-  var fillStyle = (s.shape !== "cone" && pct !== null) ? ' style="background:linear-gradient(to top,#cfe3f6 ' + pct + '%,#fff ' + pct + '%);"' : '';
+  var fill = (s.shape !== "cone" && pct !== null) ? 'background:linear-gradient(to top,#cfe3f6 ' + pct + '%,#fff ' + pct + '%);' : '';
   return '<div class="silo-cell"><div class="silo-code">' + esc(s.code) + '</div>' +
-    '<button type="button" class="silo silo-' + (s.shape === "cone" ? "cone" : "round") + (b > 0 ? "" : " silo-empty") + '"' + fillStyle + ' onclick="siloOpen(\'' + s.id + '\')" title="' + escAttr(siloLabel(s) + (pct !== null ? " - " + pct + "% full" : "")) + '">' + shape + '<span class="silo-body">' + body + '</span></button></div>';
+    '<button type="button" class="silo silo-' + (s.shape === "cone" ? "cone" : "round") + (b > 0 ? "" : " silo-empty") + (d < 90 ? " silo-small" : "") + '" style="--d:' + d + ';' + fill + '" onclick="siloOpen(\'' + s.id + '\')" title="' + escAttr(siloLabel(s) + (siloCap(s) ? " (fills to " + siloFmt(siloCap(s)) + " t)" : "") + (pct !== null ? " - " + pct + "% full" : "")) + '">' + shape + '<span class="silo-body">' + body + '</span></button></div>';
 }
 function renderSiloSiteEdit(site){
   var empty = siloData().items.filter(function(s){ return s.site === site.id; }).every(function(s){ return siloBalance(s) <= 0; });
