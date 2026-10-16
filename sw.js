@@ -444,7 +444,8 @@
 // v101 (2026-10-16, later): Silo Storage columns line up in rows; bold silo number badges -- index.html changed.
 // v102 (2026-10-16, later): Silo Storage capacity is a hard limit -- index.html changed.
 // v103 (2026-10-16, later): Silo Storage heading name bigger, clearer North arrow -- index.html changed.
-var CACHE_NAME = "bullamon-plains-shell-v103";
+// v104 (2026-10-16, later): Silo Storage rotatable compass marker replaces the north text -- index.html changed.
+var CACHE_NAME = "bullamon-plains-shell-v104";
 
 var SHELL_ASSETS = [
   "./",
