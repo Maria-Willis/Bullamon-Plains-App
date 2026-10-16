@@ -521,10 +521,10 @@
   /* Silo Storage tiles */
   .silo-head{display:flex;align-items:center;gap:10px 14px;flex-wrap:wrap;margin-bottom:14px;}
   .silo-title{margin:0;font-size:28px;line-height:1.1;font-weight:800;color:var(--text);letter-spacing:-.01em;}
-  .silo-north{display:inline-flex;align-items:center;gap:8px;color:var(--accent);border:2px solid var(--accent);border-radius:10px;padding:5px 12px 5px 6px;background:#eef5fc;}
-  .silo-n{display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:6px;background:var(--accent);color:var(--accent-contrast,#fff);font-weight:800;font-size:20px;line-height:1;}
-  .silo-arrow{width:44px;height:16px;flex:none;}
-  .silo-north-text{font-weight:700;font-size:14px;color:var(--text);}
+  .silo-compass-wrap{display:inline-flex;color:var(--accent);}
+  .silo-compass{width:88px;height:88px;display:block;}
+  .silo-compass-edit{margin:0 0 4px;}
+  .silo-compass-edit input[type=range]{width:100%;}
   .silo-cols{display:flex;flex-wrap:wrap;justify-content:center;align-items:flex-start;gap:12px 26px;padding:6px 0 4px;}
   .silo-col{display:flex;flex-direction:column;align-items:center;gap:10px;}
   .silo-cell{display:flex;flex-direction:column;align-items:center;gap:4px;}
@@ -547,7 +547,7 @@
   @media (max-width:480px){
     .silo-cols{gap:10px 14px;}
     .silo-title{font-size:23px;}
-    .silo-north-text{font-size:13px;}
+    .silo-compass{width:70px;height:70px;}
     .silo-round{width:84px;height:84px;}
     .silo-cone{width:80px;height:132px;}
     .silo-cone .silo-body{margin-top:28px;}
@@ -1824,7 +1824,7 @@ const DEFAULT_STATE = {
 // change to this file, same as CACHE_NAME in sw.js -- it gives an instant,
 // no-technical-steps-needed way to confirm whether a given device is
 // actually running the latest deploy, without comparing file contents.
-var APP_BUILD = "2026-10-16.12";
+var APP_BUILD = "2026-10-16.13";
 
 /* ======================================================================
    UTILITIES
@@ -13262,6 +13262,16 @@ async function boot(){
     state.settings.siloLayoutV1 = true;
     migrated = true;
   }
+  // one-time: the "north of it" text note is replaced by a rotatable compass marker
+  // (2026-10-16). Airstrip's drawing has its N arrow pointing right, so start at 90 degrees.
+  if(!state.settings.siloCompassV1){
+    siloData().sites.forEach(function(st){
+      if(st.northDeg == null) st.northDeg = st.id === "site_airstrip" ? 90 : 0;
+      delete st.north;
+    });
+    state.settings.siloCompassV1 = true;
+    migrated = true;
+  }
   // one-time migration: the sidebar's Daily Work/Safety & Compliance/People
   // grouping (added 2026-09-24) used to be hardcoded as a `group` field on
   // each NAV entry. Moved into an editable state.sidebarConfig here, at
@@ -14900,14 +14910,31 @@ function siloLayoutDefaults(d){
     s.col = col; s.pos = counters[k];
   });
   d.sites.forEach(function(st){
-    if(st.id === "site_airstrip" && st.north == null) st.north = "Chemical Shed & Airstrip";
+    if(st.id === "site_airstrip" && st.northDeg == null) st.northDeg = 90; // the drawing's N arrow points right
   });
 }
 function siloAdminFail(msg){
   ui.siloAdminError = msg; render();
   setTimeout(function(){ var el = document.getElementById("silo-admin"); if(el && el.scrollIntoView) el.scrollIntoView({ block: "center", behavior: "smooth" }); }, 30);
 }
-function siloToggleSiteEdit(){ ui.siloEditSite = !ui.siloEditSite; ui.siloAdminError = ""; render(); }
+function siloToggleSiteEdit(){ ui.siloEditSite = !ui.siloEditSite; ui.siloAdminError = ""; ui.siloNorthDraft = null; render(); }
+// Compass marker: an arrow with an N at its tip. northDeg = degrees clockwise from "up" (0 = up, 90 = right).
+function siloNorthDeg(site){ var n = Number(site && site.northDeg); return isFinite(n) ? ((Math.round(n) % 360) + 360) % 360 : 0; }
+function siloCompassSvg(deg, cls){
+  return '<svg class="' + cls + '" viewBox="0 0 100 100" role="img" aria-label="North is ' + deg + ' degrees clockwise from up">' +
+    '<circle cx="50" cy="50" r="46" fill="#fff" stroke="currentColor" stroke-width="3"/>' +
+    '<g class="silo-compass-g" transform="rotate(' + deg + ' 50 50)">' +
+      '<text x="50" y="26" text-anchor="middle" font-size="26" font-weight="800" fill="currentColor" font-family="inherit">N</text>' +
+      '<path d="M50 32 L64 72 L50 63 L36 72 Z" fill="currentColor"/>' +
+    '</g></svg>';
+}
+function siloPreviewNorth(v){
+  var deg = ((Math.round(Number(v) || 0) % 360) + 360) % 360;
+  ui.siloNorthDraft = deg;
+  document.querySelectorAll(".silo-compass-g").forEach(function(g){ g.setAttribute("transform", "rotate(" + deg + " 50 50)"); });
+  var out = document.getElementById("silo-deg-val"); if(out) out.textContent = deg + "\u00b0";
+  var sl = document.getElementById("silo-deg-range"); if(sl && String(sl.value) !== String(deg)) sl.value = deg;
+}
 
 function renderSilos(){
   if(!siloCanRecord()) return pageHead("Silo Storage", "") + '<div class="empty-state">You don\'t have access to this section.</div>';
@@ -14936,7 +14963,7 @@ function renderSilos(){
     return '<button type="button" class="filter-pill' + (st.id === siteId ? " active" : "") + '" onclick="siloSelectSite(\'' + st.id + '\')">' + esc(st.name) + '</button>';
   }).join("") + '</div>';
   html += '<div class="silo-head"><h2 class="silo-title">' + esc(site.name) + '</h2>' +
-    (site.north ? '<span class="silo-north" title="North is towards ' + escAttr(site.north) + '"><span class="silo-n">N</span><svg class="silo-arrow" viewBox="0 0 56 20" aria-hidden="true"><path d="M0 4 H38 V0 L56 10 L38 20 V16 H0 L5 10 Z" fill="currentColor"/></svg><span class="silo-north-text">' + esc(site.north) + '</span></span>' : '') +
+    '<span class="silo-compass-wrap" title="North">' + siloCompassSvg(ui.siloEditSite && ui.siloNorthDraft != null ? ui.siloNorthDraft : siloNorthDeg(site), "silo-compass") + '</span>' +
     (isAdmin() ? '<button type="button" class="btn btn-ghost btn-sm" style="width:auto;margin-left:auto;" onclick="siloToggleSiteEdit()">' + (ui.siloEditSite ? 'Close' : 'Edit heading') + '</button>' : '') + '</div>';
   if(isAdmin() && ui.siloEditSite) html += renderSiloSiteEdit(site);
   if(!items.length) html += '<div class="empty-state">No silos under this heading yet.</div>';
@@ -14992,7 +15019,13 @@ function renderSiloSiteEdit(site){
   return '<form id="silo-admin" class="form-panel" style="margin:0 0 14px;" onsubmit="siloSaveSite(event,\'' + site.id + '\')">' +
     (ui.siloAdminError ? '<div class="signin-error" role="alert" style="margin-bottom:12px;">' + esc(ui.siloAdminError) + '</div>' : '') +
     '<div class="form-grid"><div class="field"><label>Heading</label><input type="text" name="heading" required value="' + escAttr(site.name) + '" /></div>' +
-    '<div class="field"><label>North of it (optional)</label><input type="text" name="north" value="' + escAttr(site.north || "") + '" placeholder="e.g. Chemical Shed" /></div></div>' +
+    '</div><div class="silo-compass-edit"><div class="field"><label>Rotate the compass <b id="silo-deg-val">' + (ui.siloNorthDraft != null ? ui.siloNorthDraft : siloNorthDeg(site)) + '\u00b0</b></label>' +
+      '<input type="range" id="silo-deg-range" name="deg" min="0" max="359" step="1" value="' + (ui.siloNorthDraft != null ? ui.siloNorthDraft : siloNorthDeg(site)) + '" oninput="siloPreviewNorth(this.value)" />' +
+      '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">' +
+        [["Up", 0], ["Right", 90], ["Down", 180], ["Left", 270]].map(function(a){ return '<button type="button" class="filter-pill" onclick="siloPreviewNorth(' + a[1] + ')">N ' + a[0] + '</button>'; }).join("") +
+        '<button type="button" class="filter-pill" onclick="siloPreviewNorth((ui.siloNorthDraft != null ? ui.siloNorthDraft : ' + siloNorthDeg(site) + ') - 15)">&#8634; 15&deg;</button>' +
+        '<button type="button" class="filter-pill" onclick="siloPreviewNorth((ui.siloNorthDraft != null ? ui.siloNorthDraft : ' + siloNorthDeg(site) + ') + 15)">&#8635; 15&deg;</button>' +
+      '</div></div></div>' +
     '<div class="form-actions"><button type="submit" class="btn btn-primary" style="width:auto;">Save heading</button>' +
     '<button type="button" class="btn btn-danger" style="width:auto;" onclick="removeSiloSite(\'' + site.id + '\')"' + (empty ? '' : ' disabled title="Empty its silos first"') + '>Remove heading</button></div>' +
     (empty ? '' : '<p class="row-muted" style="margin:8px 0 0;font-size:12px;">A heading can only be removed once every silo under it is empty.</p>') + '</form>';
@@ -15007,7 +15040,6 @@ function renderSiloManageCard(){
       '<div class="field"><label>Heading</label><input type="text" name="heading" required placeholder="e.g. Home Farm Silos" /></div>' +
       '<div class="field"><label>How many silos</label><input type="number" name="count" min="1" max="30" step="1" value="4" required /></div>' +
       '<div class="field"><label>Laid out</label><select name="layout"><option value="side">Side by side (in a row)</option><option value="two">In two columns</option><option value="one">In one column</option></select></div>' +
-      '<div class="field"><label>North of it (optional)</label><input type="text" name="north" placeholder="e.g. Machinery Shed" /></div>' +
       '<div class="field"><label>Capacity of each silo, tonnes (optional)</label><input type="text" inputmode="decimal" name="capacity" placeholder="can\'t be gone over" /></div>' +
     '</div><div class="form-actions"><button type="submit" class="btn btn-primary" style="width:auto;">Add heading</button></div></form></div>' +
     '<div class="card" style="margin-top:14px;"><h3 style="margin:0 0 4px;">Add a silo (admin)</h3>' +
@@ -15032,7 +15064,7 @@ function addSiloSite(e){
   var capTxt = f.capacity ? f.capacity.value.trim() : "", capEach = 0;
   if(capTxt){ capEach = siloParseT(capTxt); if(capEach === null || capEach < 0 || capEach > 100000) return siloAdminFail("Capacity must be a number of tonnes (or leave it blank)."); }
   var id = uid("site");
-  d.sites.push({ id: id, name: name, short: name, north: f.north.value.trim() });
+  d.sites.push({ id: id, name: name, short: name, northDeg: 0 });
   var layout = f.layout.value, half = Math.ceil(n / 2);
   for(var i = 1; i <= n; i++){
     var col = layout === "side" ? i : (layout === "two" ? (i <= half ? 1 : 2) : 1);
@@ -15049,7 +15081,10 @@ function siloSaveSite(e, id){
   var name = e.target.heading.value.trim();
   if(!name) return siloAdminFail("Enter a heading.");
   if(d.sites.some(function(o){ return o.id !== id && o.name.toLowerCase() === name.toLowerCase(); })) return siloAdminFail("There is already a heading called " + name + ".");
-  st.name = name; st.short = name; st.north = e.target.north.value.trim();
+  st.name = name; st.short = name;
+  if(e.target.deg){ var dg = parseInt(e.target.deg.value, 10); if(isFinite(dg)) st.northDeg = ((dg % 360) + 360) % 360; }
+  delete st.north;
+  ui.siloNorthDraft = null;
   ui.siloAdminError = ""; ui.siloEditSite = false;
   persist();
 }
