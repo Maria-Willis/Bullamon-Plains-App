@@ -526,13 +526,27 @@
   .silo-compass-edit{margin:0 0 4px;}
   .silo-compass-edit input[type=range]{width:100%;}
   /* The two (or more) columns are stretched to the same height, so the last silo in each ends at the same level. */
-  .silo-cols{--k:1;display:flex;flex-wrap:wrap;justify-content:center;align-items:stretch;gap:12px 30px;padding:14px 0 4px;}
+  /* The map scrolls sideways: silos fill the visible width, the sheds sit off to the right until you scroll. */
+  .silo-scroll{overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;padding-bottom:6px;}
+  .silo-cols{--k:1;--gap:30px;display:flex;justify-content:center;padding:14px 0 4px;}
+  .silo-grid{position:relative;display:flex;flex-wrap:wrap;justify-content:center;align-items:stretch;gap:12px var(--gap);max-width:100%;}
+  .silo-shed{--d:80;position:absolute;left:calc(100% + var(--gap) * 1.5);width:var(--sz);height:calc(var(--sz) * .8);color:var(--accent);}
+  .silo-shed svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible;}
+  .silo-shed-name{position:absolute;left:12%;right:12%;top:6%;height:38%;display:flex;align-items:center;justify-content:center;text-align:center;font-weight:700;line-height:1.1;color:var(--text);font-size:clamp(8px, calc(var(--sz) * .13), 13px);}
   .silo-col{display:flex;flex-direction:column;align-items:center;justify-content:space-between;gap:22px;}
   .silo-cell{position:relative;display:flex;flex-direction:column;align-items:center;}
   .silo-code{position:absolute;z-index:3;top:-11px;left:-12px;font-weight:800;font-size:15px;line-height:1;background:var(--accent);color:var(--accent-contrast,#fff);border-radius:999px;padding:5px 11px;min-width:34px;text-align:center;box-shadow:0 0 0 2px #fff;}
   .silo{position:relative;display:flex;align-items:center;justify-content:center;text-align:center;cursor:pointer;color:var(--accent);padding:0;font:inherit;}
-  .silo-round{width:calc(var(--d) * 1px * var(--k));height:calc(var(--d) * 1px * var(--k));border-radius:50%;border:2px solid var(--accent);background:#fff;}
-  .silo-cone{width:calc(var(--d) * 1px * var(--k));height:calc(var(--d) * 1.2px * var(--k));border:none;background:transparent;}
+  .silo,.silo-shed{--sz:calc(var(--d) * 1px * var(--k));}
+  .silo-round{width:var(--sz);height:var(--sz);border-radius:50%;border:2px solid var(--accent);background:#fff;}
+  .silo-cone{width:var(--sz);height:calc(var(--sz) * 1.2);border:none;background:transparent;}
+  /* Where the browser supports it, the silos shrink to fit the space they have (never wrap onto a second line),
+     keeping their proportions: full size when there's room, scaled down on narrow phones. */
+  @supports (width: 1cqw){
+    .silo-cols{container-type:inline-size;}
+    .silo-cols-fit .silo-grid{flex-wrap:nowrap;}
+    .silo,.silo-shed{--sz:min(calc(var(--d) * 1px), calc(var(--d) / var(--wcols) * (100cqw - (var(--ncols) - 1) * var(--gap))));}
+  }
   .silo-svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible;}
   .silo-body{position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;gap:2px;padding:0 8px;max-width:100%;color:var(--text);}
   .silo-cone .silo-body{padding-bottom:14%;}
@@ -548,7 +562,7 @@
   .silo-cone.silo-empty{border:none;}
   .silo-cone.silo-empty .silo-tank{stroke-dasharray:5 4;}
   @media (max-width:480px){
-    .silo-cols{--k:.9;gap:12px 20px;padding-top:10px;}
+    .silo-cols{--k:.9;--gap:16px;padding-top:10px;}
     .silo-title{font-size:23px;}
     .silo-compass{width:70px;height:70px;}
     .silo-code{font-size:13px;padding:4px 9px;min-width:28px;top:-9px;left:-10px;}
@@ -1826,7 +1840,7 @@ const DEFAULT_STATE = {
 // change to this file, same as CACHE_NAME in sw.js -- it gives an instant,
 // no-technical-steps-needed way to confirm whether a given device is
 // actually running the latest deploy, without comparing file contents.
-var APP_BUILD = "2026-10-16.16";
+var APP_BUILD = "2026-10-16.19";
 
 /* ======================================================================
    UTILITIES
@@ -14830,6 +14844,22 @@ function siloSeed(){
   return d;
 }
 // Fill levels Maria gave for the Airstrip silos (tonnes): D1-D8 100; 1-2 50; 3-5 80; 6-7 72; F1-F3 65.
+// Sheds drawn to the right of a heading's silos. Width = a 50 t silo (as in Maria's drawing); `top` is how far down
+// the map the shed sits, as a % of the silos' height. A heading can carry its own list in site.sheds.
+var SILO_AIRSTRIP_SHEDS = [ { name: "Chemical Shed", top: 0 }, { name: "Machinery Shed", top: 42 } ];
+function siloShedsFor(site){
+  if(site && Array.isArray(site.sheds)) return site.sheds;
+  return site && site.id === "site_airstrip" ? SILO_AIRSTRIP_SHEDS : [];
+}
+function siloShedHtml(sh){
+  var top = Math.max(0, Math.min(90, Number(sh.top) || 0));
+  return '<div class="silo-shed" style="top:' + top + '%;" role="img" aria-label="' + escAttr(sh.name) + '">' +
+    '<svg viewBox="0 0 100 80" preserveAspectRatio="none" aria-hidden="true"><rect x="0.8" y="0.8" width="98.4" height="78.4" fill="#fff" stroke="currentColor" stroke-width="1.6" vector-effect="non-scaling-stroke"/>' +
+    '<polygon points="0.8,0.8 10.5,40 0.8,40" fill="#000"/><polygon points="99.2,0.8 89.5,40 99.2,40" fill="#000"/>' +
+    '<polyline points="10.5,40 89.5,40" fill="none" stroke="currentColor" stroke-width="1.2" vector-effect="non-scaling-stroke"/>' +
+    '<polyline points="10.5,40 0.8,79.2" fill="none" stroke="currentColor" stroke-width="1.2" vector-effect="non-scaling-stroke"/><polyline points="89.5,40 99.2,79.2" fill="none" stroke="currentColor" stroke-width="1.2" vector-effect="non-scaling-stroke"/></svg>' +
+    '<span class="silo-shed-name">' + esc(sh.name) + '</span></div>';
+}
 var SILO_AIRSTRIP_LEVELS = { D1:100, D2:100, D3:100, D4:100, D5:100, D6:100, D7:100, D8:100, "1":50, "2":50, "3":80, "4":80, "5":80, "6":72, "7":72, F1:65, F2:65, F3:65 };
 // Only fills in silos that have no fill level yet, so anything already entered by hand is kept.
 function siloApplyAirstripLevels(d){
@@ -15003,9 +15033,14 @@ function renderSilos(){
     if(!last || last.c !== c){ last = { c: c, items: [] }; cols.push(last); }
     last.items.push(s);
   });
-  html += '<div class="silo-cols">' + cols.map(function(c){
+  // Width the columns need side by side (at full size). Up to two columns always stay side by side and shrink
+  // to fit a narrow phone; with more than two, the silos are scaled so two fit per row and the rest wrap.
+  var colW = cols.map(function(c){ return Math.max.apply(null, c.items.map(siloSizePx)); }).sort(function(a, b){ return b - a; });
+  var fitCols = Math.min(2, Math.max(1, cols.length));
+  var wcols = colW.slice(0, fitCols).reduce(function(a, b){ return a + b; }, 0);
+  html += '<div class="silo-scroll"><div class="silo-cols' + (cols.length <= 2 ? ' silo-cols-fit' : '') + '" style="--wcols:' + (wcols || 1) + ';--ncols:' + fitCols + ';"><div class="silo-grid">' + cols.map(function(c){
     return '<div class="silo-col">' + c.items.map(siloTileHtml).join("") + '</div>';
-  }).join("") + '</div>';
+  }).join("") + (items.length ? siloShedsFor(site).map(siloShedHtml).join("") : '') + '</div></div></div>';
   var siteTotal = items.reduce(function(sum, s){ return sum + siloBalance(s); }, 0);
   html += '<p class="row-muted" style="margin:10px 0 0;font-size:12.5px;">' + esc(site.name) + ' total: <b>' + siloFmt(siteTotal) + ' t</b></p></div>';
   var unset = items.filter(function(x){ return !siloCap(x); }).length;
@@ -15090,6 +15125,79 @@ function siloCheck(s, delta, date){
     }
   });
   return problem;
+}
+// ---- Harvest dockets -> silos ----------------------------------------------------------------
+// A docket delivered to "Farm - Silo" adds its tonnes to the silo picked on the docket. The silo entry
+// carries `docketId`, so editing or removing the docket changes/removes exactly that entry.
+// Weight on a docket is free text ("24.5t", "24.5", "24500kg"); a bare number is taken as tonnes.
+function siloParseTonnes(txt){
+  var m = String(txt || "").toLowerCase().replace(/,/g, "").match(/(\d+(?:\.\d+)?|\.\d+)\s*(kgs?|kilos?|t|tonnes?|tons?)?/);
+  if(!m) return 0;
+  var n = parseFloat(m[1]);
+  if(m[2] && m[2].charAt(0) === "k") n = n / 1000;
+  return Math.round(n * 100) / 100;
+}
+function siloDocketEntry(d, docketId){
+  var found = null;
+  d.items.forEach(function(s){ (s.transactions || []).forEach(function(x, i){ if(x.docketId === docketId) found = { s: s, x: x, i: i }; }); });
+  return found;
+}
+// Makes the silos match one docket: removes the docket's earlier silo entry (if any) and, when siloId is given,
+// adds `tonnes` to that silo dated `date`. Works on `d` (pass a deepClone for a dry run). Returns "" when done,
+// otherwise the reason it was refused -- in which case nothing has been changed.
+function siloDocketApply(d, docketId, siloId, tonnes, date, desc){
+  var old = siloDocketEntry(d, docketId);
+  var target = siloId ? byId(d.items, siloId) : null;
+  if(siloId && !target) return "That silo is no longer in the Silo Storage list. Pick another silo.";
+  if(old){
+    var before = siloViolations(old.s.transactions, siloCap(old.s));
+    old.s.transactions.splice(old.i, 1);
+    if(siloViolations(old.s.transactions, siloCap(old.s)) > before){
+      old.s.transactions.splice(old.i, 0, old.x);
+      return "This docket's tonnes can't be taken out of " + siloLabel(old.s) + " because it would then go below zero or over its fill level at some point. Fix the later silo entries first.";
+    }
+  }
+  if(target){
+    var msg = tonnes > 0 ? siloCheck(target, tonnes, date) : "Enter the weight as a number of tonnes (e.g. 24.5t) so the silo can be updated.";
+    if(msg){
+      if(old) old.s.transactions.splice(old.i, 0, old.x);
+      return msg;
+    }
+    siloNewTx(target, "in", tonnes, date, desc, { docketId: docketId });
+  }
+  return "";
+}
+function docketSiloField(style, selectedId, oldText, required){
+  var d = siloData();
+  if(!d.items.length){
+    return '<div class="field cond-farmType-Silo" style="' + style + '"><label>Silo number</label><input type="text" name="siloNumber" value="' + escAttr(oldText || "") + '" ' + (required ? "required" : "") + ' /></div>';
+  }
+  var opts = '<option value="">Choose a silo\u2026</option>';
+  if(!selectedId && oldText) opts += '<option value="__keep" selected>Keep \u201c' + esc(oldText) + '\u201d as typed (silo not updated)</option>';
+  d.sites.forEach(function(st){
+    var its = siloSortedItems(d.items.filter(function(x){ return x.site === st.id; }));
+    if(!its.length) return;
+    opts += '<optgroup label="' + escAttr(st.name) + '">' + its.map(function(x){
+      var room = siloCap(x) ? siloFmt(Math.max(0, siloCap(x) - siloBalance(x))) + ' t room' : 'no fill level';
+      return '<option value="' + escAttr(x.id) + '"' + (x.id === selectedId ? " selected" : "") + '>' + esc(x.code + (x.crop ? " - " + x.crop : "") + " (" + room + ")") + '</option>';
+    }).join("") + '</optgroup>';
+  });
+  return '<div class="field cond-farmType-Silo" style="' + style + '"><label>Silo</label><select name="siloId" ' + (required ? "required" : "") + '>' + opts + '</select></div>';
+}
+// What the docket will do to the silos, decided from the form values. Returns { siloId, siloNumber, tonnes, keep, error }.
+function docketSiloPlan(f, deliveredTo, farmType, approxWeight, siloNumberTyped){
+  var plan = { siloId: "", siloNumber: siloNumberTyped, tonnes: 0, keep: false, error: "" };
+  if(!(deliveredTo === "Farm" && farmType === "Silo") || !f.siloId) return plan;
+  var v = f.siloId.value;
+  if(v === "__keep"){ plan.keep = true; return plan; }
+  if(!v){ plan.error = "Choose which silo this load is going into."; return plan; }
+  var sl = byId(siloData().items, v);
+  if(!sl){ plan.error = "That silo is no longer in the Silo Storage list. Pick another silo."; return plan; }
+  plan.siloId = v; plan.siloNumber = siloLabel(sl); plan.tonnes = siloParseTonnes(approxWeight);
+  return plan;
+}
+function docketSiloDesc(it){
+  return "Harvest docket #" + docketNumberDisplay(it) + (it.driverName ? " - " + it.driverName : "") + (it.paddock ? " - " + it.paddock : "");
 }
 // 0-100 fill percentage when the silo has a capacity set, otherwise null.
 function siloFillPct(s){
@@ -15425,6 +15533,7 @@ function removeSilo(id){
 function removeSiloTx(siloId, txId){
   var s = siloFind(siloId); if(!s || !isAdmin()) return;
   var tx = byId(s.transactions, txId); if(!tx) return;
+  if(tx.docketId) return siloFail("This entry came from a harvest docket. Edit or remove the docket (Harvest Dockets) and the silo updates itself.");
   var ids = [[s, tx]];
   if(tx.transferId){
     siloData().items.forEach(function(o){ (o.transactions || []).forEach(function(x){ if(x.transferId === tx.transferId && x.id !== tx.id) ids.push([o, x]); }); });
@@ -20462,7 +20571,7 @@ function deliveredToSummary(d){
   if(d.deliveredTo === "Thallon Grains") return "Thallon Grains";
   if(d.deliveredTo === "Farm"){
     if(d.farmType === "Bunker") return "Farm — Bunker" + (d.bunkerLocation ? " (" + d.bunkerLocation + ")" : "");
-    return "Farm — Silo" + (d.siloNumber ? " #" + d.siloNumber : "");
+    return "Farm — Silo" + (d.siloNumber ? (d.siloId ? " " : " #") + d.siloNumber : "");
   }
   if(d.deliveredTo === "Other"){
     var bits = [];
@@ -20772,6 +20881,7 @@ function docketCardHtml(d, readOnly){
       '<p style="margin:0;"><strong>Driver:</strong> ' + esc(d.driverName || "—") + (d.carrier ? " (" + esc(d.carrier) + ")" : "") + (d.rego ? " — " + esc(d.rego) : "") + '</p>' +
       '<p style="margin:0;"><strong>Delivered to:</strong> ' + esc(deliveredToSummary(d)) + '</p>' +
       (d.approxWeight ? '<p style="margin:0;"><strong>Approx weight:</strong> ' + esc(d.approxWeight) + '</p>' : '') +
+      (d.siloError ? '<p class="signin-error" style="margin:4px 0 0;font-size:12px;">Silo not updated: ' + esc(d.siloError) + '</p>' : (d.siloId && siloDocketEntry(siloData(), d.id) ? '<p class="row-muted" style="margin:4px 0 0;font-size:12px;">Added to silo storage (' + esc(d.siloNumber || "") + ')</p>' : '')) +
       '<p class="row-muted" style="margin:4px 0 0;font-size:12px;">Completed by ' + esc(d.completedBy || "—") + '</p>' +
       (d.editedAt ? '<p class="row-muted" style="margin:2px 0 0;font-size:12px;">Edited ' + esc(fmtDateTime(d.editedAt)) + (d.editedBy ? (" by " + esc(d.editedBy)) : "") + '</p>' : '') +
     '</div></div>' +
@@ -20823,6 +20933,7 @@ function refreshDocketFormRequired(form){
     var farmType = form.farmType ? form.farmType.value : "";
     if(form.farmType) form.farmType.required = isFarm;
     if(form.siloNumber) form.siloNumber.required = isFarm && farmType === "Silo";
+    if(form.siloId) form.siloId.required = isFarm && farmType === "Silo";
     if(form.bunkerLocation) form.bunkerLocation.required = isFarm && farmType === "Bunker";
     if(form.contractNo) form.contractNo.required = isOther;
     if(form.buyerMerchant) form.buyerMerchant.required = isOther;
@@ -21049,7 +21160,7 @@ function renderDocketForm(){
         '<div class="field"><label>Silo or bunker?</label><select name="farmType" onchange="handleConditionalSelect(this, \'farmType\')">' +
           '<option value="Silo">Silo</option><option value="Bunker">Bunker</option>' +
         '</select></div>' +
-        '<div class="field cond-farmType-Silo"><label>Silo number</label><input type="text" name="siloNumber" /></div>' +
+        docketSiloField("", "", "", false) +
         '<div class="field cond-farmType-Bunker" style="display:none;"><label>Bunker location</label><input type="text" name="bunkerLocation" /></div>' +
       '</div>' +
       '<div class="field-group cond-deliveredTo-Other" style="display:none;">' +
@@ -21138,7 +21249,7 @@ function renderDocketEditForm(d){
         '<div class="field"><label>Silo or bunker?</label><select name="farmType" ' + (isFarm ? "required " : "") + 'onchange="handleConditionalSelect(this, \'farmType\')">' +
           '<option value="Silo"' + (farmTypeVal === "Silo" ? " selected" : "") + '>Silo</option><option value="Bunker"' + (farmTypeVal === "Bunker" ? " selected" : "") + '>Bunker</option>' +
         '</select></div>' +
-        '<div class="field cond-farmType-Silo" style="' + siloFieldStyle + '"><label>Silo number</label><input type="text" name="siloNumber" value="' + escAttr(d.siloNumber || "") + '" ' + (siloActive ? "required" : "") + ' /></div>' +
+        docketSiloField(siloFieldStyle, d.siloId || "", d.siloNumber || "", siloActive) +
         '<div class="field cond-farmType-Bunker" style="' + bunkerFieldStyle + '"><label>Bunker location</label><input type="text" name="bunkerLocation" value="' + escAttr(d.bunkerLocation || "") + '" ' + (bunkerActive ? "required" : "") + ' /></div>' +
       '</div>' +
       '<div class="field-group cond-deliveredTo-Other" style="' + otherGroupStyle + '">' +
@@ -21214,12 +21325,19 @@ async function addDocket(e){
   var completedByVal = f.completedBy.value.trim();
   var deliveredToVal = f.deliveredTo.value;
   var farmTypeVal = f.farmType.value;
-  var siloNumberVal = f.siloNumber.value.trim();
+  var siloNumberVal = f.siloNumber ? f.siloNumber.value.trim() : "";
   var bunkerLocationVal = f.bunkerLocation.value.trim();
   var otherIsExFarmVal = !!f.otherIsExFarm.checked;
   var contractNoVal = f.contractNo.value.trim();
   var buyerMerchantVal = f.buyerMerchant.value.trim();
   var approxWeightVal = f.approxWeight.value.trim();
+  // Delivered to a silo: its tonnes go into that silo. Checked now (nothing saved if the silo can't take it).
+  var siloPlan = docketSiloPlan(f, deliveredToVal, farmTypeVal, approxWeightVal, siloNumberVal);
+  if(siloPlan.siloId){
+    siloPlan.error = siloDocketApply(deepClone(siloData()), "new-docket", siloPlan.siloId, siloPlan.tonnes, dateVal, "");
+  }
+  if(siloPlan.error){ setNotice("err", siloPlan.error); render(); return; }
+  siloNumberVal = siloPlan.siloNumber;
   var createdByVal = (currentUser() && currentUser().name) || session.name || "";
   var createdAtVal = new Date().toISOString();
 
@@ -21312,6 +21430,7 @@ async function addDocket(e){
       deliveredTo: deliveredToVal,
       farmType: farmTypeVal,
       siloNumber: siloNumberVal,
+      siloId: siloPlan.siloId,
       bunkerLocation: bunkerLocationVal,
       otherIsExFarm: otherIsExFarmVal,
       contractNo: contractNoVal,
@@ -21323,6 +21442,12 @@ async function addDocket(e){
       emailError: "",
       emailedAt: null
     });
+    if(siloPlan.siloId){
+      var addedIt = byId(state.harvest.items, newDocketId);
+      var serr = siloDocketApply(siloData(), newDocketId, siloPlan.siloId, siloPlan.tonnes, dateVal, docketSiloDesc(addedIt));
+      // only on a save-conflict replay where another device filled the silo in the meantime: keep the docket, flag it
+      if(serr) addedIt.siloError = serr;
+    }
   };
   doIt();
   ui.openForms.newDocket = false;
@@ -21399,12 +21524,20 @@ async function saveDocket(e, id){
   var completedByVal = f.completedBy.value.trim();
   var deliveredToVal = f.deliveredTo.value;
   var farmTypeVal = f.farmType.value;
-  var siloNumberVal = f.siloNumber.value.trim();
+  var siloNumberVal = f.siloNumber ? f.siloNumber.value.trim() : "";
   var bunkerLocationVal = f.bunkerLocation.value.trim();
   var otherIsExFarmVal = !!f.otherIsExFarm.checked;
   var contractNoVal = f.contractNo.value.trim();
   var buyerMerchantVal = f.buyerMerchant.value.trim();
   var approxWeightVal = f.approxWeight.value.trim();
+  var siloPlan = docketSiloPlan(f, deliveredToVal, farmTypeVal, approxWeightVal, siloNumberVal);
+  if(!siloPlan.error && !siloPlan.keep){
+    // dry run against a copy: nothing is saved if the silo can't take (or give back) this docket's tonnes
+    var chk = deepClone(siloData());
+    siloPlan.error = siloDocketApply(chk, id, siloPlan.siloId, siloPlan.tonnes, dateVal, "");
+  }
+  if(siloPlan.error){ setNotice("err", siloPlan.error); return; }
+  siloNumberVal = siloPlan.keep ? (item.siloNumber || "") : siloPlan.siloNumber;
   var u = currentUser();
   var editedAtVal = new Date().toISOString();
   var editedByVal = u ? u.name : (session.name || "");
@@ -21511,6 +21644,15 @@ async function saveDocket(e, id){
     it.farmType = farmTypeVal;
     it.siloNumber = siloNumberVal;
     it.bunkerLocation = bunkerLocationVal;
+    if(!siloPlan.keep){
+      it.siloId = siloPlan.siloId;
+      var serr2 = siloDocketApply(siloData(), id, siloPlan.siloId, siloPlan.tonnes, dateVal, docketSiloDesc(it));
+      if(serr2) it.siloError = serr2; else delete it.siloError;
+    } else if(it.siloId){
+      // "keep as typed" on a docket that was linked: unlink it (the silo entry is taken back out)
+      it.siloId = "";
+      siloDocketApply(siloData(), id, "", 0, dateVal, "");
+    }
     it.otherIsExFarm = otherIsExFarmVal;
     it.contractNo = contractNoVal;
     it.buyerMerchant = buyerMerchantVal;
@@ -21604,6 +21746,13 @@ setInterval(function(){ retryPendingHarvestEmails(); }, 120000);
 // (state.harvest.archives[].items), not shared with the active list, so
 // removal has to check both places.
 function removeDocket(id){
+  // A docket that put tonnes into a silo takes them back out. Refused if that would leave the silo below zero
+  // (or over its fill level) at some point, so the silo and the dockets can't drift apart.
+  var linked = siloDocketEntry(siloData(), id);
+  if(linked){
+    var why = siloDocketApply(deepClone(siloData()), id, "", 0, "", "");
+    if(why){ setNotice("err", why); return; }
+  }
   if(ui.editing.docket === id) ui.editing.docket = null;
   // Removing a specific id is naturally idempotent (removeById no-ops if
   // it's already gone), so -- same as deleteMachineIssue -- this is safe to
@@ -21611,6 +21760,7 @@ function removeDocket(id){
   // conflict happens, replaying it against the freshly-adopted state still
   // just removes the same docket, not something else.
   var doIt = function(){
+    siloDocketApply(siloData(), id, "", 0, "", "");
     if((state.harvest.items || []).some(function(x){ return x.id === id; })){
       removeById(state.harvest.items, id);
     } else {
