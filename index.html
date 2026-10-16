@@ -1784,7 +1784,7 @@ const DEFAULT_STATE = {
 // change to this file, same as CACHE_NAME in sw.js -- it gives an instant,
 // no-technical-steps-needed way to confirm whether a given device is
 // actually running the latest deploy, without comparing file contents.
-var APP_BUILD = "2026-10-16.1";
+var APP_BUILD = "2026-10-16.4";
 
 /* ======================================================================
    UTILITIES
@@ -13596,9 +13596,20 @@ function retrySave(){
 /* ======================================================================
    RENDER — top level dispatch
    ====================================================================== */
+// While someone is typing in a Time Sheets cell, rebuilding the page would reset
+// the cursor (a time field jumps back to its first segment). So any render() that
+// happens meanwhile -- the delayed save, a sync from another device -- is held
+// back and run as soon as they leave the grid (see the focusout listener by tsSet).
+var tsRenderPending = false;
 function render(){
   var app = document.getElementById("app");
   if(!app) return;
+  var typingEl = document.activeElement;
+  if(booted && typingEl && typingEl.classList && typingEl.classList.contains("ts-in") && app.contains(typingEl)){
+    tsRenderPending = true;
+    return;
+  }
+  tsRenderPending = false;
   if(!booted){
     app.innerHTML = '<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:13px;">Loading Bullamon Plains…</div>';
     return;
@@ -14369,13 +14380,16 @@ function tsCurrentStart(offsetCycles){
   return tsAddDays(s, (Math.floor(diff / 14) + (offsetCycles || 0)) * 14);
 }
 function tsMins(t){ var m = /^(\d{1,2}):(\d{2})$/.exec(t || ""); return m ? (parseInt(m[1], 10) * 60 + parseInt(m[2], 10)) : null; }
-// Nett hours for one row: finish - start - smoko - lunch (a finish earlier than the start is taken as past midnight). null until both times are in.
+// Employees get a 30 minute paid break each day (Maria, 2026-10-16), so only break time beyond 30 minutes (smoko + lunch) is taken off.
+var TS_PAID_BREAK_MINS = 30;
+// Nett hours for one row: finish - start - (smoko + lunch beyond the paid 30 minutes) (a finish earlier than the start is taken as past midnight). null until both times are in.
 function tsNett(r){
   var a = tsMins(r.start), b = tsMins(r.finish);
   if(a === null || b === null) return null;
   var d = b - a; if(d < 0) d += 1440;
   var breaks = (parseFloat(r.smoko) || 0) + (parseFloat(r.lunch) || 0);
-  return Math.max(0, d - breaks) / 60;
+  var unpaid = Math.max(0, breaks - TS_PAID_BREAK_MINS);
+  return Math.max(0, d - unpaid) / 60;
 }
 function tsTotal(sheet){
   return (sheet.rows || []).reduce(function(sum, r){ var n = tsNett(r); return sum + (n || 0); }, 0);
@@ -14437,6 +14451,16 @@ function tsSet(id, rowIdx, field, value){
 function tsFlush(){
   if(tsSaveTimer){ clearTimeout(tsSaveTimer); tsSaveTimer = null; persist(); }
 }
+document.addEventListener("focusout", function(e){
+  var to = e.relatedTarget;
+  if(tsRenderPending && !(to && to.classList && to.classList.contains("ts-in"))){
+    // let the click that moved focus finish first, then bring the page up to date
+    setTimeout(function(){
+      var a = document.activeElement;
+      if(tsRenderPending && !(a && a.classList && a.classList.contains("ts-in"))) render();
+    }, 0);
+  }
+});
 window.addEventListener("pagehide", function(){ if(tsSaveTimer){ clearTimeout(tsSaveTimer); tsSaveTimer = null; try{ persist(); }catch(e){} } });
 function tsRefresh(sheet){
   (sheet.rows || []).forEach(function(r, i){
@@ -14528,6 +14552,7 @@ function renderTsSheet(sheet){
         '<td id="ts_n' + i + '" style="background:var(--surface-2);font-weight:700;white-space:nowrap;">' + tsNettText(r) + '</td>' +
         '<td>' + f("location", "text", 'placeholder="" style="min-width:170px;"') + '</td></tr>';
     }).join("") + '</tbody></table></div>' +
+    '<p class="row-muted" style="margin:8px 0 0;font-size:12px;">Nett hrs = finish \u2212 start, less any smoko + lunch time over ' + TS_PAID_BREAK_MINS + ' minutes (the first ' + TS_PAID_BREAK_MINS + ' minutes of breaks each day are paid).</p>' +
     '<div style="margin-top:14px;display:grid;gap:8px;max-width:420px;">' +
       '<div class="card-row"><b>Total nett hours for the fortnight:</b><span id="ts_total" style="font-size:18px;font-weight:700;">' + tilFmtHours(tsTotal(sheet)) + '</span></div>' +
       '<div class="card-row" style="align-items:center;"><b>Hours you want to be paid for:</b><input id="ts_paid" type="text" inputmode="decimal" class="ts-in" style="width:90px;text-align:right;" value="' + escAttr(sheet.paidHours == null ? "" : sheet.paidHours) + '"' + dis + ' onchange="tsSet(\'' + sheet.id + '\',null,\'paidHours\',this.value)" /></div>' +
@@ -14605,7 +14630,9 @@ async function tsSendEmail(id){
     try{ data = await resp.json(); }catch(parseErr){}
     if(!resp.ok || !data.ok){
       s.emailStatus = "failed";
-      s.emailError = (data && data.error) ? data.error : ("Couldn't reach the email service (HTTP " + resp.status + ").");
+      s.emailError = (data && data.error) ? data.error : (resp.status === 404
+        ? "The time sheet email function isn't on the website yet -- the file api/send-timesheet.js needs uploading to GitHub (see TIMESHEETS_SETUP.md), then tap Retry email."
+        : ("Couldn't reach the email service (HTTP " + resp.status + ")."));
     } else {
       s.emailStatus = "sent"; s.emailedAt = new Date().toISOString(); s.emailError = "";
     }
