@@ -448,7 +448,10 @@
 // v105 (2026-10-16, later): compass has no circle; N stays upright at the arrow tip -- index.html changed.
 // v106 (2026-10-16, later): Silo Storage fill levels required; silos can never go below empty or over full -- index.html changed.
 // v107 (2026-10-16, later): Silo Storage silos sized by fill level, columns end level, F silos plain tank shape, Airstrip fill levels -- index.html changed.
-var CACHE_NAME = "bullamon-plains-shell-v107";
+// v110 (2026-10-16, later): Harvest dockets delivered to a silo now add their tonnes to that silo -- index.html changed.
+// v109 (2026-10-16, later): Silo Storage shows shed symbols (Chemical, Machinery) to the right of the Airstrip silos, reached by scrolling right -- index.html changed.
+// v108 (2026-10-16, later): Silo Storage silos scale to fit narrow phones instead of stacking -- index.html changed.
+var CACHE_NAME = "bullamon-plains-shell-v110";
 
 var SHELL_ASSETS = [
   "./",
