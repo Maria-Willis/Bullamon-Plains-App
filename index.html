@@ -518,6 +518,31 @@
   .cell-edit:focus{border-color:var(--accent);background:var(--surface);outline:none;box-shadow:0 0 0 2px color-mix(in srgb, var(--accent) 20%, transparent);}
   textarea.cell-edit{resize:vertical;min-height:32px;font-family:inherit;}
   td.num{font-variant-numeric:tabular-nums;}
+  /* Silo Storage tiles */
+  .silo-row{display:flex;flex-wrap:wrap;gap:10px 14px;margin-bottom:16px;}
+  .silo-cell{display:flex;flex-direction:column;align-items:center;gap:4px;}
+  .silo-code{font-weight:700;font-size:13px;}
+  .silo{position:relative;display:flex;align-items:center;justify-content:center;text-align:center;cursor:pointer;color:var(--accent);padding:0;font:inherit;}
+  .silo-round{width:112px;height:112px;border-radius:50%;border:2px solid var(--accent);background:#fff;}
+  .silo-cone{width:78px;height:130px;border:none;background:transparent;}
+  .silo-svg{position:absolute;inset:0;width:100%;height:100%;}
+  .silo-body{position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;gap:2px;padding:0 10px;max-width:100%;color:var(--text);}
+  .silo-cone .silo-body{padding-bottom:26px;}
+  .silo-crop{font-weight:700;font-size:12px;line-height:1.15;overflow-wrap:anywhere;}
+  .silo-notes{font-size:10.5px;line-height:1.15;color:var(--text-muted);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere;}
+  .silo-t{font-weight:700;font-size:13px;}
+  .silo:hover{background:#eef5fc;}
+  .silo-cone:hover .silo-svg path{fill:#eef5fc;}
+  .silo-empty{border-style:dashed;}
+  .silo-cone.silo-empty{border:none;}
+  .silo-cone.silo-empty .silo-svg path{stroke-dasharray:5 4;}
+  @media (max-width:480px){
+    .silo-row{gap:8px 10px;justify-content:flex-start;}
+    .silo-round{width:84px;height:84px;}
+    .silo-cone{width:62px;height:108px;}
+    .silo-body{padding:0 5px;}
+    .silo-crop{font-size:10.5px;} .silo-t{font-size:11.5px;} .silo-notes{font-size:9px;}
+  }
   /* Time Sheets grid inputs: one consistent look for time/number/text cells. */
   #app input.ts-in, #app textarea.ts-in{font:inherit;font-size:13px;color:inherit;background:#fff;border:1px solid var(--divider);border-radius:6px;padding:5px 6px;height:32px;width:100%;box-sizing:border-box;min-width:0;}
   #app input.ts-in:disabled{background:transparent;border-color:transparent;color:inherit;opacity:1;-webkit-text-fill-color:currentColor;}
@@ -1100,6 +1125,10 @@ const DEFAULT_STATE = {
   },
   "timesheets": {
     "nextNo": 1,
+    "items": []
+  },
+  "silos": {
+    "sites": [],
     "items": []
   },
   "harvest": {
@@ -1784,7 +1813,7 @@ const DEFAULT_STATE = {
 // change to this file, same as CACHE_NAME in sw.js -- it gives an instant,
 // no-technical-steps-needed way to confirm whether a given device is
 // actually running the latest deploy, without comparing file contents.
-var APP_BUILD = "2026-10-16.5";
+var APP_BUILD = "2026-10-16.6";
 
 /* ======================================================================
    UTILITIES
@@ -13207,6 +13236,13 @@ async function boot(){
     state.settings.privateInfoMigratedV1 = true;
     migrated = true;
   }
+  // one-time seed: Silo Storage (2026-10-16) starts with the silos and tonnes from
+  // Maria's "Silo Storage App.xlsx" (opening balances dated 1 Feb 2026). Runs once.
+  if(!state.settings.siloSeedV1){
+    if(!state.silos || !(state.silos.items || []).length) state.silos = siloSeed();
+    state.settings.siloSeedV1 = true;
+    migrated = true;
+  }
   // one-time migration: the sidebar's Daily Work/Safety & Compliance/People
   // grouping (added 2026-09-24) used to be hardcoded as a `group` field on
   // each NAV entry. Moved into an editable state.sidebarConfig here, at
@@ -13851,6 +13887,7 @@ var ICONS = {
   "message": '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
   "hourglass": '<path d="M5 22h14"/><path d="M5 2h14"/><path d="M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22"/><path d="M7 2v4.172a2 2 0 0 0 .586 1.414L12 12l4.414-4.414A2 2 0 0 0 17 6.172V2"/>',
   "home": '<path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 22V12h6v10"/>',
+  "silo": '<path d="M6 7v12a6 2.5 0 0 0 12 0V7"/><ellipse cx="12" cy="7" rx="6" ry="2.5"/><path d="M6 12.5a6 2.5 0 0 0 12 0"/>',
   "calendar": '<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>',
   "clock": '<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
   "truck": '<path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"/><path d="M15 18H9"/><path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14"/><circle cx="17" cy="18" r="2"/><circle cx="7" cy="18" r="2"/>',
@@ -13922,7 +13959,7 @@ function iconSvg(name, extraClass){
 // Words people might search for in the icon picker (plus each icon's own name).
 var ICON_KEYWORDS = {
   "dashboard":"overview home panel grid", "flask":"chemical chemistry lab spray", "check-square":"jobs tasks tick todo", "tractor":"machinery machine farm vehicle",
-  "cow":"cattle bull livestock animal cattle", "map":"maps paddock location", "receipt":"receipts money bill invoice", "file-text":"document procedure paper page",
+  "silo":"silo storage grain bin tonnes", "cow":"cattle bull livestock animal cattle", "map":"maps paddock location", "receipt":"receipts money bill invoice", "file-text":"document procedure paper page",
   "clipboard-list":"checklist list sheet", "phone":"call emergency telephone", "alert-triangle":"warning danger whs hazard safety", "shield":"protect biosecurity security safe",
   "users":"team people staff group", "user":"person profile", "lock":"private secure locked", "key":"access password", "bell":"notification alert reminder",
   "wrench":"repair tool service maintenance", "message":"note comment chat", "home":"house farm", "calendar":"date schedule diary", "clock":"time hours",
@@ -13947,6 +13984,7 @@ var NAV = [
   { key: "bulls",       label: "Bulls",        icon: iconSvg("cow") },
   { key: "maps",        label: "Maps",         icon: iconSvg("map") },
   { key: "receipts",    label: "Receipts",     icon: iconSvg("receipt") },
+  { key: "silos",       label: "Silo Storage", icon: iconSvg("silo") },
   { key: "timesheets",  label: "Time Sheets",  icon: iconSvg("calendar") },
   { key: "til",         label: "My Time in Lieu", icon: iconSvg("clock") },
   { key: "harvest",     label: "Harvest Dockets", icon: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="9" y="18" width="6" height="2.5" rx="1.25" fill="currentColor"/><path d="M12 19 L7 5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M12 19 L12 3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M12 19 L17 5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="8.3" cy="10" r="1" fill="currentColor"/><circle cx="7.6" cy="7.5" r="1" fill="currentColor"/><circle cx="9.3" cy="12.5" r="1" fill="currentColor"/><circle cx="12" cy="9" r="1" fill="currentColor"/><circle cx="12" cy="6" r="1" fill="currentColor"/><circle cx="12" cy="12.5" r="1" fill="currentColor"/><circle cx="15.7" cy="10" r="1" fill="currentColor"/><circle cx="16.4" cy="7.5" r="1" fill="currentColor"/><circle cx="14.7" cy="12.5" r="1" fill="currentColor"/></svg>' },
@@ -14090,6 +14128,7 @@ function goTo(section){
   // it's not the ONLY thing stopping them. renderSection() below carries the
   // same guard for anything that sets ui.section directly, bypassing goTo().
   if(!isSectionAllowed(section)) section = fallbackSection();
+  if(ui.section !== section){ ui.siloError = ""; ui.siloMsg = ""; ui.siloAction = null; }
   ui.section = section;
   ui.mobileMenuOpen = false;
   render(); // render() records the new screen in the phone's back-button history (see trackScreenForBackButton())
@@ -14215,6 +14254,7 @@ function renderSection(){
     case "maps": return renderMaps();
     case "receipts": return renderReceipts();
     case "til": return renderTimeInLieu();
+    case "silos": return renderSilos();
     case "timesheets": return renderTimeSheets();
     case "harvest": return renderHarvest();
     case "team": return isAdmin() ? renderTeam() : renderDashboard();
@@ -14687,6 +14727,412 @@ function tsPrint(id){
   window.addEventListener("afterprint", cleanup);
   window.print();
   setTimeout(cleanup, 3000);
+}
+
+/* ======================================================================
+   SILO STORAGE (added 2026-10-16, at Maria's request, modelled on her
+   "Silo Storage App.xlsx" drawing: Airstrip Silos [D1-D8, 1-7, F1-F3] and
+   Cooks Dam/Camerons Silos [1-4]). Each silo shows its crop, a note (paddock /
+   source) and the tonnes in it. Click a silo for its balance and every
+   transaction; add grain, take it out, transfer silo to silo, record an event
+   (e.g. seed grading), or set the tonnes. Every movement has an optional
+   description. The balance is always the sum of the silo's transactions.
+   Anyone signed in (except Harvest-only / Limited-access members) can record
+   movements; only admins add/remove silos, rename them or delete a transaction.
+   Data model: state.silos = { sites: [{id, name, short}], items: [{id, site,
+   code, row, shape ("round"|"cone"), crop, notes, transactions: [{id, date,
+   type ("opening"|"in"|"out"|"transfer-in"|"transfer-out"|"adjust"|"event"),
+   delta (signed tonnes, 0 for events), description, eventName, by, at,
+   transferId, otherSilo}]}] }; the one-time seed (state.settings.siloSeedV1)
+   loads the figures from the spreadsheet as opening balances dated 1 Feb 2026.
+   ====================================================================== */
+var SILO_EVENT_SUGGESTIONS = ["Seed grading", "Fumigation", "Cleaned out", "Quality test", "Inspection", "Maintenance"];
+function siloData(){
+  if(!state.silos) state.silos = { sites: [], items: [] };
+  if(!state.silos.sites) state.silos.sites = [];
+  if(!state.silos.items) state.silos.items = [];
+  return state.silos;
+}
+function siloSeed(){
+  var sites = [
+    { id: "site_airstrip", name: "Airstrip Silos", short: "Airstrip" },
+    { id: "site_cooks", name: "Cooks Dam/Camerons Silos", short: "Cooks Dam/Camerons" }
+  ];
+  var items = [];
+  var mk = function(site, code, row, shape, crop, notes, tonnes){
+    var tx = [];
+    if(tonnes > 0) tx.push({ id: uid("stx"), date: "2026-02-01", type: "opening", delta: tonnes, description: "From your spreadsheet", by: "Setup", at: "2026-02-01T00:00:00.000Z" });
+    items.push({ id: uid("silo"), site: site, code: code, row: row, shape: shape, crop: crop, notes: notes, transactions: tx });
+  };
+  var A = "site_airstrip", C = "site_cooks";
+  mk(A, "D1", 1, "round", "FABAS", "24 Crop", 0);
+  mk(A, "D2", 1, "round", "DRM Peas", "Box Plains", 88);
+  mk(A, "D3", 1, "round", "Borlaug", "Blue Gate", 93);
+  mk(A, "D4", 1, "round", "Borlaug", "Blue Gate", 93);
+  mk(A, "D5", 1, "round", "Sunmax", "Airstrip Pdk", 94);
+  mk(A, "D6", 1, "round", "Leverage", "Railway", 88);
+  mk(A, "D7", 1, "round", "Sundancer", "East Yowai", 92);
+  mk(A, "D8", 1, "round", "Drummond", "Box Plains", 85);
+  mk(A, "1", 2, "round", "Sunblade", "C5", 45);
+  mk(A, "2", 2, "round", "Sunblade", "C5", 45);
+  mk(A, "3", 2, "round", "Captain", "CKP 24 Season", 60);
+  mk(A, "4", 2, "round", "Captain", "CKP 24 season", 58);
+  mk(A, "5", 2, "round", "DRM Peas", "Box Plains", 75);
+  mk(A, "6", 2, "round", "", "", 0);
+  mk(A, "7", 2, "round", "", "", 0);
+  mk(A, "F1", 2, "cone", "", "", 0);
+  mk(A, "F2", 2, "cone", "", "", 0);
+  mk(A, "F3", 2, "cone", "", "", 0);
+  mk(C, "1", 1, "round", "Captain", "West Ginnibri", 0);
+  mk(C, "2", 1, "round", "", "", 0);
+  mk(C, "3", 1, "round", "Captain", "West Ginnibri (spreadsheet said \"183t Total\" -- may cover silos 1 and 3 together)", 183);
+  mk(C, "4", 1, "round", "FABA", "24 Harvest", 0);
+  return { sites: sites, items: items };
+}
+function siloFmt(n){ return (Math.round((Number(n) || 0) * 100) / 100).toLocaleString("en-AU", { maximumFractionDigits: 2 }); }
+function siloFind(id){ return byId(siloData().items, id); }
+function siloSiteOf(s){ return byId(siloData().sites, s.site); }
+function siloLabel(s){ var st = siloSiteOf(s); return (st ? st.short + " " : "") + s.code; }
+function siloBalance(s){
+  var t = 0;
+  (s.transactions || []).forEach(function(x){ t += Number(x.delta) || 0; });
+  return Math.round(t * 100) / 100;
+}
+// Chronological order (date, then when it was entered), used for running balances.
+function siloSorted(s){
+  return (s.transactions || []).map(function(x, i){ return { x: x, i: i }; }).sort(function(a, b){
+    return (a.x.date || "").localeCompare(b.x.date || "") || (a.x.at || "").localeCompare(b.x.at || "") || (a.i - b.i);
+  }).map(function(o){ return o.x; });
+}
+function siloLedger(s){
+  var bal = 0;
+  var rows = siloSorted(s).map(function(x){
+    bal = Math.round((bal + (Number(x.delta) || 0)) * 100) / 100;
+    return { x: x, bal: bal };
+  });
+  return rows;
+}
+function siloParseT(v){
+  var n = parseFloat(String(v == null ? "" : v).replace(/,/g, ""));
+  if(!isFinite(n)) return null;
+  return Math.round(n * 100) / 100;
+}
+function siloTxLabel(x){
+  switch(x.type){
+    case "opening": return "Opening balance";
+    case "in": return "Added";
+    case "out": return "Taken out";
+    case "transfer-in": return "Transfer in";
+    case "transfer-out": return "Transfer out";
+    case "adjust": return "Balance set";
+    case "event": return x.eventName ? x.eventName : "Event";
+  }
+  return x.type || "";
+}
+function siloNewTx(s, type, delta, date, description, extra){
+  var u = currentUser();
+  var tx = { id: uid("stx"), date: date, type: type, delta: delta, description: (description || "").trim(), by: u ? u.name : "", at: new Date().toISOString() };
+  if(extra) Object.keys(extra).forEach(function(k){ tx[k] = extra[k]; });
+  s.transactions = s.transactions || [];
+  s.transactions.push(tx);
+  return tx;
+}
+function siloCanRecord(){
+  var u = currentUser();
+  return !!(u && !isHarvestOnly() && !(isLimitedAccess()));
+}
+function siloOpen(id){ ui.siloOpen = id; ui.siloAction = null; ui.siloError = ""; ui.siloMsg = ""; render(); }
+function siloBack(){ ui.siloOpen = null; ui.siloAction = null; ui.siloError = ""; ui.siloMsg = ""; render(); }
+function siloSetAction(a){ ui.siloAction = (ui.siloAction === a) ? null : a; ui.siloError = ""; ui.siloMsg = ""; render(); }
+function siloSelectSite(id){ ui.siloSite = id; render(); }
+
+function renderSilos(){
+  if(!siloCanRecord()) return pageHead("Silo Storage", "") + '<div class="empty-state">You don\'t have access to this section.</div>';
+  var open = ui.siloOpen ? siloFind(ui.siloOpen) : null;
+  if(open) return renderSiloDetail(open);
+  var d = siloData();
+  var html = pageHead("Silo Storage", "What is in each silo. Tap a silo to see its balance and transactions, or to add, take out, transfer or record an event.");
+  if(ui.siloError) html += '<div class="signin-error" style="margin-bottom:12px;">' + esc(ui.siloError) + '</div>';
+  if(!d.sites.length){ return html + '<div class="empty-state">No silos set up yet.</div>'; }
+  var siteId = ui.siloSite && byId(d.sites, ui.siloSite) ? ui.siloSite : d.sites[0].id;
+  // totals by crop (all silos)
+  var totals = {}, order = [], grand = 0;
+  d.items.forEach(function(s){
+    var b = siloBalance(s); if(b <= 0) return;
+    grand += b;
+    var key = (s.crop || "").trim() ? (s.crop || "").trim() : "(no crop set)";
+    var k = key.toLowerCase();
+    if(!totals[k]){ totals[k] = { label: key, t: 0 }; order.push(k); }
+    totals[k].t += b;
+  });
+  html += '<div class="card" style="margin-bottom:14px;"><div class="card-row"><h3 style="margin:0;">In storage</h3><span style="font-size:20px;font-weight:700;">' + siloFmt(grand) + ' t</span></div>' +
+    (order.length ? '<div class="row-muted" style="font-size:12.5px;margin-top:6px;">' + order.sort(function(a, b){ return totals[b].t - totals[a].t; }).map(function(k){ return esc(totals[k].label) + ' ' + siloFmt(totals[k].t) + ' t'; }).join(' &middot; ') + '</div>' : '') + '</div>';
+  var site = byId(d.sites, siteId);
+  var items = d.items.filter(function(s){ return s.site === siteId; });
+  var rows = [];
+  items.forEach(function(s){ if(rows.indexOf(s.row) === -1) rows.push(s.row); });
+  rows.sort(function(a, b){ return a - b; });
+  html += '<div class="card">' + (function(){
+  return '<div class="filter-pill-row" style="margin:0 0 14px;">' + d.sites.map(function(st){
+    return '<button type="button" class="filter-pill' + (st.id === siteId ? " active" : "") + '" onclick="siloSelectSite(\'' + st.id + '\')">' + esc(st.name) + '</button>';
+  }).join("") + '</div>';
+  })();
+  if(!items.length) html += '<div class="empty-state">No silos here yet.</div>';
+  rows.forEach(function(r){
+    html += '<div class="silo-row">' + items.filter(function(s){ return s.row === r; }).map(siloTileHtml).join("") + '</div>';
+  });
+  var siteTotal = items.reduce(function(sum, s){ return sum + siloBalance(s); }, 0);
+  html += '<p class="row-muted" style="margin:6px 0 0;font-size:12.5px;">' + esc(site.short) + ' total: <b>' + siloFmt(siteTotal) + ' t</b></p></div>';
+  if(isAdmin()) html += renderSiloManageCard();
+  return html;
+}
+// 0-100 fill percentage when the silo has a capacity set, otherwise null.
+function siloFillPct(s){
+  var cap = Number(s.capacity) || 0;
+  if(cap <= 0) return null;
+  return Math.max(0, Math.min(100, Math.round(siloBalance(s) / cap * 100)));
+}
+function siloTileHtml(s){
+  var b = siloBalance(s);
+  var pct = siloFillPct(s);
+  var hasCrop = !!(s.crop && s.crop.trim());
+  var body = '<div class="silo-crop">' + (hasCrop ? esc(s.crop) : '<span class="row-muted">&nbsp;</span>') + '</div>' +
+    (s.notes ? '<div class="silo-notes">' + esc(s.notes) + '</div>' : '') +
+    '<div class="silo-t">' + (b > 0 ? siloFmt(b) + ' t' : '<span class="row-muted">Empty</span>') + '</div>' +
+    (pct !== null && b > 0 ? '<div class="silo-notes">' + pct + '% full</div>' : '');
+  var shape = s.shape === "cone"
+    ? '<svg class="silo-svg" viewBox="0 0 100 130" preserveAspectRatio="none" aria-hidden="true">' + (pct !== null ? '<defs><linearGradient id="sg_' + s.id + '" x1="0" y1="1" x2="0" y2="0"><stop offset="' + pct + '%" stop-color="#cfe3f6"/><stop offset="' + pct + '%" stop-color="#ffffff"/></linearGradient></defs>' : '') + '<path d="M4 14 Q4 4 14 4 L86 4 Q96 4 96 14 L96 90 L50 126 L4 90 Z" fill="' + (pct !== null ? 'url(#sg_' + s.id + ')' : '#fff') + '" stroke="currentColor" stroke-width="2"/></svg>'
+    : '';
+  var fillStyle = (s.shape !== "cone" && pct !== null) ? ' style="background:linear-gradient(to top,#cfe3f6 ' + pct + '%,#fff ' + pct + '%);"' : '';
+  return '<div class="silo-cell"><div class="silo-code">' + esc(s.code) + '</div>' +
+    '<button type="button" class="silo silo-' + (s.shape === "cone" ? "cone" : "round") + (b > 0 ? "" : " silo-empty") + '"' + fillStyle + ' onclick="siloOpen(\'' + s.id + '\')" title="' + escAttr(siloLabel(s) + (pct !== null ? " - " + pct + "% full" : "")) + '">' + shape + '<span class="silo-body">' + body + '</span></button></div>';
+}
+function renderSiloManageCard(){
+  var d = siloData();
+  return '<div class="card" style="margin-top:14px;"><h3 style="margin:0 0 4px;">Add a silo (admin)</h3>' +
+    '<p class="row-muted" style="margin:0 0 10px;font-size:12.5px;">Adds another silo to a site. Rename or remove a silo from its own page.</p>' +
+    '<form onsubmit="addSilo(event)"><div class="form-grid">' +
+      '<div class="field"><label>Site</label><select name="site">' + d.sites.map(function(s){ return '<option value="' + escAttr(s.id) + '">' + esc(s.name) + '</option>'; }).join("") + '</select></div>' +
+      '<div class="field"><label>Silo name / number</label><input type="text" name="code" required placeholder="e.g. 8 or F4" /></div>' +
+      '<div class="field"><label>Shape</label><select name="shape"><option value="round">Round</option><option value="cone">Cone-bottom</option></select></div>' +
+      '<div class="field"><label>Row</label><input type="number" name="row" min="1" max="6" step="1" value="2" /></div>' +
+    '</div><div class="form-actions"><button type="submit" class="btn btn-primary" style="width:auto;">Add silo</button></div></form></div>';
+}
+function addSilo(e){
+  e.preventDefault();
+  if(!isAdmin()) return;
+  var f = e.target;
+  var code = f.code.value.trim();
+  if(!code) return;
+  var site = f.site.value;
+  if(siloData().items.some(function(s){ return s.site === site && s.code.toLowerCase() === code.toLowerCase(); })){
+    ui.siloError = "That site already has a silo called " + code + "."; render(); return;
+  }
+  ui.siloError = "";
+  siloData().items.push({ id: uid("silo"), site: site, code: code, row: parseInt(f.row.value, 10) || 2, shape: f.shape.value === "cone" ? "cone" : "round", crop: "", notes: "", transactions: [] });
+  persist();
+}
+
+function renderSiloDetail(s){
+  var b = siloBalance(s);
+  var rows = siloLedger(s).slice().reverse();
+  var act = ui.siloAction;
+  var html = '<div style="margin-bottom:12px;"><button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="siloBack()">&larr; All silos</button></div>';
+  if(ui.siloMsg) html += '<div class="banner ok" style="margin-bottom:12px;">' + esc(ui.siloMsg) + '</div>';
+  if(ui.siloError) html += '<div class="signin-error" style="margin-bottom:12px;">' + esc(ui.siloError) + '</div>';
+  var totalIn = 0, totalOut = 0;
+  rows.forEach(function(r){ var dlt = Number(r.x.delta) || 0; if(r.x.type === "opening" || r.x.type === "in" || r.x.type === "transfer-in" || (r.x.type === "adjust" && dlt > 0)) totalIn += Math.max(0, dlt); else if(dlt < 0) totalOut += -dlt; });
+  html += '<div class="card"><div class="card-row" style="align-items:flex-start;gap:10px;flex-wrap:wrap;"><div><h3 style="margin:0;">' + esc(siloLabel(s)) + '</h3>' +
+    '<div class="row-muted" style="font-size:12.5px;margin-top:2px;">' + (s.crop ? esc(s.crop) : 'No crop set') + (s.notes ? ' · ' + esc(s.notes) : '') + '</div></div>' +
+    '<div style="text-align:right;"><div style="font-size:30px;font-weight:700;line-height:1;">' + siloFmt(b) + ' t</div><div class="row-muted" style="font-size:12px;">balance' + (siloFillPct(s) !== null ? ' \u00b7 ' + siloFillPct(s) + '% of ' + siloFmt(s.capacity) + ' t' : '') + '</div></div></div>' +
+    '<div class="row-muted" style="font-size:12.5px;margin:8px 0 12px;">All-time: ' + siloFmt(totalIn) + ' t in, ' + siloFmt(totalOut) + ' t out</div>' +
+    '<div class="filter-pill-row" style="margin:0;">' +
+      [["add", "Add grain"], ["out", "Take out"], ["transfer", "Transfer to another silo"], ["event", "Add event"], ["set", "Set tonnes"], ["details", "Crop / notes"]].map(function(a){
+        return '<button type="button" class="filter-pill' + (act === a[0] ? " active" : "") + '" onclick="siloSetAction(\'' + a[0] + '\')">' + a[1] + '</button>';
+      }).join("") + '</div>';
+  if(act) html += renderSiloActionForm(s, act);
+  html += '</div>';
+  html += '<div class="card" style="margin-top:14px;"><h3 style="margin:0 0 10px;">Transactions</h3>';
+  if(!rows.length){
+    html += '<div class="empty-state">No transactions yet.</div>';
+  } else {
+    html += '<div class="table-wrap" style="box-shadow:none;"><table><thead><tr><th>Date</th><th>What</th><th>Tonnes</th><th>Balance</th><th>Description</th>' + (isAdmin() ? '<th></th>' : '') + '</tr></thead><tbody>' +
+      rows.map(function(r){
+        var x = r.x, dlt = Number(x.delta) || 0;
+        var other = x.otherSilo ? siloFind(x.otherSilo) : null;
+        var what = siloTxLabel(x) + (other ? (x.type === "transfer-out" ? " to " : " from ") + esc(siloLabel(other)) : "");
+        return '<tr><td style="white-space:nowrap;">' + (x.date ? fmtDate(x.date) : "—") + '</td><td>' + (x.type === "transfer-in" || x.type === "transfer-out" ? siloTxLabelHtml(x, other) : esc(what)) + '</td>' +
+          '<td style="white-space:nowrap;font-weight:700;color:' + (dlt < 0 ? 'var(--danger)' : 'inherit') + ';">' + (dlt === 0 ? '—' : (dlt > 0 ? "+" : "−") + siloFmt(Math.abs(dlt))) + '</td>' +
+          '<td style="white-space:nowrap;">' + siloFmt(r.bal) + ' t</td>' +
+          '<td>' + (x.description ? esc(x.description) : '<span class="row-muted">—</span>') + (x.by ? '<div class="row-muted" style="font-size:11px;">' + esc(x.by) + '</div>' : '') + '</td>' +
+          (isAdmin() ? '<td><button type="button" class="btn btn-ghost btn-sm" style="width:auto;white-space:nowrap;" onclick="removeSiloTx(\'' + s.id + '\',\'' + x.id + '\')">Remove</button></td>' : '') + '</tr>';
+      }).join("") + '</tbody></table></div>';
+  }
+  html += '</div>';
+  return html;
+}
+function siloTxLabelHtml(x, other){
+  return esc(siloTxLabel(x)) + (other ? (x.type === "transfer-out" ? " to " : " from ") + esc(siloLabel(other)) : "");
+}
+function renderSiloActionForm(s, act){
+  var today = tilLocalToday();
+  var dateField = '<div class="field"><label>Date</label><input type="date" name="date" value="' + today + '" required /></div>';
+  var descField = function(label, ph){ return '<div class="field span-2"><label>' + label + '</label><input type="text" name="description" placeholder="' + ph + '" /></div>'; };
+  var cancel = '<button type="button" class="btn btn-ghost" style="width:auto;" onclick="siloSetAction(null)">Cancel</button>';
+  var wrap = function(inner, submit, handler){ return '<form class="form-panel" style="margin-top:12px;" onsubmit="' + handler + '(event,\'' + s.id + '\')"><div class="form-grid">' + inner + '</div><div class="form-actions"><button type="submit" class="btn btn-primary" style="width:auto;">' + submit + '</button>' + cancel + '</div></form>'; };
+  var tonnesField = function(label){ return '<div class="field"><label>' + label + '</label><input type="text" inputmode="decimal" name="tonnes" required placeholder="e.g. 12.5" /></div>'; };
+  if(act === "add") return wrap(dateField + tonnesField("Tonnes to add") + descField("Why / where from (optional)", "e.g. Harvest from Box Plains"), "Add to silo", "siloMove");
+  if(act === "out") return wrap(dateField + tonnesField("Tonnes to take out") + descField("Why / where to (optional)", "e.g. Delivered to buyer"), "Take out of silo", "siloMoveOut");
+  if(act === "set") return wrap(dateField + '<div class="field"><label>Correct balance (tonnes)</label><input type="text" inputmode="decimal" name="tonnes" required value="' + escAttr(String(siloBalance(s))) + '" /></div>' + descField("Reason (optional)", "e.g. Re-measured / stocktake"), "Set balance", "siloSetBalance");
+  if(act === "event"){
+    return wrap(dateField +
+      '<div class="field"><label>Event</label><input type="text" name="eventName" list="silo-events" required placeholder="e.g. Seed grading" /><datalist id="silo-events">' + SILO_EVENT_SUGGESTIONS.map(function(n){ return '<option value="' + escAttr(n) + '">'; }).join("") + '</datalist></div>' +
+      '<div class="field"><label>Tonnes removed by this event (optional)</label><input type="text" inputmode="decimal" name="tonnes" placeholder="e.g. screenings taken out" /></div>' +
+      descField("Notes (optional)", "e.g. Graded over 2.5 mm screen"), "Save event", "siloEvent");
+  }
+  if(act === "transfer"){
+    var d = siloData();
+    var opts = d.items.filter(function(o){ return o.id !== s.id; }).map(function(o){
+      var ob = siloBalance(o);
+      return '<option value="' + escAttr(o.id) + '">' + esc(siloLabel(o)) + (o.crop ? ' – ' + esc(o.crop) : '') + ' (' + siloFmt(ob) + ' t)</option>';
+    }).join("");
+    return wrap(dateField + '<div class="field"><label>Transfer to</label><select name="to" required><option value="">Choose a silo…</option>' + opts + '</select></div>' +
+      tonnesField("Tonnes to transfer") + descField("Why (optional)", "e.g. Emptying for repairs"), "Transfer", "siloTransfer");
+  }
+  if(act === "details"){
+    return '<form class="form-panel" style="margin-top:12px;" onsubmit="siloSaveDetails(event,\'' + s.id + '\')"><div class="form-grid">' +
+      '<div class="field"><label>Crop type</label><input type="text" name="crop" value="' + escAttr(s.crop || "") + '" placeholder="e.g. Captain chickpeas" /></div>' +
+      '<div class="field"><label>Capacity (tonnes, optional)</label><input type="text" inputmode="decimal" name="capacity" value="' + escAttr(s.capacity ? String(s.capacity) : "") + '" placeholder="shows how full it is" /></div>' +
+      '<div class="field span-2"><label>Paddock / source / notes</label><input type="text" name="notes" value="' + escAttr(s.notes || "") + '" /></div>' +
+      (isAdmin() ? '<div class="field"><label>Silo name / number (admin)</label><input type="text" name="code" value="' + escAttr(s.code) + '" required /></div>' : '') +
+      '</div><div class="form-actions"><button type="submit" class="btn btn-primary" style="width:auto;">Save</button>' + cancel +
+      (isAdmin() ? '<button type="button" class="btn btn-danger" style="width:auto;" onclick="removeSilo(\'' + s.id + '\')">Remove this silo</button>' : '') + '</div></form>';
+  }
+  return "";
+}
+function siloFail(msg){ ui.siloError = msg; ui.siloMsg = ""; render(); }
+function siloDone(msg){ ui.siloError = ""; ui.siloMsg = msg; ui.siloAction = null; persist(); }
+function siloReadMove(e, id){
+  e.preventDefault();
+  var s = siloFind(id); if(!s || !siloCanRecord()) return null;
+  var f = e.target;
+  var t = siloParseT(f.tonnes.value);
+  if(!f.date.value) { siloFail("Enter the date."); return null; }
+  if(t === null || t <= 0 || t > 100000){ siloFail("Enter the tonnes as a number above 0, e.g. 12.5."); return null; }
+  return { s: s, f: f, t: t };
+}
+function siloMove(e, id){
+  var m = siloReadMove(e, id); if(!m) return;
+  siloNewTx(m.s, "in", m.t, m.f.date.value, m.f.description.value);
+  siloDone("Added " + siloFmt(m.t) + " t. Balance is now " + siloFmt(siloBalance(m.s)) + " t.");
+}
+function siloMoveOut(e, id){
+  var m = siloReadMove(e, id); if(!m) return;
+  var bal = siloBalance(m.s);
+  if(m.t > bal) return siloFail("There is only " + siloFmt(bal) + " t in this silo, so " + siloFmt(m.t) + " t can't be taken out.");
+  siloNewTx(m.s, "out", -m.t, m.f.date.value, m.f.description.value);
+  siloDone("Took out " + siloFmt(m.t) + " t. Balance is now " + siloFmt(siloBalance(m.s)) + " t.");
+}
+function siloSetBalance(e, id){
+  e.preventDefault();
+  var s = siloFind(id); if(!s || !siloCanRecord()) return;
+  var f = e.target;
+  var t = siloParseT(f.tonnes.value);
+  if(!f.date.value) return siloFail("Enter the date.");
+  if(t === null || t < 0 || t > 100000) return siloFail("Enter the correct balance as a number (0 or more).");
+  var diff = Math.round((t - siloBalance(s)) * 100) / 100;
+  if(diff === 0) return siloFail("That is already the balance.");
+  siloNewTx(s, "adjust", diff, f.date.value, f.description.value || ("Balance set to " + siloFmt(t) + " t"));
+  siloDone("Balance set to " + siloFmt(t) + " t.");
+}
+function siloEvent(e, id){
+  e.preventDefault();
+  var s = siloFind(id); if(!s || !siloCanRecord()) return;
+  var f = e.target;
+  var name = f.eventName.value.trim();
+  if(!name) return siloFail("Enter the event, e.g. Seed grading.");
+  if(!f.date.value) return siloFail("Enter the date.");
+  var removed = f.tonnes.value.trim() === "" ? 0 : siloParseT(f.tonnes.value);
+  if(removed === null || removed < 0) return siloFail("Tonnes removed must be a number (or leave it blank).");
+  if(removed > siloBalance(s)) return siloFail("There is only " + siloFmt(siloBalance(s)) + " t in this silo.");
+  siloNewTx(s, "event", removed ? -removed : 0, f.date.value, f.description.value, { eventName: name });
+  siloDone(name + " recorded" + (removed ? " (" + siloFmt(removed) + " t removed)" : "") + ".");
+}
+function siloTransfer(e, id){
+  e.preventDefault();
+  var s = siloFind(id); if(!s || !siloCanRecord()) return;
+  var f = e.target;
+  var dest = siloFind(f.to.value);
+  var t = siloParseT(f.tonnes.value);
+  if(!dest || dest.id === s.id) return siloFail("Choose the silo to transfer to.");
+  if(!f.date.value) return siloFail("Enter the date.");
+  if(t === null || t <= 0 || t > 100000) return siloFail("Enter the tonnes as a number above 0, e.g. 12.5.");
+  var bal = siloBalance(s);
+  if(t > bal) return siloFail("There is only " + siloFmt(bal) + " t in this silo, so " + siloFmt(t) + " t can't be transferred.");
+  var destBal = siloBalance(dest);
+  var sameCrop = (dest.crop || "").trim().toLowerCase() === (s.crop || "").trim().toLowerCase();
+  if(destBal > 0 && !sameCrop && !confirm(siloLabel(dest) + " holds " + siloFmt(destBal) + " t of " + (dest.crop || "an unnamed crop") + ". Transferring " + (s.crop || "this grain") + " into it will mix them. Continue?")) return;
+  var xfer = uid("xfer");
+  siloNewTx(s, "transfer-out", -t, f.date.value, f.description.value, { transferId: xfer, otherSilo: dest.id });
+  if(destBal <= 0 && !sameCrop && (s.crop || "").trim()){
+    if((dest.crop || "").trim()) siloNewTx(dest, "event", 0, f.date.value, (dest.crop + " → " + s.crop), { eventName: "Crop changed" });
+    dest.crop = s.crop;
+  }
+  siloNewTx(dest, "transfer-in", t, f.date.value, f.description.value, { transferId: xfer, otherSilo: s.id });
+  siloDone("Transferred " + siloFmt(t) + " t to " + siloLabel(dest) + ". Balance is now " + siloFmt(siloBalance(s)) + " t.");
+}
+function siloSaveDetails(e, id){
+  e.preventDefault();
+  var s = siloFind(id); if(!s || !siloCanRecord()) return;
+  var f = e.target;
+  var crop = f.crop.value.trim();
+  if(crop !== (s.crop || "")){
+    siloNewTx(s, "event", 0, tilLocalToday(), (s.crop || "(none)") + " → " + (crop || "(none)"), { eventName: "Crop changed" });
+    s.crop = crop;
+  }
+  s.notes = f.notes.value.trim();
+  var capTxt = f.capacity.value.trim();
+  if(capTxt === "") s.capacity = 0;
+  else {
+    var cap = siloParseT(capTxt);
+    if(cap === null || cap < 0 || cap > 100000) return siloFail("Capacity must be a number of tonnes (or leave it blank).");
+    s.capacity = cap;
+  }
+  if(isAdmin() && f.code){
+    var code = f.code.value.trim();
+    if(code && code !== s.code){
+      if(siloData().items.some(function(o){ return o.id !== s.id && o.site === s.site && o.code.toLowerCase() === code.toLowerCase(); })) return siloFail("That site already has a silo called " + code + ".");
+      s.code = code;
+    }
+  }
+  siloDone("Saved.");
+}
+function removeSilo(id){
+  var s = siloFind(id); if(!s || !isAdmin()) return;
+  if(!confirm("Remove " + siloLabel(s) + " and its whole transaction history? This cannot be undone. (Use Take out first if it still holds grain.)")) return;
+  removeById(siloData().items, id);
+  ui.siloOpen = null; ui.siloAction = null;
+  persist();
+}
+function removeSiloTx(siloId, txId){
+  var s = siloFind(siloId); if(!s || !isAdmin()) return;
+  var tx = byId(s.transactions, txId); if(!tx) return;
+  var ids = [[s, tx]];
+  if(tx.transferId){
+    siloData().items.forEach(function(o){ (o.transactions || []).forEach(function(x){ if(x.transferId === tx.transferId && x.id !== tx.id) ids.push([o, x]); }); });
+  }
+  // refuse if removing would leave any silo with a negative running balance
+  var ok = true;
+  ids.forEach(function(p){
+    var kept = p[0].transactions.filter(function(x){ return !ids.some(function(q){ return q[1].id === x.id; }); });
+    var probe = { transactions: kept };
+    siloLedger(probe).forEach(function(r){ if(r.bal < 0) ok = false; });
+  });
+  if(!ok) return siloFail("That entry can't be removed because later movements would take a silo below zero.");
+  if(!confirm("Remove this entry" + (ids.length > 1 ? " (and the matching entry in the other silo)" : "") + "? The balance will be recalculated.")) return;
+  ids.forEach(function(p){ removeById(p[0].transactions, p[1].id); });
+  ui.siloError = "";
+  persist();
 }
 
 function pageHead(title, desc){
