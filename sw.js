@@ -440,7 +440,8 @@
 // v97 (2026-10-16, later): new "Silo Storage" section -- index.html changed.
 // v98 (2026-10-16, later): Silo Storage button renamed "Edit silo & crop" -- index.html changed.
 // v99 (2026-10-16, later): Silo Storage forms keep what you typed, show errors inside the form -- index.html changed.
-var CACHE_NAME = "bullamon-plains-shell-v99";
+// v100 (2026-10-16, later): Silo Storage column layout like the Airstrip drawing, add new headings -- index.html changed.
+var CACHE_NAME = "bullamon-plains-shell-v100";
 
 var SHELL_ASSETS = [
   "./",
