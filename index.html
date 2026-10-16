@@ -538,6 +538,7 @@
   .silo-crop{font-weight:700;font-size:12px;line-height:1.15;overflow-wrap:anywhere;}
   .silo-notes{font-size:10.5px;line-height:1.15;color:var(--text-muted);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere;}
   .silo-t{font-weight:700;font-size:13px;}
+  .silo-nolevel{font-size:10px;font-weight:700;color:var(--danger);}
   .silo:hover{background:#eef5fc;}
   .silo-cone:hover{background:transparent;}
   .silo-cone:hover .silo-tank{fill:#eef5fc;}
@@ -1824,7 +1825,7 @@ const DEFAULT_STATE = {
 // change to this file, same as CACHE_NAME in sw.js -- it gives an instant,
 // no-technical-steps-needed way to confirm whether a given device is
 // actually running the latest deploy, without comparing file contents.
-var APP_BUILD = "2026-10-16.14";
+var APP_BUILD = "2026-10-16.15";
 
 /* ======================================================================
    UTILITIES
@@ -14947,6 +14948,7 @@ function renderSilos(){
   if(open) return renderSiloDetail(open);
   var d = siloData();
   var html = pageHead("Silo Storage", "What is in each silo. Tap a silo to see its balance and transactions, or to add, take out, transfer or record an event.");
+  if(ui.siloMsg) html += '<div class="banner ok" style="margin-bottom:12px;">' + esc(ui.siloMsg) + '</div>';
   if(ui.siloError) html += '<div class="signin-error" style="margin-bottom:12px;">' + esc(ui.siloError) + '</div>';
   if(!d.sites.length){ return html + '<div class="empty-state">No silos set up yet.</div>' + (isAdmin() ? renderSiloManageCard() : ''); }
   var siteId = ui.siloSite && byId(d.sites, ui.siloSite) ? ui.siloSite : d.sites[0].id;
@@ -14983,15 +14985,88 @@ function renderSilos(){
   }).join("") + '</div>';
   var siteTotal = items.reduce(function(sum, s){ return sum + siloBalance(s); }, 0);
   html += '<p class="row-muted" style="margin:10px 0 0;font-size:12.5px;">' + esc(site.name) + ' total: <b>' + siloFmt(siteTotal) + ' t</b></p></div>';
-  if(isAdmin()) html += renderSiloManageCard();
+  var unset = items.filter(function(x){ return !siloCap(x); }).length;
+  if(unset) html += '<div class="banner warn" style="margin-top:14px;">' + unset + ' silo' + (unset === 1 ? " has" : "s have") + ' no fill level yet, so grain can\'t be added to ' + (unset === 1 ? "it" : "them") + ' until ' + (isAdmin() ? 'you set' : 'an admin sets') + ' ' + (unset === 1 ? "it" : "them") + '.</div>';
+  if(isAdmin()) html += renderSiloLevelsCard(site, items) + renderSiloManageCard();
   return html;
+}
+function renderSiloLevelsCard(site, items){
+  if(!items.length) return "";
+  return '<div id="silo-levels" class="card" style="margin-top:14px;"><h3 style="margin:0 0 4px;">Fill levels - ' + esc(site.name) + ' (admin)</h3>' +
+    '<p class="row-muted" style="margin:0 0 10px;font-size:12.5px;">The most each silo holds, in tonnes. A silo can never go above this or below empty. Fill in the ones you want to set or change and press Save.</p>' +
+    (ui.siloLevelsError ? '<div class="signin-error" role="alert" style="margin-bottom:12px;">' + esc(ui.siloLevelsError) + '</div>' : '') +
+    '<form oninput="siloLevelDraftSet(event)" onsubmit="siloSaveLevels(event,\'' + site.id + '\')"><div class="table-wrap" style="box-shadow:none;"><table><thead><tr><th>Silo</th><th>Crop</th><th>Holds now</th><th>Fill level (t)</th></tr></thead><tbody>' +
+    siloSortedItems(items).map(function(x){
+      return '<tr><td><b>' + esc(x.code) + '</b></td><td>' + (x.crop ? esc(x.crop) : '<span class="row-muted">&mdash;</span>') + '</td><td style="white-space:nowrap;">' + siloFmt(siloBalance(x)) + ' t</td>' +
+        '<td><input type="text" inputmode="decimal" name="lvl_' + escAttr(x.id) + '" value="' + escAttr(ui.siloLevelDraft && Object.prototype.hasOwnProperty.call(ui.siloLevelDraft, "lvl_" + x.id) ? ui.siloLevelDraft["lvl_" + x.id] : (siloCap(x) ? String(siloCap(x)) : "")) + '" placeholder="e.g. 90" style="width:100px;" aria-label="Fill level for silo ' + escAttr(x.code) + '" /></td></tr>';
+    }).join("") + '</tbody></table></div><div class="form-actions"><button type="submit" class="btn btn-primary" style="width:auto;">Save fill levels</button></div></form></div>';
+}
+function siloLevelDraftSet(e){
+  var t = e && e.target; if(!t || !t.name) return;
+  if(!ui.siloLevelDraft) ui.siloLevelDraft = {};
+  ui.siloLevelDraft[t.name] = t.value;
+}
+function siloSaveLevels(e, siteId){
+  e.preventDefault();
+  if(!isAdmin()) return;
+  var f = e.target, changes = [], err = "";
+  siloData().items.filter(function(x){ return x.site === siteId; }).forEach(function(x){
+    if(err) return;
+    var el = f.elements["lvl_" + x.id]; if(!el) return;
+    var txt = el.value.trim();
+    if(txt === "") return;
+    var v = siloParseT(txt);
+    if(v === null || v <= 0 || v > 100000){ err = "Silo " + x.code + ": enter the fill level as a number of tonnes above 0."; return; }
+    if(siloBalance(x) > v + 0.005){ err = "Silo " + x.code + " already holds " + siloFmt(siloBalance(x)) + " t, which is more than " + siloFmt(v) + " t. Take some out first, or enter a higher fill level."; return; }
+    if(v !== siloCap(x)) changes.push([x, v]);
+  });
+  if(err){
+    ui.siloLevelsError = err; render();
+    setTimeout(function(){ var el = document.getElementById("silo-levels"); if(el && el.scrollIntoView) el.scrollIntoView({ block: "center", behavior: "smooth" }); }, 30);
+    return;
+  }
+  ui.siloLevelsError = ""; ui.siloLevelDraft = {};
+  changes.forEach(function(c){ c[0].capacity = c[1]; });
+  ui.siloMsg = changes.length ? "Saved " + changes.length + " fill level" + (changes.length === 1 ? "" : "s") + "." : "";
+  persist();
 }
 // Capacity is a hard limit when set (0/blank = no limit). Tonnes of room left, or null if no limit.
 function siloCap(s){ return Number(s.capacity) > 0 ? Number(s.capacity) : 0; }
 function siloSpace(s){ var c = siloCap(s); return c ? Math.max(0, Math.round((c - siloBalance(s)) * 100) / 100) : null; }
 function siloOverMsg(s, t){
   var c = siloCap(s), sp = siloSpace(s);
-  return siloLabel(s) + " holds up to " + siloFmt(c) + " t and has " + siloFmt(siloBalance(s)) + " t in it, so only " + siloFmt(sp) + " t more will fit (" + siloFmt(t) + " t is too much).";
+  return siloLabel(s) + " fills to " + siloFmt(c) + " t and has " + siloFmt(siloBalance(s)) + " t in it, so only " + siloFmt(sp) + " t more will fit (" + siloFmt(t) + " t is too much).";
+}
+// Number of points in a ledger where the tonnes are below zero or above the fill level.
+function siloViolations(txs, cap){
+  var bal = 0, n = 0;
+  siloSorted({ transactions: txs }).forEach(function(x){
+    bal = Math.round((bal + (Number(x.delta) || 0)) * 100) / 100;
+    if(bal < -0.005 || (cap && bal > cap + 0.005)) n++;
+  });
+  return n;
+}
+// THE rule for every movement: a silo's tonnes must stay between 0 (empty) and its fill level,
+// at every point in time (so a back-dated entry can't break it either). Returns "" if the
+// change of `delta` tonnes dated `date` is allowed, otherwise the reason it is refused.
+function siloCheck(s, delta, date){
+  if(!delta) return "";
+  var cap = siloCap(s), bal = siloBalance(s);
+  if(delta > 0 && !cap) return siloLabel(s) + " has no fill level set yet, so grain can't be added. An admin needs to set it first (Edit silo & crop, or Fill levels under the silos).";
+  if(bal + delta < -0.005) return "There is only " + siloFmt(bal) + " t in " + siloLabel(s) + ", so " + siloFmt(-delta) + " t can't be taken out.";
+  if(cap && bal + delta > cap + 0.005) return siloOverMsg(s, delta);
+  // an entry dated before other entries changes every balance after it
+  var probe = { id: "probe", date: date, at: "9999", delta: delta };
+  var run = 0, reached = false, problem = "";
+  siloSorted({ transactions: (s.transactions || []).concat([probe]) }).forEach(function(x){
+    run = Math.round((run + (Number(x.delta) || 0)) * 100) / 100;
+    if(x === probe) reached = true;
+    if(reached && !problem){
+      if(run < -0.005) problem = "Dated " + fmtDate(date) + ", that would leave " + siloLabel(s) + " with " + siloFmt(run) + " t on " + fmtDate(x.date) + ", which is below zero (empty). Check the date.";
+      else if(cap && run > cap + 0.005) problem = "Dated " + fmtDate(date) + ", that would take " + siloLabel(s) + " to " + siloFmt(run) + " t on " + fmtDate(x.date) + ", which is over its fill level of " + siloFmt(cap) + " t. Check the date.";
+    }
+  });
+  return problem;
 }
 // 0-100 fill percentage when the silo has a capacity set, otherwise null.
 function siloFillPct(s){
@@ -15006,7 +15081,8 @@ function siloTileHtml(s){
   var body = '<div class="silo-crop">' + (hasCrop ? esc(s.crop) : '<span class="row-muted">&nbsp;</span>') + '</div>' +
     (s.notes ? '<div class="silo-notes">' + esc(s.notes) + '</div>' : '') +
     '<div class="silo-t">' + (b > 0 ? siloFmt(b) + ' t' : '<span class="row-muted">Empty</span>') + '</div>' +
-    (pct !== null && b > 0 ? '<div class="silo-notes">' + pct + '% full</div>' : '');
+    (pct !== null && b > 0 ? '<div class="silo-notes">' + pct + '% full</div>' : '') +
+    (!siloCap(s) ? '<div class="silo-nolevel">No fill level</div>' : '');
   // Cone-bottom silo on a braced frame, like the F1-F3 drawing on the Airstrip sheet.
   var tank = 'M8 24 Q50 2 92 24 L92 84 L58 108 L42 108 L8 84 Z';
   var shape = s.shape === "cone"
@@ -15045,7 +15121,7 @@ function renderSiloManageCard(){
       '<div class="field"><label>Heading</label><input type="text" name="heading" required placeholder="e.g. Home Farm Silos" /></div>' +
       '<div class="field"><label>How many silos</label><input type="number" name="count" min="1" max="30" step="1" value="4" required /></div>' +
       '<div class="field"><label>Laid out</label><select name="layout"><option value="side">Side by side (in a row)</option><option value="two">In two columns</option><option value="one">In one column</option></select></div>' +
-      '<div class="field"><label>Capacity of each silo, tonnes (optional)</label><input type="text" inputmode="decimal" name="capacity" placeholder="can\'t be gone over" /></div>' +
+      '<div class="field"><label>Fill level of each silo, tonnes</label><input type="text" inputmode="decimal" name="capacity" required placeholder="the most each holds" /></div>' +
     '</div><div class="form-actions"><button type="submit" class="btn btn-primary" style="width:auto;">Add heading</button></div></form></div>' +
     '<div class="card" style="margin-top:14px;"><h3 style="margin:0 0 4px;">Add a silo (admin)</h3>' +
     '<p class="row-muted" style="margin:0 0 10px;font-size:12.5px;">Adds one more silo under a heading. Rename, move or remove a silo from its own page.</p>' +
@@ -15054,7 +15130,7 @@ function renderSiloManageCard(){
       '<div class="field"><label>Silo name / number</label><input type="text" name="code" required placeholder="e.g. 8 or F4" /></div>' +
       '<div class="field"><label>Shape</label><select name="shape"><option value="round">Round</option><option value="cone">Cone-bottom on frame</option></select></div>' +
       '<div class="field"><label>Column</label><input type="number" name="col" min="1" max="12" step="1" value="1" /></div>' +
-      '<div class="field"><label>Capacity in tonnes (optional)</label><input type="text" inputmode="decimal" name="capacity" placeholder="can\'t be gone over" /></div>' +
+      '<div class="field"><label>Fill level in tonnes</label><input type="text" inputmode="decimal" name="capacity" required placeholder="the most it holds" /></div>' +
     '</div><div class="form-actions"><button type="submit" class="btn btn-primary" style="width:auto;">Add silo</button></div></form></div></div>';
 }
 function addSiloSite(e){
@@ -15067,7 +15143,8 @@ function addSiloSite(e){
   if(d.sites.some(function(s){ return s.name.toLowerCase() === name.toLowerCase(); })) return siloAdminFail("There is already a heading called " + name + ".");
   if(!(n >= 1 && n <= 30)) return siloAdminFail("Enter how many silos (1 to 30).");
   var capTxt = f.capacity ? f.capacity.value.trim() : "", capEach = 0;
-  if(capTxt){ capEach = siloParseT(capTxt); if(capEach === null || capEach < 0 || capEach > 100000) return siloAdminFail("Capacity must be a number of tonnes (or leave it blank)."); }
+  capEach = siloParseT(capTxt);
+  if(capEach === null || capEach <= 0 || capEach > 100000) return siloAdminFail("Enter the fill level (the most each silo holds) as a number of tonnes, e.g. 90.");
   var id = uid("site");
   d.sites.push({ id: id, name: name, short: name, northDeg: 0 });
   var layout = f.layout.value, half = Math.ceil(n / 2);
@@ -15113,7 +15190,8 @@ function addSilo(e){
   var site = f.site.value;
   if(d.items.some(function(s){ return s.site === site && s.code.toLowerCase() === code.toLowerCase(); })) return siloAdminFail("That heading already has a silo called " + code + ".");
   var capTxt2 = f.capacity ? f.capacity.value.trim() : "", cap2 = 0;
-  if(capTxt2){ cap2 = siloParseT(capTxt2); if(cap2 === null || cap2 < 0 || cap2 > 100000) return siloAdminFail("Capacity must be a number of tonnes (or leave it blank)."); }
+  cap2 = siloParseT(capTxt2);
+  if(cap2 === null || cap2 <= 0 || cap2 > 100000) return siloAdminFail("Enter the fill level (the most it holds) as a number of tonnes, e.g. 90.");
   var col = Math.max(1, Math.min(12, parseInt(f.col.value, 10) || 1));
   var pos = 0;
   d.items.forEach(function(s){ if(s.site === site && siloCol(s) === col) pos = Math.max(pos, Number(s.pos) || 0); });
@@ -15132,7 +15210,7 @@ function renderSiloDetail(s){
   rows.forEach(function(r){ var dlt = Number(r.x.delta) || 0; if(r.x.type === "opening" || r.x.type === "in" || r.x.type === "transfer-in" || (r.x.type === "adjust" && dlt > 0)) totalIn += Math.max(0, dlt); else if(dlt < 0) totalOut += -dlt; });
   html += '<div class="card"><div class="card-row" style="align-items:flex-start;gap:10px;flex-wrap:wrap;"><div><h3 style="margin:0;">' + esc(siloLabel(s)) + '</h3>' +
     '<div class="row-muted" style="font-size:12.5px;margin-top:2px;">' + (s.crop ? esc(s.crop) : 'No crop set') + (s.notes ? ' · ' + esc(s.notes) : '') + '</div></div>' +
-    '<div style="text-align:right;"><div style="font-size:30px;font-weight:700;line-height:1;">' + siloFmt(b) + ' t</div><div class="row-muted" style="font-size:12px;">balance' + (siloFillPct(s) !== null ? ' \u00b7 ' + siloFillPct(s) + '% of ' + siloFmt(s.capacity) + ' t' : '') + '</div>' + (siloCap(s) ? '<div style="font-size:12.5px;font-weight:700;margin-top:2px;">' + (siloSpace(s) > 0 ? siloFmt(siloSpace(s)) + ' t room left' : 'Full') + '</div>' : '') + '</div></div>' +
+    '<div style="text-align:right;"><div style="font-size:30px;font-weight:700;line-height:1;">' + siloFmt(b) + ' t</div><div class="row-muted" style="font-size:12px;">balance' + (siloFillPct(s) !== null ? ' \u00b7 ' + siloFillPct(s) + '% of ' + siloFmt(s.capacity) + ' t' : '') + '</div>' + (siloCap(s) ? '<div style="font-size:12.5px;font-weight:700;margin-top:2px;">' + (siloSpace(s) > 0 ? siloFmt(siloSpace(s)) + ' t room left' : 'Full') + '</div>' : '<div style="font-size:12.5px;font-weight:700;margin-top:2px;color:var(--danger);">No fill level set</div>') + '</div></div>' +
     '<div class="row-muted" style="font-size:12.5px;margin:8px 0 12px;">All-time: ' + siloFmt(totalIn) + ' t in, ' + siloFmt(totalOut) + ' t out</div>' +
     '<div class="filter-pill-row" style="margin:0;">' +
       [["add", "Add grain"], ["out", "Take out"], ["transfer", "Transfer to another silo"], ["event", "Add event"], ["set", "Set tonnes"], ["details", "Edit silo & crop"]].map(function(a){
@@ -15192,8 +15270,8 @@ function renderSiloActionForm(s, act){
     return '<form id="silo-form" class="form-panel" style="margin-top:12px;" oninput="siloDraftSet(event)" onsubmit="siloSaveDetails(event,\'' + s.id + '\')">' + errBox + '<div class="form-grid">' +
       '<div class="field"><label>Crop type</label><input type="text" name="crop" value="' + escAttr(siloDraftVal("crop", s.crop || "")) + '" placeholder="e.g. Captain chickpeas" /></div>' +
       (isAdmin()
-        ? '<div class="field"><label>Capacity in tonnes - can\'t be gone over (admin)</label><input type="text" inputmode="decimal" name="capacity" value="' + escAttr(siloDraftVal("capacity", s.capacity ? String(s.capacity) : "")) + '" placeholder="blank = no limit" /></div>'
-        : '<div class="field"><label>Capacity</label><div class="row-muted" style="padding:9px 0;">' + (siloCap(s) ? siloFmt(siloCap(s)) + ' t (set by an admin)' : 'No limit set') + '</div></div>') +
+        ? '<div class="field"><label>Fill level in tonnes - the most it holds (admin)</label><input type="text" inputmode="decimal" name="capacity" value="' + escAttr(siloDraftVal("capacity", s.capacity ? String(s.capacity) : "")) + '" placeholder="e.g. 90" /></div>'
+        : '<div class="field"><label>Capacity</label><div class="row-muted" style="padding:9px 0;">' + (siloCap(s) ? siloFmt(siloCap(s)) + ' t (set by an admin)' : 'Not set yet - ask an admin') + '</div></div>') +
       '<div class="field span-2"><label>Paddock / source / notes</label><input type="text" name="notes" value="' + escAttr(siloDraftVal("notes", s.notes || "")) + '" /></div>' +
       (isAdmin() ? '<div class="field"><label>Silo name / number (admin)</label><input type="text" name="code" value="' + escAttr(siloDraftVal("code", s.code)) + '" required /></div>' +
         '<div class="field"><label>Heading (admin)</label><select name="site">' + siloData().sites.map(function(st){ return '<option value="' + escAttr(st.id) + '"' + (siloDraftVal("site", s.site) === st.id ? " selected" : "") + '>' + esc(st.name) + '</option>'; }).join("") + '</select></div>' +
@@ -15221,14 +15299,13 @@ function siloReadMove(e, id){
 }
 function siloMove(e, id){
   var m = siloReadMove(e, id); if(!m) return;
-  if(siloCap(m.s) && siloBalance(m.s) + m.t > siloCap(m.s) + 1e-9) return siloFail(siloOverMsg(m.s, m.t));
+  var err = siloCheck(m.s, m.t, m.f.date.value); if(err) return siloFail(err);
   siloNewTx(m.s, "in", m.t, m.f.date.value, m.f.description.value);
   siloDone("Added " + siloFmt(m.t) + " t. Balance is now " + siloFmt(siloBalance(m.s)) + " t.");
 }
 function siloMoveOut(e, id){
   var m = siloReadMove(e, id); if(!m) return;
-  var bal = siloBalance(m.s);
-  if(m.t > bal) return siloFail("There is only " + siloFmt(bal) + " t in this silo, so " + siloFmt(m.t) + " t can't be taken out.");
+  var err = siloCheck(m.s, -m.t, m.f.date.value); if(err) return siloFail(err);
   siloNewTx(m.s, "out", -m.t, m.f.date.value, m.f.description.value);
   siloDone("Took out " + siloFmt(m.t) + " t. Balance is now " + siloFmt(siloBalance(m.s)) + " t.");
 }
@@ -15239,9 +15316,10 @@ function siloSetBalance(e, id){
   var t = siloParseT(f.tonnes.value);
   if(!f.date.value) return siloFail("Enter the date.");
   if(t === null || t < 0 || t > 100000) return siloFail("Enter the correct balance as a number (0 or more).");
-  if(siloCap(s) && t > siloCap(s)) return siloFail("The balance can't be set above this silo's capacity of " + siloFmt(siloCap(s)) + " t.");
+  if(siloCap(s) && t > siloCap(s)) return siloFail("The balance can't be set above this silo's fill level of " + siloFmt(siloCap(s)) + " t.");
   var diff = Math.round((t - siloBalance(s)) * 100) / 100;
   if(diff === 0) return siloFail("That is already the balance.");
+  var errSet = siloCheck(s, diff, f.date.value); if(errSet) return siloFail(errSet);
   siloNewTx(s, "adjust", diff, f.date.value, f.description.value || ("Balance set to " + siloFmt(t) + " t"));
   siloDone("Balance set to " + siloFmt(t) + " t.");
 }
@@ -15254,7 +15332,7 @@ function siloEvent(e, id){
   if(!f.date.value) return siloFail("Enter the date.");
   var removed = f.tonnes.value.trim() === "" ? 0 : siloParseT(f.tonnes.value);
   if(removed === null || removed < 0) return siloFail("Tonnes removed must be a number (or leave it blank).");
-  if(removed > siloBalance(s)) return siloFail("There is only " + siloFmt(siloBalance(s)) + " t in this silo.");
+  if(removed){ var errEv = siloCheck(s, -removed, f.date.value); if(errEv) return siloFail(errEv); }
   siloNewTx(s, "event", removed ? -removed : 0, f.date.value, f.description.value, { eventName: name });
   siloDone(name + " recorded" + (removed ? " (" + siloFmt(removed) + " t removed)" : "") + ".");
 }
@@ -15267,9 +15345,8 @@ function siloTransfer(e, id){
   if(!dest || dest.id === s.id) return siloFail("Choose the silo to transfer to.");
   if(!f.date.value) return siloFail("Enter the date.");
   if(t === null || t <= 0 || t > 100000) return siloFail("Enter the tonnes as a number above 0, e.g. 12.5.");
-  var bal = siloBalance(s);
-  if(t > bal) return siloFail("There is only " + siloFmt(bal) + " t in this silo, so " + siloFmt(t) + " t can't be transferred.");
-  if(siloCap(dest) && siloBalance(dest) + t > siloCap(dest) + 1e-9) return siloFail(siloOverMsg(dest, t));
+  var errOut = siloCheck(s, -t, f.date.value); if(errOut) return siloFail(errOut);
+  var errIn = siloCheck(dest, t, f.date.value); if(errIn) return siloFail(errIn);
   var destBal = siloBalance(dest);
   var sameCrop = (dest.crop || "").trim().toLowerCase() === (s.crop || "").trim().toLowerCase();
   if(destBal > 0 && !sameCrop && !confirm(siloLabel(dest) + " holds " + siloFmt(destBal) + " t of " + (dest.crop || "an unnamed crop") + ". Transferring " + (s.crop || "this grain") + " into it will mix them. Continue?")) return;
@@ -15297,8 +15374,8 @@ function siloSaveDetails(e, id){
     if(capTxt === "") s.capacity = 0;
     else {
       var cap = siloParseT(capTxt);
-      if(cap === null || cap < 0 || cap > 100000) return siloFail("Capacity must be a number of tonnes (or leave it blank).");
-      if(cap > 0 && siloBalance(s) > cap + 1e-9) return siloFail("This silo already holds " + siloFmt(siloBalance(s)) + " t, which is more than " + siloFmt(cap) + " t. Take some out first, or set a higher capacity.");
+      if(cap === null || cap < 0 || cap > 100000) return siloFail("Enter the fill level as a number of tonnes (or leave it blank to clear it).");
+      if(cap > 0 && siloBalance(s) > cap + 1e-9) return siloFail("This silo already holds " + siloFmt(siloBalance(s)) + " t, which is more than " + siloFmt(cap) + " t. Take some out first, or set a higher fill level.");
       s.capacity = cap;
     }
   }
@@ -15329,21 +15406,13 @@ function removeSiloTx(siloId, txId){
   if(tx.transferId){
     siloData().items.forEach(function(o){ (o.transactions || []).forEach(function(x){ if(x.transferId === tx.transferId && x.id !== tx.id) ids.push([o, x]); }); });
   }
-  // refuse if removing would leave any silo with a negative running balance
-  var ok = true;
+  // refuse if removing would put any silo below zero, or over its fill level, at any point
+  var bad = null;
   ids.forEach(function(p){
     var kept = p[0].transactions.filter(function(x){ return !ids.some(function(q){ return q[1].id === x.id; }); });
-    var probe = { transactions: kept };
-    siloLedger(probe).forEach(function(r){ if(r.bal < 0) ok = false; });
+    if(siloViolations(kept, siloCap(p[0])) > siloViolations(p[0].transactions, siloCap(p[0]))) bad = p[0];
   });
-  if(!ok) return siloFail("That entry can't be removed because later movements would take a silo below zero.");
-  var over = null;
-  ids.forEach(function(q){
-    var kept = q[0].transactions.filter(function(x){ return !ids.some(function(r){ return r[1].id === x.id; }); });
-    var tot = 0; kept.forEach(function(x){ tot += Number(x.delta) || 0; });
-    if(siloCap(q[0]) && tot > siloCap(q[0]) + 1e-9) over = q[0];
-  });
-  if(over) return siloFail("That entry can't be removed because " + siloLabel(over) + " would then hold more than its capacity of " + siloFmt(siloCap(over)) + " t.");
+  if(bad) return siloFail("That entry can't be removed because " + siloLabel(bad) + " would then go below zero" + (siloCap(bad) ? " or over its fill level of " + siloFmt(siloCap(bad)) + " t" : "") + " at some point.");
   if(!confirm("Remove this entry" + (ids.length > 1 ? " (and the matching entry in the other silo)" : "") + "? The balance will be recalculated.")) return;
   ids.forEach(function(p){ removeById(p[0].transactions, p[1].id); });
   ui.siloError = "";
