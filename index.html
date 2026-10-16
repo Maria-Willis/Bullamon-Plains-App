@@ -524,9 +524,8 @@
   .silo-north b{color:var(--text);}
   .silo-cols{display:flex;flex-wrap:wrap;justify-content:center;align-items:flex-start;gap:12px 26px;padding:6px 0 4px;}
   .silo-col{display:flex;flex-direction:column;align-items:center;gap:10px;}
-  .silo-stagger .silo-col:nth-child(even){margin-top:64px;}
   .silo-cell{display:flex;flex-direction:column;align-items:center;gap:4px;}
-  .silo-code{font-weight:700;font-size:13px;}
+  .silo-code{font-weight:800;font-size:16px;line-height:1;background:var(--accent);color:var(--accent-contrast,#fff);border-radius:999px;padding:5px 14px;min-width:38px;text-align:center;}
   .silo{position:relative;display:flex;align-items:center;justify-content:center;text-align:center;cursor:pointer;color:var(--accent);padding:0;font:inherit;}
   .silo-round{width:112px;height:112px;border-radius:50%;border:2px solid var(--accent);background:#fff;}
   .silo-cone{width:104px;height:172px;border:none;background:transparent;align-items:flex-start;}
@@ -544,7 +543,6 @@
   .silo-cone.silo-empty .silo-tank{stroke-dasharray:5 4;}
   @media (max-width:480px){
     .silo-cols{gap:10px 14px;}
-    .silo-stagger .silo-col:nth-child(even){margin-top:50px;}
     .silo-round{width:84px;height:84px;}
     .silo-cone{width:80px;height:132px;}
     .silo-cone .silo-body{margin-top:28px;}
@@ -1821,7 +1819,7 @@ const DEFAULT_STATE = {
 // change to this file, same as CACHE_NAME in sw.js -- it gives an instant,
 // no-technical-steps-needed way to confirm whether a given device is
 // actually running the latest deploy, without comparing file contents.
-var APP_BUILD = "2026-10-16.9";
+var APP_BUILD = "2026-10-16.11";
 
 /* ======================================================================
    UTILITIES
@@ -14943,13 +14941,20 @@ function renderSilos(){
     if(!last || last.c !== c){ last = { c: c, items: [] }; cols.push(last); }
     last.items.push(s);
   });
-  html += '<div class="silo-cols' + (cols.length === 2 ? ' silo-stagger' : '') + '">' + cols.map(function(c){
+  html += '<div class="silo-cols">' + cols.map(function(c){
     return '<div class="silo-col">' + c.items.map(siloTileHtml).join("") + '</div>';
   }).join("") + '</div>';
   var siteTotal = items.reduce(function(sum, s){ return sum + siloBalance(s); }, 0);
   html += '<p class="row-muted" style="margin:10px 0 0;font-size:12.5px;">' + esc(site.name) + ' total: <b>' + siloFmt(siteTotal) + ' t</b></p></div>';
   if(isAdmin()) html += renderSiloManageCard();
   return html;
+}
+// Capacity is a hard limit when set (0/blank = no limit). Tonnes of room left, or null if no limit.
+function siloCap(s){ return Number(s.capacity) > 0 ? Number(s.capacity) : 0; }
+function siloSpace(s){ var c = siloCap(s); return c ? Math.max(0, Math.round((c - siloBalance(s)) * 100) / 100) : null; }
+function siloOverMsg(s, t){
+  var c = siloCap(s), sp = siloSpace(s);
+  return siloLabel(s) + " holds up to " + siloFmt(c) + " t and has " + siloFmt(siloBalance(s)) + " t in it, so only " + siloFmt(sp) + " t more will fit (" + siloFmt(t) + " t is too much).";
 }
 // 0-100 fill percentage when the silo has a capacity set, otherwise null.
 function siloFillPct(s){
@@ -14998,6 +15003,7 @@ function renderSiloManageCard(){
       '<div class="field"><label>How many silos</label><input type="number" name="count" min="1" max="30" step="1" value="4" required /></div>' +
       '<div class="field"><label>Laid out</label><select name="layout"><option value="side">Side by side (in a row)</option><option value="two">In two columns</option><option value="one">In one column</option></select></div>' +
       '<div class="field"><label>North of it (optional)</label><input type="text" name="north" placeholder="e.g. Machinery Shed" /></div>' +
+      '<div class="field"><label>Capacity of each silo, tonnes (optional)</label><input type="text" inputmode="decimal" name="capacity" placeholder="can\'t be gone over" /></div>' +
     '</div><div class="form-actions"><button type="submit" class="btn btn-primary" style="width:auto;">Add heading</button></div></form></div>' +
     '<div class="card" style="margin-top:14px;"><h3 style="margin:0 0 4px;">Add a silo (admin)</h3>' +
     '<p class="row-muted" style="margin:0 0 10px;font-size:12.5px;">Adds one more silo under a heading. Rename, move or remove a silo from its own page.</p>' +
@@ -15006,6 +15012,7 @@ function renderSiloManageCard(){
       '<div class="field"><label>Silo name / number</label><input type="text" name="code" required placeholder="e.g. 8 or F4" /></div>' +
       '<div class="field"><label>Shape</label><select name="shape"><option value="round">Round</option><option value="cone">Cone-bottom on frame</option></select></div>' +
       '<div class="field"><label>Column</label><input type="number" name="col" min="1" max="12" step="1" value="1" /></div>' +
+      '<div class="field"><label>Capacity in tonnes (optional)</label><input type="text" inputmode="decimal" name="capacity" placeholder="can\'t be gone over" /></div>' +
     '</div><div class="form-actions"><button type="submit" class="btn btn-primary" style="width:auto;">Add silo</button></div></form></div></div>';
 }
 function addSiloSite(e){
@@ -15017,13 +15024,15 @@ function addSiloSite(e){
   if(!name) return siloAdminFail("Enter a heading.");
   if(d.sites.some(function(s){ return s.name.toLowerCase() === name.toLowerCase(); })) return siloAdminFail("There is already a heading called " + name + ".");
   if(!(n >= 1 && n <= 30)) return siloAdminFail("Enter how many silos (1 to 30).");
+  var capTxt = f.capacity ? f.capacity.value.trim() : "", capEach = 0;
+  if(capTxt){ capEach = siloParseT(capTxt); if(capEach === null || capEach < 0 || capEach > 100000) return siloAdminFail("Capacity must be a number of tonnes (or leave it blank)."); }
   var id = uid("site");
   d.sites.push({ id: id, name: name, short: name, north: f.north.value.trim() });
   var layout = f.layout.value, half = Math.ceil(n / 2);
   for(var i = 1; i <= n; i++){
     var col = layout === "side" ? i : (layout === "two" ? (i <= half ? 1 : 2) : 1);
     var pos = layout === "two" ? (i <= half ? i : i - half) : 1 + (layout === "one" ? i - 1 : 0);
-    d.items.push({ id: uid("silo"), site: id, code: String(i), row: col, col: col, pos: pos, shape: "round", crop: "", notes: "", transactions: [] });
+    d.items.push({ id: uid("silo"), site: id, code: String(i), row: col, col: col, pos: pos, shape: "round", crop: "", notes: "", capacity: capEach, transactions: [] });
   }
   ui.siloAdminError = ""; ui.siloSite = id; ui.siloEditSite = false;
   persist();
@@ -15058,11 +15067,13 @@ function addSilo(e){
   if(!code) return;
   var site = f.site.value;
   if(d.items.some(function(s){ return s.site === site && s.code.toLowerCase() === code.toLowerCase(); })) return siloAdminFail("That heading already has a silo called " + code + ".");
+  var capTxt2 = f.capacity ? f.capacity.value.trim() : "", cap2 = 0;
+  if(capTxt2){ cap2 = siloParseT(capTxt2); if(cap2 === null || cap2 < 0 || cap2 > 100000) return siloAdminFail("Capacity must be a number of tonnes (or leave it blank)."); }
   var col = Math.max(1, Math.min(12, parseInt(f.col.value, 10) || 1));
   var pos = 0;
   d.items.forEach(function(s){ if(s.site === site && siloCol(s) === col) pos = Math.max(pos, Number(s.pos) || 0); });
   ui.siloAdminError = "";
-  d.items.push({ id: uid("silo"), site: site, code: code, row: col, col: col, pos: pos + 1, shape: f.shape.value === "cone" ? "cone" : "round", crop: "", notes: "", transactions: [] });
+  d.items.push({ id: uid("silo"), site: site, code: code, row: col, col: col, pos: pos + 1, shape: f.shape.value === "cone" ? "cone" : "round", crop: "", notes: "", capacity: cap2, transactions: [] });
   persist();
 }
 function renderSiloDetail(s){
@@ -15076,7 +15087,7 @@ function renderSiloDetail(s){
   rows.forEach(function(r){ var dlt = Number(r.x.delta) || 0; if(r.x.type === "opening" || r.x.type === "in" || r.x.type === "transfer-in" || (r.x.type === "adjust" && dlt > 0)) totalIn += Math.max(0, dlt); else if(dlt < 0) totalOut += -dlt; });
   html += '<div class="card"><div class="card-row" style="align-items:flex-start;gap:10px;flex-wrap:wrap;"><div><h3 style="margin:0;">' + esc(siloLabel(s)) + '</h3>' +
     '<div class="row-muted" style="font-size:12.5px;margin-top:2px;">' + (s.crop ? esc(s.crop) : 'No crop set') + (s.notes ? ' · ' + esc(s.notes) : '') + '</div></div>' +
-    '<div style="text-align:right;"><div style="font-size:30px;font-weight:700;line-height:1;">' + siloFmt(b) + ' t</div><div class="row-muted" style="font-size:12px;">balance' + (siloFillPct(s) !== null ? ' \u00b7 ' + siloFillPct(s) + '% of ' + siloFmt(s.capacity) + ' t' : '') + '</div></div></div>' +
+    '<div style="text-align:right;"><div style="font-size:30px;font-weight:700;line-height:1;">' + siloFmt(b) + ' t</div><div class="row-muted" style="font-size:12px;">balance' + (siloFillPct(s) !== null ? ' \u00b7 ' + siloFillPct(s) + '% of ' + siloFmt(s.capacity) + ' t' : '') + '</div>' + (siloCap(s) ? '<div style="font-size:12.5px;font-weight:700;margin-top:2px;">' + (siloSpace(s) > 0 ? siloFmt(siloSpace(s)) + ' t room left' : 'Full') + '</div>' : '') + '</div></div>' +
     '<div class="row-muted" style="font-size:12.5px;margin:8px 0 12px;">All-time: ' + siloFmt(totalIn) + ' t in, ' + siloFmt(totalOut) + ' t out</div>' +
     '<div class="filter-pill-row" style="margin:0;">' +
       [["add", "Add grain"], ["out", "Take out"], ["transfer", "Transfer to another silo"], ["event", "Add event"], ["set", "Set tonnes"], ["details", "Edit silo & crop"]].map(function(a){
@@ -15114,7 +15125,7 @@ function renderSiloActionForm(s, act){
   var errBox = ui.siloError ? '<div class="signin-error" role="alert" style="margin-bottom:12px;">' + esc(ui.siloError) + '</div>' : '';
   var wrap = function(inner, submit, handler){ return '<form id="silo-form" class="form-panel" style="margin-top:12px;" oninput="siloDraftSet(event)" onchange="siloDraftSet(event)" onsubmit="' + handler + '(event,\'' + s.id + '\')">' + errBox + '<div class="form-grid">' + inner + '</div><div class="form-actions"><button type="submit" class="btn btn-primary" style="width:auto;">' + submit + '</button>' + cancel + '</div></form>'; };
   var tonnesField = function(label){ return '<div class="field"><label>' + label + '</label><input type="text" inputmode="decimal" name="tonnes" required value="' + escAttr(siloDraftVal("tonnes", "")) + '" placeholder="e.g. 12.5" /></div>'; };
-  if(act === "add") return wrap(dateField + tonnesField("Tonnes to add") + descField("Why / where from (optional)", "e.g. Harvest from Box Plains"), "Add to silo", "siloMove");
+  if(act === "add") return wrap(dateField + tonnesField("Tonnes to add" + (siloCap(s) ? " (room for " + siloFmt(siloSpace(s)) + " t)" : "")) + descField("Why / where from (optional)", "e.g. Harvest from Box Plains"), "Add to silo", "siloMove");
   if(act === "out") return wrap(dateField + tonnesField("Tonnes to take out") + descField("Why / where to (optional)", "e.g. Delivered to buyer"), "Take out of silo", "siloMoveOut");
   if(act === "set") return wrap(dateField + '<div class="field"><label>Correct balance (tonnes)</label><input type="text" inputmode="decimal" name="tonnes" required value="' + escAttr(siloDraftVal("tonnes", String(siloBalance(s)))) + '" /></div>' + descField("Reason (optional)", "e.g. Re-measured / stocktake"), "Set balance", "siloSetBalance");
   if(act === "event"){
@@ -15127,7 +15138,7 @@ function renderSiloActionForm(s, act){
     var d = siloData();
     var opts = d.items.filter(function(o){ return o.id !== s.id; }).map(function(o){
       var ob = siloBalance(o);
-      return '<option value="' + escAttr(o.id) + '"' + (siloDraftVal("to", "") === o.id ? " selected" : "") + '>' + esc(siloLabel(o)) + (o.crop ? ' – ' + esc(o.crop) : '') + ' (' + siloFmt(ob) + ' t)</option>';
+      return '<option value="' + escAttr(o.id) + '"' + (siloDraftVal("to", "") === o.id ? " selected" : "") + '>' + esc(siloLabel(o)) + (o.crop ? ' – ' + esc(o.crop) : '') + ' (' + siloFmt(ob) + ' t' + (siloCap(o) ? (siloSpace(o) > 0 ? ', room for ' + siloFmt(siloSpace(o)) + ' t' : ', full') : '') + ')</option>';
     }).join("");
     return wrap(dateField + '<div class="field"><label>Transfer to</label><select name="to" required><option value="">Choose a silo…</option>' + opts + '</select></div>' +
       tonnesField("Tonnes to transfer") + descField("Why (optional)", "e.g. Emptying for repairs"), "Transfer", "siloTransfer");
@@ -15135,7 +15146,9 @@ function renderSiloActionForm(s, act){
   if(act === "details"){
     return '<form id="silo-form" class="form-panel" style="margin-top:12px;" oninput="siloDraftSet(event)" onsubmit="siloSaveDetails(event,\'' + s.id + '\')">' + errBox + '<div class="form-grid">' +
       '<div class="field"><label>Crop type</label><input type="text" name="crop" value="' + escAttr(siloDraftVal("crop", s.crop || "")) + '" placeholder="e.g. Captain chickpeas" /></div>' +
-      '<div class="field"><label>Capacity (tonnes, optional)</label><input type="text" inputmode="decimal" name="capacity" value="' + escAttr(siloDraftVal("capacity", s.capacity ? String(s.capacity) : "")) + '" placeholder="shows how full it is" /></div>' +
+      (isAdmin()
+        ? '<div class="field"><label>Capacity in tonnes - can\'t be gone over (admin)</label><input type="text" inputmode="decimal" name="capacity" value="' + escAttr(siloDraftVal("capacity", s.capacity ? String(s.capacity) : "")) + '" placeholder="blank = no limit" /></div>'
+        : '<div class="field"><label>Capacity</label><div class="row-muted" style="padding:9px 0;">' + (siloCap(s) ? siloFmt(siloCap(s)) + ' t (set by an admin)' : 'No limit set') + '</div></div>') +
       '<div class="field span-2"><label>Paddock / source / notes</label><input type="text" name="notes" value="' + escAttr(siloDraftVal("notes", s.notes || "")) + '" /></div>' +
       (isAdmin() ? '<div class="field"><label>Silo name / number (admin)</label><input type="text" name="code" value="' + escAttr(siloDraftVal("code", s.code)) + '" required /></div>' +
         '<div class="field"><label>Heading (admin)</label><select name="site">' + siloData().sites.map(function(st){ return '<option value="' + escAttr(st.id) + '"' + (siloDraftVal("site", s.site) === st.id ? " selected" : "") + '>' + esc(st.name) + '</option>'; }).join("") + '</select></div>' +
@@ -15163,6 +15176,7 @@ function siloReadMove(e, id){
 }
 function siloMove(e, id){
   var m = siloReadMove(e, id); if(!m) return;
+  if(siloCap(m.s) && siloBalance(m.s) + m.t > siloCap(m.s) + 1e-9) return siloFail(siloOverMsg(m.s, m.t));
   siloNewTx(m.s, "in", m.t, m.f.date.value, m.f.description.value);
   siloDone("Added " + siloFmt(m.t) + " t. Balance is now " + siloFmt(siloBalance(m.s)) + " t.");
 }
@@ -15180,6 +15194,7 @@ function siloSetBalance(e, id){
   var t = siloParseT(f.tonnes.value);
   if(!f.date.value) return siloFail("Enter the date.");
   if(t === null || t < 0 || t > 100000) return siloFail("Enter the correct balance as a number (0 or more).");
+  if(siloCap(s) && t > siloCap(s)) return siloFail("The balance can't be set above this silo's capacity of " + siloFmt(siloCap(s)) + " t.");
   var diff = Math.round((t - siloBalance(s)) * 100) / 100;
   if(diff === 0) return siloFail("That is already the balance.");
   siloNewTx(s, "adjust", diff, f.date.value, f.description.value || ("Balance set to " + siloFmt(t) + " t"));
@@ -15209,6 +15224,7 @@ function siloTransfer(e, id){
   if(t === null || t <= 0 || t > 100000) return siloFail("Enter the tonnes as a number above 0, e.g. 12.5.");
   var bal = siloBalance(s);
   if(t > bal) return siloFail("There is only " + siloFmt(bal) + " t in this silo, so " + siloFmt(t) + " t can't be transferred.");
+  if(siloCap(dest) && siloBalance(dest) + t > siloCap(dest) + 1e-9) return siloFail(siloOverMsg(dest, t));
   var destBal = siloBalance(dest);
   var sameCrop = (dest.crop || "").trim().toLowerCase() === (s.crop || "").trim().toLowerCase();
   if(destBal > 0 && !sameCrop && !confirm(siloLabel(dest) + " holds " + siloFmt(destBal) + " t of " + (dest.crop || "an unnamed crop") + ". Transferring " + (s.crop || "this grain") + " into it will mix them. Continue?")) return;
@@ -15231,12 +15247,15 @@ function siloSaveDetails(e, id){
     s.crop = crop;
   }
   s.notes = f.notes.value.trim();
-  var capTxt = f.capacity.value.trim();
-  if(capTxt === "") s.capacity = 0;
-  else {
-    var cap = siloParseT(capTxt);
-    if(cap === null || cap < 0 || cap > 100000) return siloFail("Capacity must be a number of tonnes (or leave it blank).");
-    s.capacity = cap;
+  if(isAdmin() && f.capacity){
+    var capTxt = f.capacity.value.trim();
+    if(capTxt === "") s.capacity = 0;
+    else {
+      var cap = siloParseT(capTxt);
+      if(cap === null || cap < 0 || cap > 100000) return siloFail("Capacity must be a number of tonnes (or leave it blank).");
+      if(cap > 0 && siloBalance(s) > cap + 1e-9) return siloFail("This silo already holds " + siloFmt(siloBalance(s)) + " t, which is more than " + siloFmt(cap) + " t. Take some out first, or set a higher capacity.");
+      s.capacity = cap;
+    }
   }
   if(isAdmin() && f.code){
     var code = f.code.value.trim() || s.code;
@@ -15273,6 +15292,13 @@ function removeSiloTx(siloId, txId){
     siloLedger(probe).forEach(function(r){ if(r.bal < 0) ok = false; });
   });
   if(!ok) return siloFail("That entry can't be removed because later movements would take a silo below zero.");
+  var over = null;
+  ids.forEach(function(q){
+    var kept = q[0].transactions.filter(function(x){ return !ids.some(function(r){ return r[1].id === x.id; }); });
+    var tot = 0; kept.forEach(function(x){ tot += Number(x.delta) || 0; });
+    if(siloCap(q[0]) && tot > siloCap(q[0]) + 1e-9) over = q[0];
+  });
+  if(over) return siloFail("That entry can't be removed because " + siloLabel(over) + " would then hold more than its capacity of " + siloFmt(siloCap(over)) + " t.");
   if(!confirm("Remove this entry" + (ids.length > 1 ? " (and the matching entry in the other silo)" : "") + "? The balance will be recalculated.")) return;
   ids.forEach(function(p){ removeById(p[0].transactions, p[1].id); });
   ui.siloError = "";
