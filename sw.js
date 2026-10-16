@@ -447,7 +447,8 @@
 // v104 (2026-10-16, later): Silo Storage rotatable compass marker replaces the north text -- index.html changed.
 // v105 (2026-10-16, later): compass has no circle; N stays upright at the arrow tip -- index.html changed.
 // v106 (2026-10-16, later): Silo Storage fill levels required; silos can never go below empty or over full -- index.html changed.
-var CACHE_NAME = "bullamon-plains-shell-v106";
+// v107 (2026-10-16, later): Silo Storage silos sized by fill level, columns end level, F silos plain tank shape, Airstrip fill levels -- index.html changed.
+var CACHE_NAME = "bullamon-plains-shell-v107";
 
 var SHELL_ASSETS = [
   "./",
