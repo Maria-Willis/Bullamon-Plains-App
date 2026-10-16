@@ -443,7 +443,8 @@
 // v100 (2026-10-16, later): Silo Storage column layout like the Airstrip drawing, add new headings -- index.html changed.
 // v101 (2026-10-16, later): Silo Storage columns line up in rows; bold silo number badges -- index.html changed.
 // v102 (2026-10-16, later): Silo Storage capacity is a hard limit -- index.html changed.
-var CACHE_NAME = "bullamon-plains-shell-v102";
+// v103 (2026-10-16, later): Silo Storage heading name bigger, clearer North arrow -- index.html changed.
+var CACHE_NAME = "bullamon-plains-shell-v103";
 
 var SHELL_ASSETS = [
   "./",
