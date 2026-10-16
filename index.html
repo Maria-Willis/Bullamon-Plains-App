@@ -1813,7 +1813,7 @@ const DEFAULT_STATE = {
 // change to this file, same as CACHE_NAME in sw.js -- it gives an instant,
 // no-technical-steps-needed way to confirm whether a given device is
 // actually running the latest deploy, without comparing file contents.
-var APP_BUILD = "2026-10-16.6";
+var APP_BUILD = "2026-10-16.8";
 
 /* ======================================================================
    UTILITIES
@@ -14841,9 +14841,20 @@ function siloCanRecord(){
   var u = currentUser();
   return !!(u && !isHarvestOnly() && !(isLimitedAccess()));
 }
-function siloOpen(id){ ui.siloOpen = id; ui.siloAction = null; ui.siloError = ""; ui.siloMsg = ""; render(); }
-function siloBack(){ ui.siloOpen = null; ui.siloAction = null; ui.siloError = ""; ui.siloMsg = ""; render(); }
-function siloSetAction(a){ ui.siloAction = (ui.siloAction === a) ? null : a; ui.siloError = ""; ui.siloMsg = ""; render(); }
+function siloOpen(id){ ui.siloOpen = id; ui.siloAction = null; ui.siloError = ""; ui.siloMsg = ""; ui.siloDraft = {}; render(); }
+function siloBack(){ ui.siloOpen = null; ui.siloAction = null; ui.siloError = ""; ui.siloMsg = ""; ui.siloDraft = {}; render(); }
+function siloSetAction(a){ ui.siloAction = (ui.siloAction === a) ? null : a; ui.siloError = ""; ui.siloMsg = ""; ui.siloDraft = {}; render(); }
+// What has been typed into the open silo form, so a re-render (a refused entry, a sync
+// from another device) never wipes the fields.
+function siloDraftSet(e){
+  var t = e && e.target; if(!t || !t.name) return;
+  if(!ui.siloDraft) ui.siloDraft = {};
+  ui.siloDraft[t.name] = t.value;
+}
+function siloDraftVal(name, fallback){
+  var d = ui.siloDraft || {};
+  return Object.prototype.hasOwnProperty.call(d, name) ? d[name] : fallback;
+}
 function siloSelectSite(id){ ui.siloSite = id; render(); }
 
 function renderSilos(){
@@ -14939,7 +14950,7 @@ function renderSiloDetail(s){
   var act = ui.siloAction;
   var html = '<div style="margin-bottom:12px;"><button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="siloBack()">&larr; All silos</button></div>';
   if(ui.siloMsg) html += '<div class="banner ok" style="margin-bottom:12px;">' + esc(ui.siloMsg) + '</div>';
-  if(ui.siloError) html += '<div class="signin-error" style="margin-bottom:12px;">' + esc(ui.siloError) + '</div>';
+  if(ui.siloError && !act) html += '<div class="signin-error" style="margin-bottom:12px;">' + esc(ui.siloError) + '</div>';
   var totalIn = 0, totalOut = 0;
   rows.forEach(function(r){ var dlt = Number(r.x.delta) || 0; if(r.x.type === "opening" || r.x.type === "in" || r.x.type === "transfer-in" || (r.x.type === "adjust" && dlt > 0)) totalIn += Math.max(0, dlt); else if(dlt < 0) totalOut += -dlt; });
   html += '<div class="card"><div class="card-row" style="align-items:flex-start;gap:10px;flex-wrap:wrap;"><div><h3 style="margin:0;">' + esc(siloLabel(s)) + '</h3>' +
@@ -14947,7 +14958,7 @@ function renderSiloDetail(s){
     '<div style="text-align:right;"><div style="font-size:30px;font-weight:700;line-height:1;">' + siloFmt(b) + ' t</div><div class="row-muted" style="font-size:12px;">balance' + (siloFillPct(s) !== null ? ' \u00b7 ' + siloFillPct(s) + '% of ' + siloFmt(s.capacity) + ' t' : '') + '</div></div></div>' +
     '<div class="row-muted" style="font-size:12.5px;margin:8px 0 12px;">All-time: ' + siloFmt(totalIn) + ' t in, ' + siloFmt(totalOut) + ' t out</div>' +
     '<div class="filter-pill-row" style="margin:0;">' +
-      [["add", "Add grain"], ["out", "Take out"], ["transfer", "Transfer to another silo"], ["event", "Add event"], ["set", "Set tonnes"], ["details", "Crop / notes"]].map(function(a){
+      [["add", "Add grain"], ["out", "Take out"], ["transfer", "Transfer to another silo"], ["event", "Add event"], ["set", "Set tonnes"], ["details", "Edit silo & crop"]].map(function(a){
         return '<button type="button" class="filter-pill' + (act === a[0] ? " active" : "") + '" onclick="siloSetAction(\'' + a[0] + '\')">' + a[1] + '</button>';
       }).join("") + '</div>';
   if(act) html += renderSiloActionForm(s, act);
@@ -14976,42 +14987,46 @@ function siloTxLabelHtml(x, other){
 }
 function renderSiloActionForm(s, act){
   var today = tilLocalToday();
-  var dateField = '<div class="field"><label>Date</label><input type="date" name="date" value="' + today + '" required /></div>';
-  var descField = function(label, ph){ return '<div class="field span-2"><label>' + label + '</label><input type="text" name="description" placeholder="' + ph + '" /></div>'; };
+  var dateField = '<div class="field"><label>Date</label><input type="date" name="date" value="' + escAttr(siloDraftVal("date", today)) + '" required /></div>';
+  var descField = function(label, ph){ return '<div class="field span-2"><label>' + label + '</label><input type="text" name="description" value="' + escAttr(siloDraftVal("description", "")) + '" placeholder="' + ph + '" /></div>'; };
   var cancel = '<button type="button" class="btn btn-ghost" style="width:auto;" onclick="siloSetAction(null)">Cancel</button>';
-  var wrap = function(inner, submit, handler){ return '<form class="form-panel" style="margin-top:12px;" onsubmit="' + handler + '(event,\'' + s.id + '\')"><div class="form-grid">' + inner + '</div><div class="form-actions"><button type="submit" class="btn btn-primary" style="width:auto;">' + submit + '</button>' + cancel + '</div></form>'; };
-  var tonnesField = function(label){ return '<div class="field"><label>' + label + '</label><input type="text" inputmode="decimal" name="tonnes" required placeholder="e.g. 12.5" /></div>'; };
+  var errBox = ui.siloError ? '<div class="signin-error" role="alert" style="margin-bottom:12px;">' + esc(ui.siloError) + '</div>' : '';
+  var wrap = function(inner, submit, handler){ return '<form id="silo-form" class="form-panel" style="margin-top:12px;" oninput="siloDraftSet(event)" onchange="siloDraftSet(event)" onsubmit="' + handler + '(event,\'' + s.id + '\')">' + errBox + '<div class="form-grid">' + inner + '</div><div class="form-actions"><button type="submit" class="btn btn-primary" style="width:auto;">' + submit + '</button>' + cancel + '</div></form>'; };
+  var tonnesField = function(label){ return '<div class="field"><label>' + label + '</label><input type="text" inputmode="decimal" name="tonnes" required value="' + escAttr(siloDraftVal("tonnes", "")) + '" placeholder="e.g. 12.5" /></div>'; };
   if(act === "add") return wrap(dateField + tonnesField("Tonnes to add") + descField("Why / where from (optional)", "e.g. Harvest from Box Plains"), "Add to silo", "siloMove");
   if(act === "out") return wrap(dateField + tonnesField("Tonnes to take out") + descField("Why / where to (optional)", "e.g. Delivered to buyer"), "Take out of silo", "siloMoveOut");
-  if(act === "set") return wrap(dateField + '<div class="field"><label>Correct balance (tonnes)</label><input type="text" inputmode="decimal" name="tonnes" required value="' + escAttr(String(siloBalance(s))) + '" /></div>' + descField("Reason (optional)", "e.g. Re-measured / stocktake"), "Set balance", "siloSetBalance");
+  if(act === "set") return wrap(dateField + '<div class="field"><label>Correct balance (tonnes)</label><input type="text" inputmode="decimal" name="tonnes" required value="' + escAttr(siloDraftVal("tonnes", String(siloBalance(s)))) + '" /></div>' + descField("Reason (optional)", "e.g. Re-measured / stocktake"), "Set balance", "siloSetBalance");
   if(act === "event"){
     return wrap(dateField +
-      '<div class="field"><label>Event</label><input type="text" name="eventName" list="silo-events" required placeholder="e.g. Seed grading" /><datalist id="silo-events">' + SILO_EVENT_SUGGESTIONS.map(function(n){ return '<option value="' + escAttr(n) + '">'; }).join("") + '</datalist></div>' +
-      '<div class="field"><label>Tonnes removed by this event (optional)</label><input type="text" inputmode="decimal" name="tonnes" placeholder="e.g. screenings taken out" /></div>' +
+      '<div class="field"><label>Event</label><input type="text" name="eventName" list="silo-events" required value="' + escAttr(siloDraftVal("eventName", "")) + '" placeholder="e.g. Seed grading" /><datalist id="silo-events">' + SILO_EVENT_SUGGESTIONS.map(function(n){ return '<option value="' + escAttr(n) + '">'; }).join("") + '</datalist></div>' +
+      '<div class="field"><label>Tonnes removed by this event (optional)</label><input type="text" inputmode="decimal" name="tonnes" value="' + escAttr(siloDraftVal("tonnes", "")) + '" placeholder="e.g. screenings taken out" /></div>' +
       descField("Notes (optional)", "e.g. Graded over 2.5 mm screen"), "Save event", "siloEvent");
   }
   if(act === "transfer"){
     var d = siloData();
     var opts = d.items.filter(function(o){ return o.id !== s.id; }).map(function(o){
       var ob = siloBalance(o);
-      return '<option value="' + escAttr(o.id) + '">' + esc(siloLabel(o)) + (o.crop ? ' – ' + esc(o.crop) : '') + ' (' + siloFmt(ob) + ' t)</option>';
+      return '<option value="' + escAttr(o.id) + '"' + (siloDraftVal("to", "") === o.id ? " selected" : "") + '>' + esc(siloLabel(o)) + (o.crop ? ' – ' + esc(o.crop) : '') + ' (' + siloFmt(ob) + ' t)</option>';
     }).join("");
     return wrap(dateField + '<div class="field"><label>Transfer to</label><select name="to" required><option value="">Choose a silo…</option>' + opts + '</select></div>' +
       tonnesField("Tonnes to transfer") + descField("Why (optional)", "e.g. Emptying for repairs"), "Transfer", "siloTransfer");
   }
   if(act === "details"){
-    return '<form class="form-panel" style="margin-top:12px;" onsubmit="siloSaveDetails(event,\'' + s.id + '\')"><div class="form-grid">' +
-      '<div class="field"><label>Crop type</label><input type="text" name="crop" value="' + escAttr(s.crop || "") + '" placeholder="e.g. Captain chickpeas" /></div>' +
-      '<div class="field"><label>Capacity (tonnes, optional)</label><input type="text" inputmode="decimal" name="capacity" value="' + escAttr(s.capacity ? String(s.capacity) : "") + '" placeholder="shows how full it is" /></div>' +
-      '<div class="field span-2"><label>Paddock / source / notes</label><input type="text" name="notes" value="' + escAttr(s.notes || "") + '" /></div>' +
-      (isAdmin() ? '<div class="field"><label>Silo name / number (admin)</label><input type="text" name="code" value="' + escAttr(s.code) + '" required /></div>' : '') +
+    return '<form id="silo-form" class="form-panel" style="margin-top:12px;" oninput="siloDraftSet(event)" onsubmit="siloSaveDetails(event,\'' + s.id + '\')">' + errBox + '<div class="form-grid">' +
+      '<div class="field"><label>Crop type</label><input type="text" name="crop" value="' + escAttr(siloDraftVal("crop", s.crop || "")) + '" placeholder="e.g. Captain chickpeas" /></div>' +
+      '<div class="field"><label>Capacity (tonnes, optional)</label><input type="text" inputmode="decimal" name="capacity" value="' + escAttr(siloDraftVal("capacity", s.capacity ? String(s.capacity) : "")) + '" placeholder="shows how full it is" /></div>' +
+      '<div class="field span-2"><label>Paddock / source / notes</label><input type="text" name="notes" value="' + escAttr(siloDraftVal("notes", s.notes || "")) + '" /></div>' +
+      (isAdmin() ? '<div class="field"><label>Silo name / number (admin)</label><input type="text" name="code" value="' + escAttr(siloDraftVal("code", s.code)) + '" required /></div>' : '') +
       '</div><div class="form-actions"><button type="submit" class="btn btn-primary" style="width:auto;">Save</button>' + cancel +
       (isAdmin() ? '<button type="button" class="btn btn-danger" style="width:auto;" onclick="removeSilo(\'' + s.id + '\')">Remove this silo</button>' : '') + '</div></form>';
   }
   return "";
 }
-function siloFail(msg){ ui.siloError = msg; ui.siloMsg = ""; render(); }
-function siloDone(msg){ ui.siloError = ""; ui.siloMsg = msg; ui.siloAction = null; persist(); }
+function siloFail(msg){
+  ui.siloError = msg; ui.siloMsg = ""; render();
+  setTimeout(function(){ var el = document.getElementById("silo-form"); if(el && el.scrollIntoView) el.scrollIntoView({ block: "center", behavior: "smooth" }); }, 30);
+}
+function siloDone(msg){ ui.siloError = ""; ui.siloMsg = msg; ui.siloAction = null; ui.siloDraft = {}; persist(); window.scrollTo(0, 0); }
 function siloReadMove(e, id){
   e.preventDefault();
   var s = siloFind(id); if(!s || !siloCanRecord()) return null;
@@ -15135,6 +15150,19 @@ function removeSiloTx(siloId, txId){
   persist();
 }
 
+// Any unexpected error in a silo handler is shown on the form (and the browser is stopped
+// from doing a plain form submit, which would just reload the page).
+["siloMove","siloMoveOut","siloSetBalance","siloEvent","siloTransfer","siloSaveDetails","addSilo"].forEach(function(name){
+  var fn = window[name];
+  window[name] = function(e){
+    try{ return fn.apply(this, arguments); }
+    catch(err){
+      console.error("[Bullamon Plains] silo action failed:", err);
+      if(e && e.preventDefault) e.preventDefault();
+      siloFail("That didn't work: " + (err && err.message ? err.message : err) + ". Please tell Maria.");
+    }
+  };
+});
 function pageHead(title, desc){
   return '<div class="page-head"><div><h2>' + esc(title) + '</h2>' + (desc ? '<p class="page-desc">' + esc(desc) + '</p>' : '') + '</div></div>';
 }
