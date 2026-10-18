@@ -574,6 +574,11 @@
   .silo-tx-meta{margin-top:3px;font-size:11.5px;}
   .silo-tx-actions{display:flex;gap:8px;align-items:center;margin-top:8px;}
   .silo-tx-edit{margin:10px 0;}
+  /* Dashboard items that open their section when tapped */
+  .stat-link,.dash-link{cursor:pointer;}
+  .stat-link:hover,.dash-link:hover{background:#eef5fc;}
+  .stat-link:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
+  .stat-link:active,.dash-link:active{opacity:.85;}
   /* Fuel Storage: a grid of tank tiles, each with a level bar */
   .fuel-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;}
   .fuel-tank{display:flex;flex-direction:column;gap:6px;text-align:left;padding:12px;border:1px solid var(--border,#e3e8ee);border-radius:12px;background:var(--surface,#fff);color:inherit;font:inherit;cursor:pointer;min-width:0;}
@@ -1878,7 +1883,7 @@ const DEFAULT_STATE = {
 // change to this file, same as CACHE_NAME in sw.js -- it gives an instant,
 // no-technical-steps-needed way to confirm whether a given device is
 // actually running the latest deploy, without comparing file contents.
-var APP_BUILD = "2026-10-18.1";
+var APP_BUILD = "2026-10-18.5";
 
 /* ======================================================================
    UTILITIES
@@ -2115,6 +2120,7 @@ var ui = {
   jobQuery: "",
   sopQuery: "",
   machineryQuery: "",
+  fuelQuery: "",
   machineryFilter: "all",   // "all" | "due" | "out" -- fleet-list filter pills
   machinerySelected: null,  // id of the machine currently open in detail view, or null for the fleet list
   machineryTab: "overview", // "overview" | "parts" | "history" | "issues" -- which tab of the selected machine's detail screen is showing
@@ -2269,9 +2275,14 @@ var LIMITED_ACCESS_SECTIONS = ["dashboard", "jobs", "maps", "emergency", "whs", 
 function isLimitedAccess(){ var u = currentUser(); return !!(u && u.limitedAccess && !u.isAdmin && !u.harvestOnly); }
 function isSectionAllowed(key){
   if(isHarvestOnly()) return key === "harvest";
-  if(isLimitedAccess()) return LIMITED_ACCESS_SECTIONS.indexOf(key) > -1;
+  if(isLimitedAccess()) return LIMITED_ACCESS_SECTIONS.indexOf(key) > -1 || (key === "fuel" && canUseFuel());
+  if(key === "fuel") return canUseFuel();
   return true;
 }
+// Fuel Storage is only for the people an admin has chosen (state.team[].canUseFuel, ticked on the staff member's
+// edit form or in the "Who can use Fuel Storage" card on the Fuel Storage page). Admins always can. A person who is
+// "Harvest dockets only" never can; a "Limited access" person can if ticked.
+function canUseFuel(){ var u = currentUser(); return !!(u && !isHarvestOnly() && (u.isAdmin || u.canUseFuel)); }
 // Where a restricted person lands when they ask for a section they can't open.
 function fallbackSection(){ return isHarvestOnly() ? "harvest" : "dashboard"; }
 // A team member can be flagged "can add parts" (state.team[].canAddParts,
@@ -13354,6 +13365,9 @@ async function boot(){
     state.settings.sidebarConfigMigratedV1 = true;
     migrated = true;
   }
+  // every run: any menu item without a heading that is missing from the Team page's movable list (e.g. Silo
+  // Storage, Fuel Storage) is added to it, where the menu already shows it, so an admin can move it.
+  if(sidebarSyncOrder()) migrated = true;
   // one-time migration: splits the single "Chemicals" menu item into
   // "Chemical Register" (key "chemreg") and "Safety Data Sheets" (key
   // "sds"), at Maria's request ("split it into 2 sections... Put the
@@ -14083,7 +14097,7 @@ var NAV = [
   { key: "maps",        label: "Maps",         icon: iconSvg("map") },
   { key: "receipts",    label: "Receipts",     icon: iconSvg("receipt") },
   { key: "silos",       label: "Silo Storage", icon: iconSvg("silo") },
-  { key: "fuel",        label: "Fuel Storage", icon: iconSvg("fuel") },
+  { key: "fuel",        label: "Fuel Storage", icon: iconSvg("fuel"), visibleIf: function(){ return canUseFuel(); } },
   { key: "timesheets",  label: "Time Sheets",  icon: iconSvg("calendar") },
   { key: "til",         label: "My Time in Lieu", icon: iconSvg("clock") },
   { key: "harvest",     label: "Harvest Dockets", icon: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="9" y="18" width="6" height="2.5" rx="1.25" fill="currentColor"/><path d="M12 19 L7 5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M12 19 L12 3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M12 19 L17 5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="8.3" cy="10" r="1" fill="currentColor"/><circle cx="7.6" cy="7.5" r="1" fill="currentColor"/><circle cx="9.3" cy="12.5" r="1" fill="currentColor"/><circle cx="12" cy="9" r="1" fill="currentColor"/><circle cx="12" cy="6" r="1" fill="currentColor"/><circle cx="12" cy="12.5" r="1" fill="currentColor"/><circle cx="15.7" cy="10" r="1" fill="currentColor"/><circle cx="16.4" cy="7.5" r="1" fill="currentColor"/><circle cx="14.7" cy="12.5" r="1" fill="currentColor"/></svg>' },
@@ -15797,8 +15811,8 @@ function removeSiloTx(siloId, txId){
    how many litres each holds). Same idea as Silo Storage, but in litres: each tank
    shows how much fuel is in it against what it holds, and every delivery, use,
    transfer or dip reading is logged. The level is always the sum of the tank's
-   entries. Anyone signed in (except Harvest-only / Limited-access members) can
-   record fuel in/out, transfer between tanks, set the level from a dip reading
+   entries. Only the people an admin has chosen (state.team[].canUseFuel; admins always) can open it;
+   they can record fuel in/out, transfer between tanks, set the level from a dip reading
    and edit an entry; only admins add/remove tanks and headings, change a tank's
    name, fuel type or capacity, or remove an entry.
    Data model: state.fuel = { sites: [{id, name, short}], tanks: [{id, site, name,
@@ -15881,7 +15895,7 @@ function fuelName(t){
   return twins.length > 1 ? base + " #" + (twins.indexOf(t) + 1) : base;
 }
 function fuelLabel(t){ var st = fuelSiteOf(t); return (st ? (st.short || st.name) + " " : "") + fuelName(t); }
-function fuelCanRecord(){ return siloCanRecord(); }
+function fuelCanRecord(){ return canUseFuel(); }
 function fuelTxLabel(x){
   switch(x.type){
     case "dip": return "Dip reading";
@@ -15943,6 +15957,13 @@ function fuelCheck(t, delta, date){
 }
 
 // ---- The page: every tank under its heading --------------------------------------------------
+// Search bar on the Fuel Storage page: finds tanks across both headings by name, fuel type, notes, heading or size
+// (every word typed has to match somewhere, so "thallon ulp" finds the two ULP tanks at Thallon).
+function fuelMatches(t, q){
+  var st = fuelSiteOf(t);
+  var hay = [fuelName(t), t.name, t.fuelType || "Diesel", t.notes || "", st ? st.name : "", fuelL(t.capacity), String(t.capacity || "")].join(" ").toLowerCase();
+  return q.split(/\s+/).filter(Boolean).every(function(w){ return hay.indexOf(w) > -1; });
+}
 function fuelTileHtml(t){
   var pct = fuelPct(t), bal = fuelBalance(t), has = fuelHasLevel(t);
   var low = has && pct !== null && pct <= 20;
@@ -15961,7 +15982,7 @@ function renderFuel(){
   var html = pageHead("Fuel Storage", "How much fuel is in each tank. Tap a tank to see its level and log, or to add fuel, take fuel out, transfer or set the level.");
   if(ui.fuelMsg) html += '<div class="banner ok" style="margin-bottom:12px;">' + esc(ui.fuelMsg) + '</div>';
   if(ui.fuelError) html += '<div class="signin-error" style="margin-bottom:12px;">' + esc(ui.fuelError) + '</div>';
-  if(!d.sites.length) return html + '<div class="empty-state">No fuel tanks set up yet.</div>' + (isAdmin() ? renderFuelManageCard(null) : '');
+  if(!d.sites.length) return html + '<div class="empty-state">No fuel tanks set up yet.</div>' + (isAdmin() ? renderFuelManageCard(null) + renderFuelAccessCard() : '');
   var siteId = ui.fuelSite && byId(d.sites, ui.fuelSite) ? ui.fuelSite : d.sites[0].id;
   var site = byId(d.sites, siteId);
   // totals per fuel type, all headings, and for the open heading
@@ -15982,8 +16003,22 @@ function renderFuel(){
   };
   var all = sum(d.tanks);
   var totalL = 0; Object.keys(all).forEach(function(k){ totalL += all[k].l; });
+  var q = (ui.fuelQuery || "").trim().toLowerCase();
+  html += '<div class="toolbar"><input id="fuel-search-input" class="search-input" type="text" placeholder="Search tanks\u2026" value="' + escAttr(ui.fuelQuery || "") + '" oninput="ui.fuelQuery=this.value;render();" />' +
+    (q ? '<button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="ui.fuelQuery=\'\';render();">Clear</button>' : '') + '</div>';
   html += '<div class="card" style="margin-bottom:14px;"><div class="card-row"><h3 style="margin:0;">In storage (all tanks)</h3><span style="font-size:20px;font-weight:700;">' + fuelL(totalL) + '</span></div>' +
     '<div class="fuel-sum">' + line(all) + '</div></div>';
+  if(q){
+    var found = d.tanks.filter(function(t){ return fuelMatches(t, q); });
+    html += '<div class="card"><h3 style="margin:0 0 4px;">' + (found.length ? found.length + (found.length === 1 ? ' tank matches' : ' tanks match') : 'No tanks match') + ' &ldquo;' + esc((ui.fuelQuery || "").trim()) + '&rdquo;</h3>';
+    if(!found.length) html += '<div class="empty-state">Try part of the tank\'s name, Diesel or ULP, or the heading (Mungindi or Thallon).</div>';
+    d.sites.forEach(function(st){
+      var here = found.filter(function(t){ return t.site === st.id; });
+      if(!here.length) return;
+      html += '<h4 style="margin:14px 0 8px;">' + esc(st.name) + '</h4><div class="fuel-grid">' + here.map(fuelTileHtml).join("") + '</div>';
+    });
+    return html + '</div>';
+  }
   var tanks = d.tanks.filter(function(t){ return t.site === siteId; });
   html += '<div class="card"><div class="filter-pill-row" style="margin:0 0 14px;">' + d.sites.map(function(st){
     return '<button type="button" class="filter-pill' + (st.id === siteId ? " active" : "") + '" onclick="fuelSelectSite(\'' + st.id + '\')">' + esc(st.name) + '</button>';
@@ -15993,7 +16028,7 @@ function renderFuel(){
   if(!tanks.length) html += '<div class="empty-state">No tanks under this heading yet.</div>';
   else html += '<div class="fuel-grid">' + tanks.map(fuelTileHtml).join("") + '</div>';
   html += '</div>';
-  if(isAdmin()) html += renderFuelManageCard(site);
+  if(isAdmin()) html += renderFuelManageCard(site) + renderFuelAccessCard();
   return html;
 }
 
@@ -16280,6 +16315,25 @@ function renderFuelManageCard(site){
     '<div class="form-actions"><button type="submit" class="btn btn-primary" style="width:auto;">Add heading</button></div></form></div>';
   return html;
 }
+// "Who can use Fuel Storage" (admin): one tick per person, saved straight away.
+function renderFuelAccessCard(){
+  var people = state.team || [];
+  var rows = people.map(function(t, i){
+    var who = esc(t.name) + (t.name === (currentUser() || {}).name ? " (you)" : "");
+    if(t.isAdmin) return '<div class="card-row" style="padding:7px 0;border-bottom:1px solid var(--divider);"><span>' + who + '</span><span class="row-muted" style="font-size:12.5px;">Admin: always has access</span></div>';
+    if(t.harvestOnly) return '<div class="card-row" style="padding:7px 0;border-bottom:1px solid var(--divider);"><span>' + who + '</span><span class="row-muted" style="font-size:12.5px;">Harvest dockets only: no access</span></div>';
+    return '<label class="card-row" style="padding:7px 0;border-bottom:1px solid var(--divider);cursor:pointer;gap:10px;"><span>' + who + (t.active ? '' : ' <span class="row-muted">(inactive)</span>') + '</span>' +
+      '<input type="checkbox" style="width:22px;height:22px;flex:none;" ' + (t.canUseFuel ? 'checked' : '') + ' onchange="fuelSetAccess(' + i + ',this.checked)" aria-label="' + escAttr(t.name) + ' can use Fuel Storage" /></label>';
+  }).join("");
+  return '<div class="card" style="margin-top:14px;"><h3 style="margin:0 0 4px;">Who can use Fuel Storage (admin)</h3>' +
+    '<p class="row-muted" style="margin:0 0 8px;font-size:12.5px;">Tick the people who should see Fuel Storage and record fuel. Admins always can. It takes effect straight away.</p>' + rows + '</div>';
+}
+function fuelSetAccess(i, on){
+  if(!isAdmin()) return;
+  var t = (state.team || [])[i]; if(!t) return;
+  t.canUseFuel = !!on;
+  persist();
+}
 function fuelAddTank(e){
   e.preventDefault();
   if(!isAdmin()) return;
@@ -16351,10 +16405,15 @@ function renderDashboard(){
   var dueService = (state.machinery || []).filter(function(m){ return m.status !== "archived" && machineDueForService(m); });
 
   var html = pageHead("Welcome back, " + u.name.split(" ")[0], "Here's what's happening on Bullamon Plains today.");
+  // Each tile opens the section it counts (tap anywhere on it; Enter/Space work too).
+  var statTile = function(kind, num, label){
+    return '<div class="stat stat-link" role="button" tabindex="0" aria-label="' + escAttr(label + ': ' + num + '. Tap to open') + '" onclick="dashGo(event,\'' + kind + '\')" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();dashGo(event,\'' + kind + '\');}">' +
+      '<div class="stat-num">' + num + '</div><div class="stat-label">' + label + '</div></div>';
+  };
   html += '<div class="stat-row">' +
-    '<div class="stat"><div class="stat-num">' + openJobs.length + '</div><div class="stat-label">Open jobs</div></div>' +
-    '<div class="stat"><div class="stat-num">' + mine.length + '</div><div class="stat-label">Assigned to you</div></div>' +
-    (isLimitedAccess() ? '' : '<div class="stat"><div class="stat-num">' + dueService.length + '</div><div class="stat-label">Machinery due for service</div></div>') +
+    statTile("jobs-open", openJobs.length, "Open jobs") +
+    statTile("jobs-mine", mine.length, "Assigned to you") +
+    (isLimitedAccess() ? '' : statTile("machinery-due", dueService.length, "Machinery due for service")) +
   '</div>';
   // Machinery cards are hidden for limited-access members (no Machinery section for them).
   if(!isLimitedAccess()){
@@ -16363,6 +16422,37 @@ function renderDashboard(){
   }
   html += renderDashboardNotes();
   return html;
+}
+
+// Tapping a Dashboard item opens the section it belongs to (2026-10-18, at Maria's request: "when you tap on the item,
+// that it takes you to that section"). Taps on the buttons/links/forms inside a card (Mark resolved, Delete, Edit...) keep
+// doing their own job and don't navigate. goTo() still applies each person's section permissions.
+function dashGo(ev, kind, id){
+  var t = ev && ev.target;
+  if(t && t.closest && ev.type !== "keydown" && t.closest("button, a, input, select, textarea, label, form")) return;
+  if(kind === "jobs-open" || kind === "jobs-mine"){
+    var u = currentUser();
+    var list = (state.jobs || []).filter(function(j){ return j.status !== "Done" && (kind === "jobs-open" || (u && j.assignee === u.name)); });
+    ui.jobStatusFilter = kind === "jobs-mine" ? "mine" : "open";
+    ui.jobQuery = ""; ui.openForms.newJob = false;
+    // Jobs shows one area at a time: stay on the current area if it has some of these jobs, else go to the busiest one
+    var counts = {}, best = null;
+    list.forEach(function(j){ var a = jobArea(j); counts[a] = (counts[a] || 0) + 1; });
+    Object.keys(counts).forEach(function(a){ if(best === null || counts[a] > counts[best]) best = a; });
+    if(best !== null && !counts[ui.jobArea]) ui.jobArea = best;
+    return goTo("jobs");
+  }
+  if(kind === "machinery-due"){
+    ui.machineryFilter = "due"; ui.machineryQuery = ""; ui.machinerySelected = null;
+    ui.machineryLogWork = null; ui.machineryReportIssue = null; ui.machineryIssueSelected = null;
+    return goTo("machinery");
+  }
+  if(kind === "machine" || kind === "machine-issues"){
+    if(!byId(state.machinery, id)) return goTo("machinery");
+    ui.machinerySelected = id; ui.machineryTab = kind === "machine-issues" ? "issues" : "overview";
+    ui.machineryLogWork = null; ui.machineryReportIssue = null; ui.machineryIssueSelected = null;
+    return goTo("machinery");
+  }
 }
 
 // The "Report a machinery issue" card that used to render here (a quick
@@ -16407,7 +16497,7 @@ function renderDashboardOpenIssuesCard(){
         renderMachineIssueEditForm(m, iss) +
       '</div>';
     }
-    return '<div class="card" style="box-shadow:none;border:1px solid var(--border);padding:10px 12px;">' +
+    return '<div class="card dash-link" title="Open ' + escAttr(m.name) + '" style="box-shadow:none;border:1px solid var(--border);padding:10px 12px;" onclick="dashGo(event,\'machine-issues\',\'' + m.id + '\')">' +
       '<div class="card-row"><p style="margin:0;flex:1;"><strong>' + esc(m.name) + '</strong> — ' + esc(iss.description) + '</p>' +
       '<span class="pill pill-high">Open</span></div>' +
       '<p class="row-muted" style="margin:6px 0 0;font-size:11.5px;">Reported by ' + esc(iss.reportedBy) + ' on ' + fmtDate(iss.date) + '</p>' +
@@ -16442,7 +16532,7 @@ function renderDashboardServiceRemindersCard(){
   var html = '<div class="card"><h3 style="margin:0 0 4px;">Upcoming service reminders</h3>';
   html += '<div class="list-cards" style="margin-top:8px;">' + rows.map(function(r){
     var toneLabel = r.status === "done" ? "Passed (not logged)" : r.status === "next" ? "Next due" : r.status === "upcoming" ? "Upcoming" : "";
-    return '<div class="card" style="box-shadow:none;border:1px solid var(--border);padding:10px 12px;">' +
+    return '<div class="card dash-link" title="Open ' + escAttr(r.m.name) + '" style="box-shadow:none;border:1px solid var(--border);padding:10px 12px;" onclick="dashGo(event,\'machine\',\'' + r.m.id + '\')">' +
       '<div class="card-row"><p style="margin:0;flex:1;"><strong>' + esc(r.m.name) + '</strong> — ' + fmtNum(r.hours) + ' hrs' + (toneLabel ? ' <span class="row-muted" style="font-size:11px;">(' + toneLabel + ')</span>' : '') + '</p>' +
       '<button type="button" class="btn btn-ghost btn-sm" onclick="if(confirm(\'Remove this reminder?\')){clearMilestoneReminderFromDashboard(\'' + r.m.id + '\',\'' + escAttr(r.key) + '\');}">Delete</button></div>' +
       '<p class="row-muted" style="margin:6px 0 0;font-size:12px;white-space:pre-wrap;">' + iconSvg("bell") + ' ' + esc(r.text) + '</p>' +
@@ -22747,6 +22837,7 @@ function renderTeam(){
           (t.machineryAdmin ? '<span>Full access: Machinery</span>' : '') +
           (t.sopsAdmin ? '<span>Full access: Operating Procedures</span>' : '') +
           (t.canViewReceipts ? '<span>Can view receipts</span>' : '') +
+          (t.canUseFuel ? '<span>Can use Fuel Storage</span>' : '') +
           '<span>Code: ' + (t.passcode ? '<code class="access-code">set</code>' : '<em>none</em>') + '</span>' +
         '</div></div></div>' +
       '<div style="display:flex;gap:6px;">' +
@@ -22774,7 +22865,25 @@ function ensureSidebarConfig(){
   if(!state.sidebarConfig.sectionOrder) state.sidebarConfig.sectionOrder = [];
   if(!state.sidebarConfig.itemLabel) state.sidebarConfig.itemLabel = {};
   if(!state.sidebarConfig.itemIcon) state.sidebarConfig.itemIcon = {};
+  sidebarSyncOrder();
   return state.sidebarConfig;
+}
+// Every menu item that has no heading must have its own place in the movable list on the Team page
+// (state.sidebarConfig.sectionOrder), otherwise it shows in the menu but can't be moved up or down there.
+// Items added to the app after the menu was first set up (Silo Storage, Fuel Storage...) were missing from
+// that list. This adds any that are missing, at the end in menu order -- which is exactly where the menu
+// already shows them, so nothing moves. Safe to run any number of times; returns true if it changed anything.
+function sidebarSyncOrder(){
+  var cfg = state.sidebarConfig; if(!cfg) return false;
+  if(!cfg.sectionOrder) cfg.sectionOrder = [];
+  if(!cfg.itemHeading) cfg.itemHeading = {};
+  var changed = false;
+  NAV.forEach(function(n){
+    if(cfg.itemHeading[n.key]) return;
+    if(cfg.sectionOrder.indexOf("item:" + n.key) > -1) return;
+    cfg.sectionOrder.push("item:" + n.key); changed = true;
+  });
+  return changed;
 }
 // The name a NAV entry actually displays as -- its own default label,
 // unless an admin has renamed it in the "Menu items" list below
@@ -23026,6 +23135,7 @@ function renderStaffForm(existing){
       '<div class="checkbox-row field"><input type="checkbox" name="canAddParts" id="addparts_cb" ' + (existing && existing.canAddParts ? 'checked' : '') + ' /><label for="addparts_cb" style="text-transform:none;font-weight:400;">Can add parts to machinery records</label></div>' +
       '<div class="checkbox-row field"><input type="checkbox" name="machineryAdmin" id="machineryadmin_cb" ' + (existing && existing.machineryAdmin ? 'checked' : '') + ' /><label for="machineryadmin_cb" style="text-transform:none;font-weight:400;">Full access to Machinery Maintenance</label></div>' +
       '<div class="checkbox-row field"><input type="checkbox" name="sopsAdmin" id="sopsadmin_cb" ' + (existing && existing.sopsAdmin ? 'checked' : '') + ' /><label for="sopsadmin_cb" style="text-transform:none;font-weight:400;">Full access to Operating Procedures</label></div>' +
+      '<div class="checkbox-row field"><input type="checkbox" name="canUseFuel" id="usefuel_cb" ' + (existing && existing.canUseFuel ? 'checked' : '') + ' /><label for="usefuel_cb" style="text-transform:none;font-weight:400;">Can use Fuel Storage (admins always can)</label></div>' +
       '<div class="checkbox-row field"><input type="checkbox" name="canViewReceipts" id="viewreceipts_cb" ' + (existing && existing.canViewReceipts ? 'checked' : '') + ' /><label for="viewreceipts_cb" style="text-transform:none;font-weight:400;">Can view uploaded receipts (everyone can still upload one)</label></div>' +
     '</div>' +
     '<div class="form-actions"><button type="submit" class="btn btn-primary" style="width:auto;">Save</button>' +
@@ -23037,7 +23147,7 @@ function saveStaff(e, origName){
   var f = e.target;
   var name = f.name.value.trim();
   if(!name) return;
-  var data = { name: name, passcode: f.passcode.value.trim(), active: f.active.checked, isAdmin: f.isAdmin.checked, canAllocate: f.canAllocate.checked, harvestOnly: f.harvestOnly.checked, limitedAccess: !!(f.limitedAccess && f.limitedAccess.checked), canAddParts: f.canAddParts.checked, machineryAdmin: f.machineryAdmin.checked, sopsAdmin: f.sopsAdmin.checked, canViewReceipts: f.canViewReceipts.checked };
+  var data = { name: name, passcode: f.passcode.value.trim(), active: f.active.checked, isAdmin: f.isAdmin.checked, canAllocate: f.canAllocate.checked, harvestOnly: f.harvestOnly.checked, limitedAccess: !!(f.limitedAccess && f.limitedAccess.checked), canAddParts: f.canAddParts.checked, machineryAdmin: f.machineryAdmin.checked, sopsAdmin: f.sopsAdmin.checked, canViewReceipts: f.canViewReceipts.checked, canUseFuel: !!(f.canUseFuel && f.canUseFuel.checked) };
   if(origName){
     var t = findTeam(origName);
     var wasActive = t.active;
