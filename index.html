@@ -1883,7 +1883,7 @@ const DEFAULT_STATE = {
 // change to this file, same as CACHE_NAME in sw.js -- it gives an instant,
 // no-technical-steps-needed way to confirm whether a given device is
 // actually running the latest deploy, without comparing file contents.
-var APP_BUILD = "2026-10-18.5";
+var APP_BUILD = "2026-10-18.6";
 
 /* ======================================================================
    UTILITIES
@@ -16879,7 +16879,59 @@ function deleteJob(id){
    MACHINERY
    ====================================================================== */
 function machineDueForService(m){
-  return machineServiceStatus(m).due;
+  return machineServiceStatus(m).due || machinePartsDue(m).length > 0;
+}
+
+// ---- Part replacement schedule (2026-10-18, at Maria's request) ----
+// Each part can carry a "replace every X hours" interval
+// (p.replaceEveryHours). When it was last replaced comes from the latest
+// logged replacement (p.replacements[]: {id,date,hours,by,note}) or, before
+// any replacement has been logged, the hand-entered baseline
+// (p.lastReplacedHours / p.lastReplacedDate). p.nextDueHours is an optional
+// hand-set override of the calculated next-due hours (cleared when a
+// replacement is logged). Parts without an interval are simply not on the
+// schedule.
+function partEvery(p){
+  if(!p || p.replaceEveryHours == null || p.replaceEveryHours === "") return null;
+  var n = Number(p.replaceEveryHours);
+  return (!isNaN(n) && n > 0) ? n : null;
+}
+function partReplacementsSorted(p){
+  return ((p && p.replacements) || []).slice().sort(function(a, b){
+    return (Number(b.hours) - Number(a.hours)) || String(b.date || "").localeCompare(String(a.date || ""));
+  });
+}
+function partLastReplaced(p){
+  var r = partReplacementsSorted(p)[0];
+  if(r && !isNaN(Number(r.hours))) return { hours: Number(r.hours), date: r.date || "", entry: r };
+  if(p && p.lastReplacedHours != null && p.lastReplacedHours !== "" && !isNaN(Number(p.lastReplacedHours))){
+    return { hours: Number(p.lastReplacedHours), date: p.lastReplacedDate || "", entry: null };
+  }
+  return null;
+}
+function partScheduleStatus(m, p){
+  var every = partEvery(p);
+  if(!every) return null;
+  var cur = Number(m.currentReading) || 0;
+  var last = partLastReplaced(p);
+  var manual = (p.nextDueHours != null && p.nextDueHours !== "" && !isNaN(Number(p.nextDueHours))) ? Number(p.nextDueHours) : null;
+  var due = manual != null ? manual : (last ? last.hours + every : cur + every);
+  var remaining = due - cur;
+  var tone = remaining <= every * 0.1 ? "pill-high" : remaining <= every * 0.25 ? "pill-medium" : "pill-todo";
+  return {
+    every: every, last: last, manual: manual != null, due: due, remaining: remaining, tone: tone,
+    isDue: remaining <= every * 0.25, overdue: remaining <= 0,
+    label: remaining <= 0 ? "Overdue by " + fmtNum(-remaining, "hrs") : (remaining <= every * 0.25 ? "Due in " + fmtNum(remaining, "hrs") : "OK · " + fmtNum(remaining, "hrs") + " to go")
+  };
+}
+function machinePartsDue(m){
+  var out = [];
+  (m.parts || []).forEach(function(p){
+    var st = partScheduleStatus(m, p);
+    if(st && st.isDue) out.push({ part: p, status: st });
+  });
+  out.sort(function(a, b){ return a.status.remaining - b.status.remaining; });
+  return out;
 }
 // Where a machine is up to with its next service, in ONE place so the fleet
 // list, the machine's own page and the Dashboard count always agree.
@@ -17128,6 +17180,11 @@ function renderMachineFleetCard(m){
   var openIssues = issues.filter(function(i){ return i.status !== "Resolved"; });
   var st = machineServiceStatus(m);
   var dueLabel = st.label, dueTone = st.tone;
+  var partsDueList = machinePartsDue(m);
+  if(!st.due && partsDueList.length){
+    dueLabel = partsDueList.length + " part" + (partsDueList.length === 1 ? "" : "s") + " due";
+    dueTone = partsDueList[0].status.overdue ? "pill-high" : "pill-medium";
+  }
   return '<div class="card" style="cursor:pointer;" onclick="ui.machinerySelected=\'' + m.id + '\';render();">' +
     '<div class="card-row">' +
       '<div style="display:flex;gap:12px;align-items:center;min-width:0;">' +
@@ -17315,6 +17372,15 @@ function renderMachineOverviewTab(m, dueLabel, dueOk, progressPct){
     (ui.openForms["nextdue_" + m.id] && canAdminMachinery() ? renderNextServiceDueForm(m) : '') +
   '</div>';
 
+  var overviewPartsDue = machinePartsDue(m);
+  if(overviewPartsDue.length){
+    html += '<div class="due-progress-card" style="margin-top:10px;"><div class="stat-label">Parts due for replacement</div>' +
+      overviewPartsDue.map(function(d){
+        return '<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;margin-top:6px;"><span style="font-weight:600;">' + esc(d.part.name) + '</span><span class="pill ' + d.status.tone + '">' + esc(d.status.label) + '</span></div>';
+      }).join("") +
+      '<button type="button" class="btn btn-ghost btn-sm" style="margin-top:10px;" onclick="ui.machineryTab=\'schedule\';render();">Open service schedule</button>' +
+    '</div>';
+  }
   html += '<div class="form-grid" style="margin:12px 0;">' +
     '<div><div class="stat-label">Last service</div><div style="font-weight:600;">' + fmtNum(m.lastServiceReading, "hrs") + ' &middot; ' + fmtDate(m.lastServiceDate) + '</div></div>' +
     '<div><div class="stat-label">Interval</div><div style="font-weight:600;">' + esc(m.serviceIntervalDesc || "—") + '</div></div>' +
@@ -17350,6 +17416,273 @@ function saveMachineChecklist(e, machineId){
   if(!m) return;
   m.serviceChecklistItems = f.items.value.split("\n").map(function(s){ return s.trim(); }).filter(function(s){ return !!s; });
   ui.openForms["checklist_" + machineId] = false;
+  persist();
+}
+
+// Applies the "Replacement schedule" fields to a part (from the part form or
+// the Service Schedule's add/edit forms). Blank interval = off (any logged
+// replacement history is kept). A "last replaced" figure corrects the latest
+// logged replacement if there is one, otherwise it is the baseline; with
+// nothing entered and nothing recorded, the count starts from the machine's
+// current reading.
+function applyPartScheduleFields(m, p, every, lastH, lastDate){
+  if(every == null){ delete p.replaceEveryHours; delete p.nextDueHours; return; }
+  p.replaceEveryHours = every;
+  var last = partLastReplaced(p);
+  if(lastH != null){
+    if(!last || last.hours !== lastH) delete p.nextDueHours;
+    if(last && last.entry){ last.entry.hours = lastH; }
+    else { p.lastReplacedHours = lastH; }
+  } else if(!last){
+    p.lastReplacedHours = Number(m.currentReading) || 0;
+    if(!lastDate) lastDate = todayISO();
+  }
+  if(lastDate){
+    var now = partLastReplaced(p);
+    if(now && now.entry) now.entry.date = lastDate; else p.lastReplacedDate = lastDate;
+  }
+}
+
+function renderPartScheduleSection(m){
+  var items = [];
+  (m.parts || []).forEach(function(p){
+    var st = partScheduleStatus(m, p);
+    if(st) items.push({ p: p, st: st });
+  });
+  items.sort(function(a, b){ return a.st.due - b.st.due; });
+  var admin = canAdminMachinery();
+  var html = '<div class="stat-label" style="margin-top:18px;">Part replacement schedule</div>';
+  var openForms = "";
+  if(!items.length){
+    html += '<div class="empty-state" style="margin-top:6px;">No parts have a replacement schedule yet. Set &ldquo;Replace every (hours)&rdquo; when adding or editing a part in the Parts tab' + (admin ? ", or use the button below" : "") + '.</div>';
+  } else {
+    var rows = items.map(function(it){
+      var p = it.p, st = it.st, id = m.id + "_" + p.id;
+      var repKey = "prep_" + id, schedKey = "psched_" + id, histKey = "phist_" + id;
+      if(ui.openForms[repKey]) openForms += renderPartReplacedForm(m, p, null);
+      if(ui.openForms[schedKey] && admin) openForms += renderPartScheduleEditForm(m, p);
+      if(ui.openForms[histKey]) openForms += renderPartHistory(m, p);
+      var n = (p.replacements || []).length;
+      return '<tr>' +
+        '<td>' + esc(p.name) + '<br/><span class="row-muted" style="font-size:11px;">Every ' + fmtNum(st.every) + ' hrs</span></td>' +
+        '<td class="row-muted">' + (st.last ? fmtNum(st.last.hours, "hrs") + (st.last.date ? '<br/><span style="font-size:11px;">' + fmtDate(st.last.date) + '</span>' : "") : "—") + '</td>' +
+        '<td class="num">' + fmtNum(st.due) + (st.manual ? '<br/><span class="row-muted" style="font-size:10.5px;">(set by hand)</span>' : "") + '</td>' +
+        '<td><span class="pill ' + st.tone + '">' + esc(st.label) + '</span></td>' +
+        '<td style="white-space:nowrap;">' +
+          '<button type="button" class="btn btn-ghost btn-sm" onclick="toggleForm(\'' + repKey + '\')">' + (ui.openForms[repKey] ? "Cancel" : "Replaced") + '</button> ' +
+          (admin ? '<button type="button" class="btn btn-ghost btn-sm" onclick="toggleForm(\'' + schedKey + '\')">' + (ui.openForms[schedKey] ? "Cancel" : "Edit") + '</button> ' : '') +
+          '<button type="button" class="btn btn-ghost btn-sm" onclick="toggleForm(\'' + histKey + '\')">' + (ui.openForms[histKey] ? "Hide history" : "History" + (n ? " (" + n + ")" : "")) + '</button>' +
+        '</td>' +
+      '</tr>';
+    }).join("");
+    html += '<div class="table-wrap" style="box-shadow:none;margin-top:6px;"><table><thead><tr><th>Part</th><th>Last replaced</th><th>Next due (hrs)</th><th>Status</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div>';
+  }
+  if(admin){
+    var addKey = "paddsched_" + m.id;
+    html += '<button type="button" class="btn btn-ghost btn-sm" style="margin-top:8px;" onclick="toggleForm(\'' + addKey + '\')">' + (ui.openForms[addKey] ? "Cancel" : "+ Add part to schedule") + '</button>';
+    if(ui.openForms[addKey]) openForms += renderPartAddToScheduleForm(m);
+  }
+  // Editing a single logged replacement (opened from History).
+  (m.parts || []).forEach(function(p){
+    (p.replacements || []).forEach(function(r){
+      if(ui.openForms["prepe_" + m.id + "_" + r.id] && admin) openForms += renderPartReplacedForm(m, p, r);
+    });
+  });
+  if(openForms) html += '<div style="margin-top:10px;">' + openForms + '</div>';
+  return html;
+}
+
+function renderPartReplacedForm(m, p, existing){
+  var formKey = existing ? ("prepe_" + m.id + "_" + existing.id) : ("prep_" + m.id + "_" + p.id);
+  var err = ui.formErrors[formKey];
+  return '<form class="form-panel" style="margin:8px 0 0;" onsubmit="savePartReplacement(event,\'' + m.id + '\',\'' + p.id + '\',' + (existing ? "'" + existing.id + "'" : "null") + ')">' +
+    '<h4 style="margin-top:0;">' + (existing ? "Edit replacement" : "Replaced") + ' — ' + esc(p.name) + '</h4>' +
+    (err ? '<p style="color:var(--danger);font-size:12.5px;font-weight:600;margin:0 0 10px;">' + esc(err) + '</p>' : '') +
+    '<div class="form-grid">' +
+      '<div class="field"><label>Date</label><input type="date" name="date" value="' + escAttr(existing ? existing.date : todayISO()) + '" required /></div>' +
+      '<div class="field"><label>Reading when replaced (hrs)</label><input type="text" inputmode="decimal" name="hours" value="' + escAttr(existing ? existing.hours : (m.currentReading || "")) + '" required /></div>' +
+      '<div class="field"><label>Done by</label><input type="text" name="by" value="' + escAttr(existing ? existing.by : currentUser().name) + '" /></div>' +
+      '<div class="field span-2"><label>Notes (optional)</label><input type="text" name="note" value="' + escAttr(existing ? existing.note : "") + '" placeholder="e.g. brand / part number used" /></div>' +
+    '</div>' +
+    '<div class="form-actions"><button type="submit" class="btn btn-primary" style="width:auto;">Save</button>' +
+      '<button type="button" class="btn btn-ghost" onclick="delete ui.formErrors[\'' + formKey + '\'];toggleForm(\'' + formKey + '\')">Cancel</button>' +
+    '</div>' +
+  '</form>';
+}
+function savePartReplacement(e, machineId, partId, replId){
+  e.preventDefault();
+  if(replId && !canAdminMachinery()) return;
+  var f = e.target;
+  var formKey = replId ? ("prepe_" + machineId + "_" + replId) : ("prep_" + machineId + "_" + partId);
+  var m = byId(state.machinery, machineId);
+  var p = m && byId(m.parts || [], partId);
+  if(!p) return;
+  var hours = parseHoursInput(f.hours.value);
+  if(isNaN(hours)){
+    ui.formErrors[formKey] = "Enter the hour reading when it was replaced (e.g. 2140).";
+    render();
+    return;
+  }
+  delete ui.formErrors[formKey];
+  p.replacements = p.replacements || [];
+  var data = { date: f.date.value, hours: hours, by: f.by.value.trim(), note: f.note.value.trim() };
+  if(replId){
+    var r = byId(p.replacements, replId);
+    if(r) Object.assign(r, data);
+    delete p.nextDueHours;
+  } else {
+    p.replacements.push(Object.assign({ id: uid("rep") }, data));
+    delete p.nextDueHours;
+  }
+  ui.openForms[formKey] = false;
+  persist();
+}
+
+function renderPartScheduleEditForm(m, p){
+  var formKey = "psched_" + m.id + "_" + p.id;
+  var err = ui.formErrors[formKey];
+  var st = partScheduleStatus(m, p);
+  var last = partLastReplaced(p);
+  return '<form class="form-panel" style="margin:8px 0 0;" onsubmit="savePartSchedule(event,\'' + m.id + '\',\'' + p.id + '\')">' +
+    '<h4 style="margin-top:0;">Edit schedule — ' + esc(p.name) + '</h4>' +
+    (err ? '<p style="color:var(--danger);font-size:12.5px;font-weight:600;margin:0 0 10px;">' + esc(err) + '</p>' : '') +
+    '<div class="form-grid">' +
+      '<div class="field"><label>Replace every (hours)</label><input type="text" inputmode="decimal" name="replaceEvery" value="' + escAttr(st ? st.every : "") + '" required /></div>' +
+      '<div class="field"><label>Last replaced at (hours)</label><input type="text" inputmode="decimal" name="lastHrs" value="' + escAttr(last ? last.hours : "") + '" /></div>' +
+      '<div class="field"><label>Last replaced on</label><input type="date" name="lastDate" value="' + escAttr(last ? last.date : "") + '" /></div>' +
+      '<div class="field"><label>Next due at (hours)</label><input type="text" inputmode="decimal" name="nextDue" value="' + escAttr(st ? st.due : "") + '" /></div>' +
+    '</div>' +
+    '<p class="row-muted" style="margin:4px 0 0;font-size:11.5px;">Next due is worked out as last replaced + interval. Type a different figure to set it by hand &mdash; it goes back to automatic the next time the part is logged as replaced.</p>' +
+    '<div class="form-actions"><button type="submit" class="btn btn-primary" style="width:auto;">Save</button>' +
+      '<button type="button" class="btn btn-ghost" onclick="delete ui.formErrors[\'' + formKey + '\'];toggleForm(\'' + formKey + '\')">Cancel</button>' +
+      '<button type="button" class="btn btn-danger" onclick="removePartFromSchedule(\'' + m.id + '\',\'' + p.id + '\')">Remove from schedule</button>' +
+    '</div>' +
+  '</form>';
+}
+function savePartSchedule(e, machineId, partId){
+  e.preventDefault();
+  if(!canAdminMachinery()) return;
+  var f = e.target;
+  var formKey = "psched_" + machineId + "_" + partId;
+  var m = byId(state.machinery, machineId);
+  var p = m && byId(m.parts || [], partId);
+  if(!p) return;
+  var every = parseHoursInput(f.replaceEvery.value);
+  if(isNaN(every) || every <= 0){
+    ui.formErrors[formKey] = "Enter the replacement interval in hours (e.g. 250).";
+    render();
+    return;
+  }
+  var lastRaw = f.lastHrs.value.trim();
+  var lastH = lastRaw === "" ? null : parseHoursInput(lastRaw);
+  var dueRaw = f.nextDue.value.trim();
+  var dueH = dueRaw === "" ? null : parseHoursInput(dueRaw);
+  if((lastRaw !== "" && isNaN(lastH)) || (dueRaw !== "" && isNaN(dueH))){
+    ui.formErrors[formKey] = "Check the hour readings — numbers only (e.g. 2140).";
+    render();
+    return;
+  }
+  delete ui.formErrors[formKey];
+  var before = partScheduleStatus(m, p);
+  applyPartScheduleFields(m, p, every, lastH, f.lastDate.value);
+  var lastNow = partLastReplaced(p);
+  var auto = (lastNow ? lastNow.hours : (Number(m.currentReading) || 0)) + every;
+  if(dueRaw === ""){
+    delete p.nextDueHours;
+  } else if(!before || milestoneKey(dueH) !== milestoneKey(before.due)){
+    // The next-due box was changed by hand.
+    if(milestoneKey(dueH) === milestoneKey(auto)) delete p.nextDueHours; else p.nextDueHours = dueH;
+  }
+  // (box left as it was: keep the existing override, if any; applyPartScheduleFields
+  // already dropped it when "last replaced" was changed)
+  ui.openForms[formKey] = false;
+  persist();
+}
+function removePartFromSchedule(machineId, partId){
+  if(!canAdminMachinery()) return;
+  var m = byId(state.machinery, machineId);
+  var p = m && byId(m.parts || [], partId);
+  if(!p) return;
+  if(!confirm("Take " + p.name + " off the replacement schedule? Its logged replacements are kept.")) return;
+  delete p.replaceEveryHours;
+  delete p.nextDueHours;
+  ui.openForms["psched_" + machineId + "_" + partId] = false;
+  persist();
+}
+
+function renderPartHistory(m, p){
+  var reps = partReplacementsSorted(p);
+  var admin = canAdminMachinery();
+  var html = '<div class="form-panel" style="margin:8px 0 0;"><h4 style="margin-top:0;">Replacement history — ' + esc(p.name) + '</h4>';
+  if(!reps.length && !(p.lastReplacedHours != null && p.lastReplacedHours !== "")){
+    html += '<div class="empty-state">No replacements logged yet.</div>';
+  }
+  html += reps.map(function(r){
+    var ek = "prepe_" + m.id + "_" + r.id;
+    return '<div class="card-row" style="padding:6px 0;border-bottom:1px solid var(--border);align-items:center;">' +
+      '<div style="min-width:0;"><strong>' + fmtNum(r.hours, "hrs") + '</strong> &middot; ' + fmtDate(r.date) + (r.by ? ' &middot; ' + esc(r.by) : '') +
+        (r.note ? '<br/><span class="row-muted" style="font-size:11.5px;">' + esc(r.note) + '</span>' : '') + '</div>' +
+      (admin ? '<div style="white-space:nowrap;"><button type="button" class="btn btn-ghost btn-sm" onclick="toggleForm(\'' + ek + '\')">' + (ui.openForms[ek] ? "Cancel" : "Edit") + '</button> ' +
+        '<button type="button" class="btn btn-danger btn-sm" onclick="deletePartReplacement(\'' + m.id + '\',\'' + p.id + '\',\'' + r.id + '\')">Delete</button></div>' : '') +
+    '</div>';
+  }).join("");
+  if(p.lastReplacedHours != null && p.lastReplacedHours !== ""){
+    html += '<p class="row-muted" style="margin:8px 0 0;font-size:11.5px;">Starting point recorded: ' + fmtNum(p.lastReplacedHours, "hrs") + (p.lastReplacedDate ? " on " + fmtDate(p.lastReplacedDate) : "") + '.</p>';
+  }
+  return html + '</div>';
+}
+function deletePartReplacement(machineId, partId, replId){
+  if(!canAdminMachinery()) return;
+  var m = byId(state.machinery, machineId);
+  var p = m && byId(m.parts || [], partId);
+  if(!p) return;
+  if(!confirm("Delete this replacement record? This cannot be undone.")) return;
+  removeById(p.replacements, replId);
+  delete p.nextDueHours;
+  ui.openForms["prepe_" + machineId + "_" + replId] = false;
+  persist();
+}
+
+function renderPartAddToScheduleForm(m){
+  var formKey = "paddsched_" + m.id;
+  var err = ui.formErrors[formKey];
+  var avail = (m.parts || []).filter(function(p){ return !partEvery(p); }).sort(function(a, b){ return String(a.name || "").localeCompare(String(b.name || "")); });
+  if(!avail.length){
+    return '<div class="form-panel" style="margin:8px 0 0;"><div class="empty-state">Every part already has a schedule (or no parts are recorded yet). Add new parts in the Parts tab.</div></div>';
+  }
+  return '<form class="form-panel" style="margin:8px 0 0;" onsubmit="savePartAddToSchedule(event,\'' + m.id + '\')">' +
+    '<h4 style="margin-top:0;">Add part to schedule — ' + esc(m.name) + '</h4>' +
+    (err ? '<p style="color:var(--danger);font-size:12.5px;font-weight:600;margin:0 0 10px;">' + esc(err) + '</p>' : '') +
+    '<div class="form-grid">' +
+      '<div class="field span-2"><label>Part / component</label><select name="partId" required>' + avail.map(function(p){ return '<option value="' + escAttr(p.id) + '">' + esc(p.name) + '</option>'; }).join("") + '</select></div>' +
+      '<div class="field"><label>Replace every (hours)</label><input type="text" inputmode="decimal" name="replaceEvery" required placeholder="e.g. 250" /></div>' +
+      '<div class="field"><label>Last replaced at (hours)</label><input type="text" inputmode="decimal" name="lastHrs" placeholder="blank = counts from now (' + fmtNum(m.currentReading || 0) + ')" /></div>' +
+      '<div class="field"><label>Last replaced on (optional)</label><input type="date" name="lastDate" /></div>' +
+    '</div>' +
+    '<div class="form-actions"><button type="submit" class="btn btn-primary" style="width:auto;">Save</button>' +
+      '<button type="button" class="btn btn-ghost" onclick="delete ui.formErrors[\'' + formKey + '\'];toggleForm(\'' + formKey + '\')">Cancel</button>' +
+    '</div>' +
+  '</form>';
+}
+function savePartAddToSchedule(e, machineId){
+  e.preventDefault();
+  if(!canAdminMachinery()) return;
+  var f = e.target;
+  var formKey = "paddsched_" + machineId;
+  var m = byId(state.machinery, machineId);
+  if(!m) return;
+  var p = byId(m.parts || [], f.partId.value);
+  var every = parseHoursInput(f.replaceEvery.value);
+  var lastRaw = f.lastHrs.value.trim();
+  var lastH = lastRaw === "" ? null : parseHoursInput(lastRaw);
+  if(!p || isNaN(every) || every <= 0 || (lastRaw !== "" && isNaN(lastH))){
+    ui.formErrors[formKey] = "Choose a part and enter its interval in hours (e.g. 250).";
+    render();
+    return;
+  }
+  delete ui.formErrors[formKey];
+  applyPartScheduleFields(m, p, every, lastH, f.lastDate.value);
+  ui.openForms[formKey] = false;
   persist();
 }
 
@@ -17396,6 +17729,8 @@ function renderMachineServiceScheduleTab(m){
     html += '<button type="button" class="btn btn-ghost btn-sm" style="margin-top:8px;" onclick="toggleForm(\'checklist_' + m.id + '\')">' + (checklistEditing ? "Cancel" : "Edit service checklist") + '</button>';
     if(checklistEditing) html += renderMachineChecklistForm(m);
   }
+
+  html += renderPartScheduleSection(m);
 
   html += '<div class="stat-label" style="margin-top:18px;">Schedule &amp; history</div>';
   html += renderMachineServiceHistory(m);
@@ -17759,6 +18094,11 @@ function removePartOptionRow(btn){
   }
   box.removeChild(row);
 }
+function partScheduleNote(m, p){
+  var st = partScheduleStatus(m, p);
+  if(!st) return "";
+  return '<br/><span class="row-muted" style="font-size:11px;">Replace every ' + fmtNum(st.every) + ' hrs &middot; next due ' + fmtNum(st.due) + '</span>';
+}
 function renderMachinePartsSection(m, q){
   var parts = (m.parts || []).slice().sort(function(a,b){ return String(a.name||"").localeCompare(String(b.name||"")); });
   if(q){
@@ -17781,7 +18121,7 @@ function renderMachinePartsSection(m, q){
       // was off-screen, so tapping Edit looked like it did nothing).
       var editRow = editing ? ('<tr class="part-edit-row"><td colspan="5" style="padding:0;"><div style="position:sticky;left:0;width:calc(100vw - 122px);max-width:560px;box-sizing:border-box;">' + renderMachinePartForm(m, p) + '</div></td></tr>') : "";
       return '<tr>' +
-        '<td>' + esc(p.name) + '</td>' +
+        '<td>' + esc(p.name) + partScheduleNote(m, p) + '</td>' +
         '<td>' + renderPartOptionsCell(p) + '</td>' +
         '<td class="row-muted">' + esc(p.qty || "—") + '</td>' +
         '<td class="row-muted">' + esc(p.notes || "—") + '</td>' +
@@ -17823,6 +18163,13 @@ function renderMachinePartForm(m, existing){
       '<div class="field"><label>Qty on hand (optional)</label><input type="text" name="qty" value="' + escAttr(existing ? existing.qty : "") + '" placeholder="e.g. 2" /></div>' +
       '<div class="field span-2"><label>Notes (optional)</label><input type="text" name="notes" value="' + escAttr(existing ? existing.notes : "") + '" placeholder="e.g. supplier, where to order" /></div>' +
     '</div>' +
+    '<div class="stat-label" style="margin:10px 0 4px;">Replacement schedule (optional)</div>' +
+    '<div class="form-grid">' +
+      '<div class="field"><label>Replace every (hours)</label><input type="text" inputmode="decimal" name="replaceEvery" value="' + escAttr(existing && partEvery(existing) ? partEvery(existing) : "") + '" placeholder="e.g. 250" /></div>' +
+      '<div class="field"><label>Last replaced at (hours)</label><input type="text" inputmode="decimal" name="lastHrs" value="' + escAttr(existing && partLastReplaced(existing) ? partLastReplaced(existing).hours : "") + '" placeholder="blank = counts from now (' + fmtNum(m.currentReading || 0) + ')" /></div>' +
+      '<div class="field"><label>Last replaced on (optional)</label><input type="date" name="lastDate" value="' + escAttr(existing && partLastReplaced(existing) ? partLastReplaced(existing).date : "") + '" /></div>' +
+    '</div>' +
+    '<p class="row-muted" style="margin:4px 0 0;font-size:11.5px;">Shows on the machine&rsquo;s Service Schedule and counts as due when it&rsquo;s getting close. Leave &ldquo;Replace every&rdquo; blank for no schedule.</p>' +
     '<div class="form-actions"><button type="submit" class="btn btn-primary" style="width:auto;">Save</button>' +
       '<button type="button" class="btn btn-ghost" onclick="delete ui.formErrors[\'' + formKey + '\'];' + (existing ? ("ui.openForms['" + formKey + "']=false;render();") : ("toggleForm('" + formKey + "')")) + '">Cancel</button>' +
     '</div>' +
@@ -17855,12 +18202,31 @@ function saveMachinePart(e, machineId, partId){
     if(brand || pn) options.push({ brand: brand, partNumber: pn });
   });
   var data = { name: name, options: options, qty: f.qty.value.trim(), notes: f.notes.value.trim() };
-  if(partId){
-    var existing = byId(m.parts, partId);
-    if(existing){ Object.assign(existing, data); delete existing.brand; delete existing.partNumber; }
-  } else {
-    m.parts.push(Object.assign({ id: uid("part") }, data));
+  var hasSched = !!(f.replaceEvery && f.lastHrs && f.lastDate);
+  var everyRaw = hasSched ? f.replaceEvery.value.trim() : "";
+  var every = everyRaw === "" ? null : parseHoursInput(everyRaw);
+  if(everyRaw !== "" && (isNaN(every) || every <= 0)){
+    ui.formErrors[formKey] = "Enter the replacement interval in hours (e.g. 250), or leave it blank.";
+    render();
+    return;
   }
+  var lastRaw = hasSched ? f.lastHrs.value.trim() : "";
+  var lastH = lastRaw === "" ? null : parseHoursInput(lastRaw);
+  if(lastRaw !== "" && isNaN(lastH)){
+    ui.formErrors[formKey] = "Enter a valid 'last replaced' reading (e.g. 2140), or leave it blank.";
+    render();
+    return;
+  }
+  delete ui.formErrors[formKey];
+  var target;
+  if(partId){
+    target = byId(m.parts, partId);
+    if(target){ Object.assign(target, data); delete target.brand; delete target.partNumber; }
+  } else {
+    target = Object.assign({ id: uid("part") }, data);
+    m.parts.push(target);
+  }
+  if(target && hasSched) applyPartScheduleFields(m, target, every, lastH, f.lastDate.value);
   ui.openForms[formKey] = false;
   persist();
 }
