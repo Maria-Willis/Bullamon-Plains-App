@@ -574,6 +574,24 @@
   .silo-tx-meta{margin-top:3px;font-size:11.5px;}
   .silo-tx-actions{display:flex;gap:8px;align-items:center;margin-top:8px;}
   .silo-tx-edit{margin:10px 0;}
+  /* Fuel Storage: a grid of tank tiles, each with a level bar */
+  .fuel-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;}
+  .fuel-tank{display:flex;flex-direction:column;gap:6px;text-align:left;padding:12px;border:1px solid var(--border,#e3e8ee);border-radius:12px;background:var(--surface,#fff);color:inherit;font:inherit;cursor:pointer;min-width:0;}
+  .fuel-tank:hover{background:#eef5fc;}
+  .fuel-tank-top{display:flex;align-items:flex-start;justify-content:space-between;gap:6px;}
+  .fuel-name{font-weight:700;font-size:14.5px;line-height:1.2;overflow-wrap:anywhere;min-width:0;}
+  .fuel-type{flex:none;font-size:10.5px;font-weight:800;letter-spacing:.02em;text-transform:uppercase;padding:2px 7px;border-radius:999px;white-space:nowrap;}
+  .fuel-diesel{background:#fdebc4;color:#7a4a00;}
+  .fuel-ulp{background:#d7f0e0;color:#14663a;}
+  .fuel-l{font-size:20px;font-weight:800;line-height:1.1;}
+  .fuel-bar{display:block;height:9px;border-radius:999px;background:#e6ebf1;overflow:hidden;}
+  .fuel-bar-big{height:14px;margin-top:12px;}
+  .fuel-bar-fill{display:block;height:100%;border-radius:999px;background:#e0a21b;}
+  .fuel-bar-fill.fuel-ulp-fill{background:#2e9d5b;}
+  .fuel-low .fuel-bar-fill{background:var(--danger,#c0392b);}
+  .fuel-sub{font-size:12px;color:var(--text-muted);}
+  .fuel-low .fuel-sub b{color:var(--danger,#c0392b);}
+  .fuel-sum{display:flex;flex-wrap:wrap;gap:4px 8px;font-size:13px;margin-top:6px;}
   .silo:hover{background:#eef5fc;}
   .silo-cone:hover{background:transparent;}
   .silo-cone:hover .silo-tank{fill:#eef5fc;}
@@ -1173,6 +1191,10 @@ const DEFAULT_STATE = {
   "silos": {
     "sites": [],
     "items": []
+  },
+  "fuel": {
+    "sites": [],
+    "tanks": []
   },
   "harvest": {
     "items": [],
@@ -1856,7 +1878,7 @@ const DEFAULT_STATE = {
 // change to this file, same as CACHE_NAME in sw.js -- it gives an instant,
 // no-technical-steps-needed way to confirm whether a given device is
 // actually running the latest deploy, without comparing file contents.
-var APP_BUILD = "2026-10-16.27";
+var APP_BUILD = "2026-10-18.1";
 
 /* ======================================================================
    UTILITIES
@@ -13286,6 +13308,13 @@ async function boot(){
     state.settings.siloSeedV1 = true;
     migrated = true;
   }
+  // one-time seed: Fuel Storage (2026-10-18) starts with Maria's Mungindi and Thallon tanks, all empty
+  // ("level not set yet") until someone records a reading. Never replaces tanks that already exist.
+  if(!state.settings.fuelSeedV1){
+    if(!state.fuel || !(state.fuel.tanks || []).length) state.fuel = fuelSeed();
+    state.settings.fuelSeedV1 = true;
+    migrated = true;
+  }
   // one-time: Silo Storage's column layout (2026-10-16) -- silos saved earlier get a
   // column/position (Airstrip becomes two columns like Maria's drawing). Balances and
   // transactions are not touched.
@@ -13955,6 +13984,7 @@ var ICONS = {
   "message": '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
   "hourglass": '<path d="M5 22h14"/><path d="M5 2h14"/><path d="M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22"/><path d="M7 2v4.172a2 2 0 0 0 .586 1.414L12 12l4.414-4.414A2 2 0 0 0 17 6.172V2"/>',
   "home": '<path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 22V12h6v10"/>',
+  "fuel": '<line x1="3" x2="15" y1="22" y2="22"/><line x1="4" x2="14" y1="9" y2="9"/><path d="M14 22V4a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v18"/><path d="M14 13h2a2 2 0 0 1 2 2v2a2 2 0 0 0 2 2a2 2 0 0 0 2-2V9.83a2 2 0 0 0-.59-1.42L18 5"/>',
   "silo": '<path d="M6 7v12a6 2.5 0 0 0 12 0V7"/><ellipse cx="12" cy="7" rx="6" ry="2.5"/><path d="M6 12.5a6 2.5 0 0 0 12 0"/>',
   "calendar": '<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>',
   "clock": '<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
@@ -14027,7 +14057,7 @@ function iconSvg(name, extraClass){
 // Words people might search for in the icon picker (plus each icon's own name).
 var ICON_KEYWORDS = {
   "dashboard":"overview home panel grid", "flask":"chemical chemistry lab spray", "check-square":"jobs tasks tick todo", "tractor":"machinery machine farm vehicle",
-  "silo":"silo storage grain bin tonnes", "cow":"cattle bull livestock animal cattle", "map":"maps paddock location", "receipt":"receipts money bill invoice", "file-text":"document procedure paper page",
+  "silo":"silo storage grain bin tonnes", "fuel":"fuel diesel ulp petrol tank litres", "cow":"cattle bull livestock animal cattle", "map":"maps paddock location", "receipt":"receipts money bill invoice", "file-text":"document procedure paper page",
   "clipboard-list":"checklist list sheet", "phone":"call emergency telephone", "alert-triangle":"warning danger whs hazard safety", "shield":"protect biosecurity security safe",
   "users":"team people staff group", "user":"person profile", "lock":"private secure locked", "key":"access password", "bell":"notification alert reminder",
   "wrench":"repair tool service maintenance", "message":"note comment chat", "home":"house farm", "calendar":"date schedule diary", "clock":"time hours",
@@ -14053,6 +14083,7 @@ var NAV = [
   { key: "maps",        label: "Maps",         icon: iconSvg("map") },
   { key: "receipts",    label: "Receipts",     icon: iconSvg("receipt") },
   { key: "silos",       label: "Silo Storage", icon: iconSvg("silo") },
+  { key: "fuel",        label: "Fuel Storage", icon: iconSvg("fuel") },
   { key: "timesheets",  label: "Time Sheets",  icon: iconSvg("calendar") },
   { key: "til",         label: "My Time in Lieu", icon: iconSvg("clock") },
   { key: "harvest",     label: "Harvest Dockets", icon: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="9" y="18" width="6" height="2.5" rx="1.25" fill="currentColor"/><path d="M12 19 L7 5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M12 19 L12 3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M12 19 L17 5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="8.3" cy="10" r="1" fill="currentColor"/><circle cx="7.6" cy="7.5" r="1" fill="currentColor"/><circle cx="9.3" cy="12.5" r="1" fill="currentColor"/><circle cx="12" cy="9" r="1" fill="currentColor"/><circle cx="12" cy="6" r="1" fill="currentColor"/><circle cx="12" cy="12.5" r="1" fill="currentColor"/><circle cx="15.7" cy="10" r="1" fill="currentColor"/><circle cx="16.4" cy="7.5" r="1" fill="currentColor"/><circle cx="14.7" cy="12.5" r="1" fill="currentColor"/></svg>' },
@@ -14323,6 +14354,7 @@ function renderSection(){
     case "receipts": return renderReceipts();
     case "til": return renderTimeInLieu();
     case "silos": return renderSilos();
+    case "fuel": return renderFuel();
     case "timesheets": return renderTimeSheets();
     case "harvest": return renderHarvest();
     case "team": return isAdmin() ? renderTeam() : renderDashboard();
@@ -15756,6 +15788,552 @@ function removeSiloTx(siloId, txId){
       console.error("[Bullamon Plains] silo action failed:", err);
       if(e && e.preventDefault) e.preventDefault();
       siloFail("That didn't work: " + (err && err.message ? err.message : err) + ". Please tell Maria.");
+    }
+  };
+});
+/* ======================================================================
+   FUEL STORAGE (added 2026-10-18, at Maria's request: "a section called fuel
+   storage ... divided into 2 parts: Mungindi and Thallon", each with its tanks and
+   how many litres each holds). Same idea as Silo Storage, but in litres: each tank
+   shows how much fuel is in it against what it holds, and every delivery, use,
+   transfer or dip reading is logged. The level is always the sum of the tank's
+   entries. Anyone signed in (except Harvest-only / Limited-access members) can
+   record fuel in/out, transfer between tanks, set the level from a dip reading
+   and edit an entry; only admins add/remove tanks and headings, change a tank's
+   name, fuel type or capacity, or remove an entry.
+   Data model: state.fuel = { sites: [{id, name, short}], tanks: [{id, site, name,
+   fuelType ("Diesel"|"ULP"), capacity (litres), notes, transactions: [{id, date,
+   type ("dip"|"in"|"out"|"transfer-in"|"transfer-out"), delta (signed litres; a "dip" has
+   level = the litres in the tank instead and OVERRIDES everything logged before it), description, by, at, transferId, otherTank, editedAt, editedBy}]}] };
+   the one-time seed (state.settings.fuelSeedV1) loads Maria's list with every
+   tank empty and "level not set yet" until someone records a reading.
+   Reuses the generic helpers of Silo Storage (siloSorted, siloParseT, siloFmt). The level is worked
+   out by fuelRows(): entries in date order, where a dip reading sets the level outright.
+   ====================================================================== */
+var FUEL_TYPES = ["Diesel", "ULP"];
+function fuelData(){
+  if(!state.fuel) state.fuel = { sites: [], tanks: [] };
+  if(!state.fuel.sites) state.fuel.sites = [];
+  if(!state.fuel.tanks) state.fuel.tanks = [];
+  return state.fuel;
+}
+function fuelSeed(){
+  var sites = [
+    { id: "fsite_mungindi", name: "Mungindi", short: "Mungindi" },
+    { id: "fsite_thallon", name: "Thallon", short: "Thallon" }
+  ];
+  var tanks = [];
+  var mk = function(site, name, type, cap, n){
+    for(var i = 0; i < (n || 1); i++) tanks.push({ id: uid("ftank"), site: site, name: name, fuelType: type, capacity: cap, notes: "", transactions: [] });
+  };
+  var M = "fsite_mungindi", T = "fsite_thallon";
+  mk(M, "Coolibah", "Diesel", 20000);
+  mk(M, "Fenton House", "Diesel", 2000);
+  mk(M, "Fenton House", "Diesel", 5000, 2);
+  mk(T, "Airstrip No 1", "Diesel", 45000, 2);
+  mk(T, "PS3 Top", "Diesel", 20000);
+  mk(T, "Twin Towers West", "Diesel", 55000);
+  mk(T, "Twin Towers East", "Diesel", 55000);
+  mk(T, "River Pumps", "Diesel", 55000);
+  mk(T, "PS5", "Diesel", 55000);
+  mk(T, "White Tank", "Diesel", 10000);
+  mk(T, "Workshop", "Diesel", 5000);
+  mk(T, "PS3 Bottom", "Diesel", 30000);
+  mk(T, "Airstrip No 2", "Diesel", 40000);
+  mk(T, "Workshop Tanks Small", "Diesel", 2000);
+  mk(T, "Workshop ULP", "ULP", 2000);
+  mk(T, "Airstrip ULP", "ULP", 2000);
+  return { sites: sites, tanks: tanks };
+}
+function fuelFind(id){ return byId(fuelData().tanks, id); }
+function fuelSiteOf(t){ return byId(fuelData().sites, t.site); }
+function fuelCap(t){ return Number(t.capacity) > 0 ? Number(t.capacity) : 0; }
+// A dip reading is the truth: it sets the tank's level to exactly that figure, whatever fuel in/out was logged
+// before it (entries dated after it carry on from it). So the running level is worked out in date order, and a
+// dip replaces the running level instead of adding to it.
+function fuelRows(txs){
+  var bal = 0;
+  return siloSorted({ transactions: txs || [] }).map(function(x){
+    var before = bal, d;
+    if(x.type === "dip"){ bal = Math.round((Number(x.level) || 0) * 100) / 100; d = Math.round((bal - before) * 100) / 100; }
+    else { d = Number(x.delta) || 0; bal = Math.round((bal + d) * 100) / 100; }
+    return { x: x, bal: bal, d: d, before: before };
+  });
+}
+function fuelBalance(t){ var r = fuelRows(t.transactions); return r.length ? r[r.length - 1].bal : 0; }
+// Number of points in a tank's log where the level is below zero or above what it holds.
+function fuelViolations(txs, cap){
+  var n = 0;
+  fuelRows(txs).forEach(function(r){ if(r.bal < -0.005 || (cap && r.bal > cap + 0.005)) n++; });
+  return n;
+}
+function fuelSpace(t){ var c = fuelCap(t); return c ? Math.max(0, Math.round((c - fuelBalance(t)) * 100) / 100) : null; }
+function fuelL(n){ return siloFmt(n) + " L"; }
+function fuelPct(t){ var c = fuelCap(t); return c ? Math.max(0, Math.min(100, Math.round(fuelBalance(t) / c * 100))) : null; }
+function fuelHasLevel(t){ return (t.transactions || []).length > 0; }
+// Two tanks can share a name (e.g. the three "Fenton House" tanks), so a name that is not unique within its
+// heading gets its capacity added, and a number if the capacity is the same too: "Fenton House (5,000 L) #2".
+function fuelName(t){
+  var same = fuelData().tanks.filter(function(o){ return o.site === t.site && (o.name || "").trim().toLowerCase() === (t.name || "").trim().toLowerCase(); });
+  if(same.length < 2) return t.name;
+  var base = t.name + " (" + fuelL(t.capacity) + ")";
+  var twins = same.filter(function(o){ return fuelCap(o) === fuelCap(t); });
+  return twins.length > 1 ? base + " #" + (twins.indexOf(t) + 1) : base;
+}
+function fuelLabel(t){ var st = fuelSiteOf(t); return (st ? (st.short || st.name) + " " : "") + fuelName(t); }
+function fuelCanRecord(){ return siloCanRecord(); }
+function fuelTxLabel(x){
+  switch(x.type){
+    case "dip": return "Dip reading";
+    case "opening": return "Opening level";
+    case "in": return "Fuel in";
+    case "out": return "Fuel out";
+    case "transfer-in": return "Transfer in";
+    case "transfer-out": return "Transfer out";
+    case "adjust": return "Level set";
+  }
+  return x.type || "";
+}
+function fuelNewTx(t, type, delta, date, description, extra){
+  var u = currentUser();
+  var tx = { id: uid("ftx"), date: date, type: type, delta: delta, description: (description || "").trim(), by: u ? u.name : "", at: new Date().toISOString() };
+  if(extra) Object.keys(extra).forEach(function(k){ tx[k] = extra[k]; });
+  t.transactions = t.transactions || [];
+  t.transactions.push(tx);
+  return tx;
+}
+function fuelClear(){ ui.fuelEditTx = null; ui.fuelAction = null; ui.fuelError = ""; ui.fuelMsg = ""; ui.fuelDraft = {}; }
+function fuelOpen(id){ fuelClear(); ui.fuelOpen = id; render(); window.scrollTo(0, 0); }
+function fuelBack(){ fuelClear(); ui.fuelOpen = null; render(); }
+function fuelSetAction(a){ ui.fuelEditTx = null; ui.fuelAction = (ui.fuelAction === a) ? null : a; ui.fuelError = ""; ui.fuelMsg = ""; ui.fuelDraft = {}; render(); }
+function fuelSelectSite(id){ ui.fuelSite = id; ui.fuelError = ""; ui.fuelMsg = ""; ui.fuelAdminError = ""; render(); }
+// What has been typed into the open form, so a re-render (a refused entry, a sync from another device) never wipes it.
+function fuelDraftSet(e){
+  var t = e && e.target; if(!t || !t.name) return;
+  if(!ui.fuelDraft) ui.fuelDraft = {};
+  ui.fuelDraft[t.name] = t.value;
+}
+function fuelDraftVal(name, fallback){
+  var d = ui.fuelDraft || {};
+  return Object.prototype.hasOwnProperty.call(d, name) ? d[name] : fallback;
+}
+// THE rule for every movement: a tank's litres must stay between 0 (empty) and what it holds, at every
+// point in time (so a back-dated entry can't break it either). Returns "" if the change of `delta` litres
+// dated `date` is allowed, otherwise the reason it is refused.
+function fuelCheck(t, delta, date){
+  if(!delta) return "";
+  var cap = fuelCap(t);
+  if(delta > 0 && !cap) return fuelLabel(t) + " has no capacity set yet, so fuel can't be added. An admin needs to set it first (Edit tank).";
+  var probe = { id: "probe", date: date, at: "9999", delta: delta };
+  var rows = fuelRows((t.transactions || []).concat([probe]));
+  var idx = -1; rows.forEach(function(r, i){ if(r.x === probe) idx = i; });
+  var last = idx === rows.length - 1, bal = fuelBalance(t);
+  var problem = "";
+  rows.slice(idx).forEach(function(r){
+    if(problem) return;
+    if(r.bal < -0.005){
+      problem = last ? "There is only " + fuelL(bal) + " in " + fuelLabel(t) + ", so " + fuelL(-delta) + " can't be taken out."
+        : "Dated " + fmtDate(date) + ", that would leave " + fuelLabel(t) + " with " + fuelL(r.bal) + " on " + fmtDate(r.x.date) + ", which is below zero (empty). Check the date.";
+    } else if(cap && r.bal > cap + 0.005){
+      problem = last ? fuelLabel(t) + " holds " + fuelL(cap) + " and has " + fuelL(bal) + " in it, so only " + fuelL(fuelSpace(t)) + " more will fit (" + fuelL(delta) + " is too much)."
+        : "Dated " + fmtDate(date) + ", that would take " + fuelLabel(t) + " to " + fuelL(r.bal) + " on " + fmtDate(r.x.date) + ", which is over what it holds (" + fuelL(cap) + "). Check the date.";
+    }
+  });
+  return problem;
+}
+
+// ---- The page: every tank under its heading --------------------------------------------------
+function fuelTileHtml(t){
+  var pct = fuelPct(t), bal = fuelBalance(t), has = fuelHasLevel(t);
+  var low = has && pct !== null && pct <= 20;
+  var sub = !has ? 'Level not set yet' : (pct !== null ? pct + '% of ' + fuelL(t.capacity) : 'No capacity set');
+  return '<button type="button" class="fuel-tank' + (low ? ' fuel-low' : '') + '" onclick="fuelOpen(\'' + t.id + '\')" aria-label="' + escAttr(fuelLabel(t) + ', ' + (has ? fuelL(bal) : 'level not set')) + '">' +
+    '<span class="fuel-tank-top"><span class="fuel-name">' + esc(fuelName(t)) + '</span><span class="fuel-type ' + (t.fuelType === "ULP" ? "fuel-ulp" : "fuel-diesel") + '">' + esc(t.fuelType || "Diesel") + '</span></span>' +
+    '<span class="fuel-l">' + (has ? fuelL(bal) : '—') + '</span>' +
+    '<span class="fuel-bar"><span class="fuel-bar-fill ' + (t.fuelType === "ULP" ? "fuel-ulp-fill" : "") + '" style="width:' + (has && pct !== null ? pct : 0) + '%;"></span></span>' +
+    '<span class="fuel-sub">' + esc(sub) + (low ? ' · <b>Low</b>' : '') + '</span></button>';
+}
+function renderFuel(){
+  if(!fuelCanRecord()) return pageHead("Fuel Storage", "") + '<div class="empty-state">You don\'t have access to this section.</div>';
+  var open = ui.fuelOpen ? fuelFind(ui.fuelOpen) : null;
+  if(open) return renderFuelDetail(open);
+  var d = fuelData();
+  var html = pageHead("Fuel Storage", "How much fuel is in each tank. Tap a tank to see its level and log, or to add fuel, take fuel out, transfer or set the level.");
+  if(ui.fuelMsg) html += '<div class="banner ok" style="margin-bottom:12px;">' + esc(ui.fuelMsg) + '</div>';
+  if(ui.fuelError) html += '<div class="signin-error" style="margin-bottom:12px;">' + esc(ui.fuelError) + '</div>';
+  if(!d.sites.length) return html + '<div class="empty-state">No fuel tanks set up yet.</div>' + (isAdmin() ? renderFuelManageCard(null) : '');
+  var siteId = ui.fuelSite && byId(d.sites, ui.fuelSite) ? ui.fuelSite : d.sites[0].id;
+  var site = byId(d.sites, siteId);
+  // totals per fuel type, all headings, and for the open heading
+  var sum = function(list){
+    var r = {};
+    list.forEach(function(t){
+      var k = t.fuelType || "Diesel";
+      if(!r[k]) r[k] = { l: 0, cap: 0, n: 0, unset: 0 };
+      r[k].l += fuelBalance(t); r[k].cap += fuelCap(t); r[k].n++;
+      if(!fuelHasLevel(t)) r[k].unset++;
+    });
+    return r;
+  };
+  var line = function(r){
+    return Object.keys(r).sort().map(function(k){
+      return '<span><b>' + esc(k) + '</b> ' + fuelL(r[k].l) + ' <span class="row-muted">of ' + fuelL(r[k].cap) + '</span></span>';
+    }).join('<span class="row-muted"> &middot; </span>');
+  };
+  var all = sum(d.tanks);
+  var totalL = 0; Object.keys(all).forEach(function(k){ totalL += all[k].l; });
+  html += '<div class="card" style="margin-bottom:14px;"><div class="card-row"><h3 style="margin:0;">In storage (all tanks)</h3><span style="font-size:20px;font-weight:700;">' + fuelL(totalL) + '</span></div>' +
+    '<div class="fuel-sum">' + line(all) + '</div></div>';
+  var tanks = d.tanks.filter(function(t){ return t.site === siteId; });
+  html += '<div class="card"><div class="filter-pill-row" style="margin:0 0 14px;">' + d.sites.map(function(st){
+    return '<button type="button" class="filter-pill' + (st.id === siteId ? " active" : "") + '" onclick="fuelSelectSite(\'' + st.id + '\')">' + esc(st.name) + '</button>';
+  }).join("") + '</div>';
+  html += '<div class="silo-head"><h2 class="silo-title">' + esc(site.name) + '</h2></div>';
+  if(tanks.length) html += '<div class="fuel-sum" style="margin:0 0 12px;">' + line(sum(tanks)) + '</div>';
+  if(!tanks.length) html += '<div class="empty-state">No tanks under this heading yet.</div>';
+  else html += '<div class="fuel-grid">' + tanks.map(fuelTileHtml).join("") + '</div>';
+  html += '</div>';
+  if(isAdmin()) html += renderFuelManageCard(site);
+  return html;
+}
+
+// ---- A tank: level, log and actions -----------------------------------------------------------
+function renderFuelDetail(t){
+  var b = fuelBalance(t), has = fuelHasLevel(t);
+  var rows = fuelRows(t.transactions).reverse();
+  var act = ui.fuelAction;
+  var html = '<div style="margin-bottom:12px;"><button type="button" class="btn" style="width:auto;font-size:17px;font-weight:800;padding:12px 22px;border-radius:999px;background:#ffc933;color:#1b1b1b;border:2px solid #fff;box-shadow:0 3px 8px rgba(0,0,0,.35);" onclick="fuelBack()">&larr; All tanks</button></div>';
+  if(ui.fuelMsg) html += '<div class="banner ok" style="margin-bottom:12px;">' + esc(ui.fuelMsg) + '</div>';
+  if(ui.fuelError && !act && !ui.fuelEditTx) html += '<div class="signin-error" style="margin-bottom:12px;">' + esc(ui.fuelError) + '</div>';
+  var totalIn = 0, totalOut = 0;
+  rows.forEach(function(r){
+    var dlt = Number(r.x.delta) || 0;
+    if(r.x.type === "dip" || r.x.type === "opening" || r.x.type === "adjust") return;
+    if(dlt > 0) totalIn += dlt; else if(dlt < 0) totalOut += -dlt;
+  });
+  var pct = fuelPct(t);
+  html += '<div class="card"><div class="card-row" style="align-items:flex-start;gap:10px;flex-wrap:wrap;"><div><h3 style="margin:0;">' + esc(fuelLabel(t)) + '</h3>' +
+    '<div class="row-muted" style="font-size:12.5px;margin-top:2px;"><span class="fuel-type ' + (t.fuelType === "ULP" ? "fuel-ulp" : "fuel-diesel") + '">' + esc(t.fuelType || "Diesel") + '</span> holds ' + (fuelCap(t) ? fuelL(t.capacity) : 'no capacity set') + (t.notes ? ' · ' + esc(t.notes) : '') + '</div></div>' +
+    '<div style="text-align:right;"><div style="font-size:30px;font-weight:700;line-height:1;">' + (has ? fuelL(b) : '—') + '</div><div class="row-muted" style="font-size:12px;">' + (has ? 'in the tank' + (pct !== null ? ' · ' + pct + '% full' : '') : 'level not set yet') + '</div>' +
+    (fuelCap(t) && has ? '<div style="font-size:12.5px;font-weight:700;margin-top:2px;">' + (fuelSpace(t) > 0 ? fuelL(fuelSpace(t)) + ' room left' : 'Full') + '</div>' : '') + '</div></div>' +
+    (fuelCap(t) ? '<div class="fuel-bar fuel-bar-big"><span class="fuel-bar-fill ' + (t.fuelType === "ULP" ? "fuel-ulp-fill" : "") + '" style="width:' + (has && pct !== null ? pct : 0) + '%;"></span></div>' : '') +
+    '<div class="row-muted" style="font-size:12.5px;margin:8px 0 12px;">All-time: ' + fuelL(totalIn) + ' in, ' + fuelL(totalOut) + ' out</div>' +
+    '<div class="filter-pill-row" style="margin:0;">' +
+      [["in", "Fuel in"], ["out", "Fuel out"], ["transfer", "Transfer to another tank"], ["set", "Dip / set level"], ["details", "Edit tank"]].map(function(a){
+        return '<button type="button" class="filter-pill' + (act === a[0] ? " active" : "") + '" onclick="fuelSetAction(\'' + a[0] + '\')">' + a[1] + '</button>';
+      }).join("") + '</div>';
+  if(act) html += renderFuelActionForm(t, act);
+  html += '</div>';
+  html += '<div class="card" style="margin-top:14px;"><h3 style="margin:0 0 10px;">Log</h3>';
+  if(!rows.length){
+    html += '<div class="empty-state">Nothing recorded yet. Use <b>Dip / set level</b> to enter what is in the tank now.</div>';
+  } else {
+    html += '<div class="silo-tx-list">' + rows.map(function(r){
+      var x = r.x, dlt = r.d, isDip = x.type === "dip";
+      if(ui.fuelEditTx === x.id) return renderFuelTxEdit(t, x);
+      var other = x.otherTank ? fuelFind(x.otherTank) : null;
+      var what = esc(fuelTxLabel(x)) + (other && (x.type === "transfer-out" || x.type === "transfer-in") ? (x.type === "transfer-out" ? " to " : " from ") + esc(fuelLabel(other)) : "");
+      return '<div class="silo-tx">' +
+        '<div class="silo-tx-top"><span class="silo-tx-date">' + (x.date ? fmtDate(x.date) : "—") + '</span><b>' + what + '</b>' +
+        '<span class="silo-tx-t" style="color:' + (!isDip && dlt < 0 ? 'var(--danger)' : 'inherit') + ';">' + (isDip ? '= ' + fuelL(x.level) : (dlt === 0 ? '' : (dlt > 0 ? "+" : "−") + fuelL(Math.abs(dlt)))) + '</span></div>' +
+        '<div class="silo-tx-desc">' + (x.description ? esc(x.description) : '<span class="row-muted">No description</span>') + '</div>' +
+        '<div class="row-muted silo-tx-meta">' + (isDip ? 'Level set to ' + fuelL(x.level) + ' (was ' + fuelL(r.before) + ')' : 'Level ' + fuelL(r.bal)) + (x.by ? ' · ' + esc(x.by) : '') + (x.editedAt ? ' · edited' + (x.editedBy ? ' by ' + esc(x.editedBy) : '') : '') + '</div>' +
+        '<div class="silo-tx-actions"><button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="fuelEditTx(\'' + x.id + '\')">Edit</button>' +
+        (isAdmin() ? '<button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="removeFuelTx(\'' + t.id + '\',\'' + x.id + '\')">Remove</button>' : '') + '</div></div>';
+    }).join("") + '</div>';
+  }
+  html += '</div>';
+  return html;
+}
+function fuelFail(msg){
+  ui.fuelError = msg; ui.fuelMsg = ""; render();
+  setTimeout(function(){ var el = document.getElementById("fuel-form") || document.getElementById("fuel-tx-form"); if(el && el.scrollIntoView) el.scrollIntoView({ block: "center", behavior: "smooth" }); }, 30);
+}
+function fuelDone(msg){ ui.fuelError = ""; ui.fuelMsg = msg; ui.fuelAction = null; ui.fuelEditTx = null; ui.fuelDraft = {}; persist(); window.scrollTo(0, 0); }
+function renderFuelActionForm(t, act){
+  var today = tilLocalToday();
+  var dateField = '<div class="field"><label>Date</label><input type="date" name="date" value="' + escAttr(fuelDraftVal("date", today)) + '" required /></div>';
+  var descField = function(label, ph){ return '<div class="field span-2"><label>' + label + '</label><input type="text" name="description" value="' + escAttr(fuelDraftVal("description", "")) + '" placeholder="' + ph + '" /></div>'; };
+  var litresField = function(label){ return '<div class="field"><label>' + label + '</label><input type="text" inputmode="decimal" name="litres" required value="' + escAttr(fuelDraftVal("litres", "")) + '" placeholder="e.g. 5000" /></div>'; };
+  var cancel = '<button type="button" class="btn btn-ghost" style="width:auto;" onclick="fuelSetAction(null)">Cancel</button>';
+  var errBox = ui.fuelError ? '<div class="signin-error" role="alert" style="margin-bottom:12px;">' + esc(ui.fuelError) + '</div>' : '';
+  var wrap = function(inner, submit, handler){ return '<form id="fuel-form" class="form-panel" style="margin-top:12px;" oninput="fuelDraftSet(event)" onchange="fuelDraftSet(event)" onsubmit="' + handler + '(event,\'' + t.id + '\')">' + errBox + '<div class="form-grid">' + inner + '</div><div class="form-actions"><button type="submit" class="btn btn-primary" style="width:auto;">' + submit + '</button>' + cancel + '</div></form>'; };
+  if(act === "in") return wrap(dateField + litresField("Litres to add" + (fuelCap(t) && fuelHasLevel(t) ? " (room for " + fuelL(fuelSpace(t)) + ")" : "")) + descField("Supplier / delivery docket (optional)", "e.g. Delivery from the depot"), "Add fuel", "fuelMove");
+  if(act === "out") return wrap(dateField + litresField("Litres taken out") + descField("Used for (optional)", "e.g. Header, tractor, ute"), "Take fuel out", "fuelMoveOut");
+  if(act === "set") return wrap(dateField + '<div class="field"><label>Litres in the tank now (dip reading)</label><input type="text" inputmode="decimal" name="litres" required value="' + escAttr(fuelDraftVal("litres", fuelHasLevel(t) ? String(fuelBalance(t)) : "")) + '" placeholder="e.g. 12000" /></div>' + descField("Note (optional)", "e.g. Dipped with the stick") + '<p class="row-muted span-2" style="margin:0;font-size:12.5px;">The dip becomes the tank\'s level, whatever fuel in or out has been logged before it.</p>', "Set level", "fuelSetLevel");
+  if(act === "transfer"){
+    var opts = fuelData().tanks.filter(function(o){ return o.id !== t.id && (o.fuelType || "Diesel") === (t.fuelType || "Diesel"); }).map(function(o){
+      return '<option value="' + escAttr(o.id) + '"' + (fuelDraftVal("to", "") === o.id ? " selected" : "") + '>' + esc(fuelLabel(o)) + ' (' + (fuelHasLevel(o) ? fuelL(fuelBalance(o)) : 'level not set') + (fuelCap(o) ? ', holds ' + fuelL(fuelCap(o)) : '') + ')</option>';
+    }).join("");
+    return wrap(dateField + '<div class="field"><label>Transfer to (' + esc(t.fuelType || "Diesel") + ' tanks only)</label><select name="to" required><option value="">Choose a tank…</option>' + opts + '</select></div>' +
+      litresField("Litres to transfer") + descField("Why (optional)", "e.g. Filling the ute tank"), "Transfer", "fuelTransfer");
+  }
+  if(act === "details"){
+    var adm = isAdmin();
+    return '<form id="fuel-form" class="form-panel" style="margin-top:12px;" oninput="fuelDraftSet(event)" onchange="fuelDraftSet(event)" onsubmit="fuelSaveDetails(event,\'' + t.id + '\')">' + errBox + '<div class="form-grid">' +
+      '<div class="field span-2"><label>Notes</label><input type="text" name="notes" value="' + escAttr(fuelDraftVal("notes", t.notes || "")) + '" placeholder="e.g. Next to the workshop" /></div>' +
+      (adm ? '<div class="field"><label>Tank name (admin)</label><input type="text" name="name" required value="' + escAttr(fuelDraftVal("name", t.name)) + '" /></div>' +
+        '<div class="field"><label>Holds, in litres (admin)</label><input type="text" inputmode="decimal" name="capacity" required value="' + escAttr(fuelDraftVal("capacity", t.capacity ? String(t.capacity) : "")) + '" /></div>' +
+        '<div class="field"><label>Fuel type (admin)</label><select name="fuelType">' + FUEL_TYPES.map(function(f){ return '<option value="' + f + '"' + (fuelDraftVal("fuelType", t.fuelType || "Diesel") === f ? " selected" : "") + '>' + f + '</option>'; }).join("") + '</select></div>' +
+        '<div class="field"><label>Heading (admin)</label><select name="site">' + fuelData().sites.map(function(st){ return '<option value="' + escAttr(st.id) + '"' + (fuelDraftVal("site", t.site) === st.id ? " selected" : "") + '>' + esc(st.name) + '</option>'; }).join("") + '</select></div>' : '') +
+      '</div><div class="form-actions"><button type="submit" class="btn btn-primary" style="width:auto;">Save</button>' + cancel +
+      (adm ? '<button type="button" class="btn btn-danger" style="width:auto;" onclick="removeFuelTank(\'' + t.id + '\')">Remove this tank</button>' : '') + '</div></form>';
+  }
+  return "";
+}
+function fuelReadMove(e, id){
+  e.preventDefault();
+  var t = fuelFind(id); if(!t || !fuelCanRecord()) return null;
+  var f = e.target;
+  var l = siloParseT(f.litres.value);
+  if(!f.date.value){ fuelFail("Enter the date."); return null; }
+  if(l === null || l <= 0 || l > 10000000){ fuelFail("Enter the litres as a number above 0, e.g. 5000."); return null; }
+  return { t: t, f: f, l: l };
+}
+function fuelMove(e, id){
+  var m = fuelReadMove(e, id); if(!m) return;
+  if(!fuelHasLevel(m.t)) return fuelFail("This tank's level hasn't been set yet. Use Dip / set level first (what is in it now), then add the delivery, so the figures are right.");
+  var err = fuelCheck(m.t, m.l, m.f.date.value); if(err) return fuelFail(err);
+  fuelNewTx(m.t, "in", m.l, m.f.date.value, m.f.description.value);
+  fuelDone("Added " + fuelL(m.l) + ". The tank now has " + fuelL(fuelBalance(m.t)) + ".");
+}
+function fuelMoveOut(e, id){
+  var m = fuelReadMove(e, id); if(!m) return;
+  if(!fuelHasLevel(m.t)) return fuelFail("This tank's level hasn't been set yet. Use Dip / set level first so the fuel taken out can be taken from a known amount.");
+  var err = fuelCheck(m.t, -m.l, m.f.date.value); if(err) return fuelFail(err);
+  fuelNewTx(m.t, "out", -m.l, m.f.date.value, m.f.description.value);
+  fuelDone("Took out " + fuelL(m.l) + ". The tank now has " + fuelL(fuelBalance(m.t)) + ".");
+}
+function fuelSetLevel(e, id){
+  e.preventDefault();
+  var t = fuelFind(id); if(!t || !fuelCanRecord()) return;
+  var f = e.target;
+  var l = siloParseT(f.litres.value), date = f.date.value, cap = fuelCap(t);
+  if(!date) return fuelFail("Enter the date.");
+  if(l === null || l < 0 || l > 10000000) return fuelFail("Enter the litres in the tank as a number (0 or more).");
+  if(cap && l > cap) return fuelFail("The level can't be set above what this tank holds (" + fuelL(cap) + ").");
+  // the dip becomes the level at that date; anything logged AFTER it carries on from it, so refuse only if that would break
+  var probe = { id: "probe", type: "dip", level: l, date: date, at: "9999", delta: 0 };
+  var cur = t.transactions || [];
+  if(fuelViolations(cur.concat([probe]), cap) > fuelViolations(cur, cap)) return fuelFail("Fuel logged after " + fmtDate(date) + " would then take " + fuelLabel(t) + " below zero or over what it holds. Use today's date for the dip, or fix those later entries first.");
+  fuelNewTx(t, "dip", 0, date, f.description.value || "Dip reading", { level: l });
+  var now = fuelBalance(t);
+  fuelDone("Level set to " + fuelL(l) + "." + (Math.abs(now - l) > 0.005 ? " With fuel logged after that date the tank now shows " + fuelL(now) + "." : ""));
+}
+function fuelTransfer(e, id){
+  e.preventDefault();
+  var t = fuelFind(id); if(!t || !fuelCanRecord()) return;
+  var f = e.target;
+  var dest = fuelFind(f.to.value);
+  var l = siloParseT(f.litres.value);
+  if(!dest || dest.id === t.id) return fuelFail("Choose the tank to transfer to.");
+  if((dest.fuelType || "Diesel") !== (t.fuelType || "Diesel")) return fuelFail("Fuel can only be moved between tanks of the same type (" + (t.fuelType || "Diesel") + ").");
+  if(!f.date.value) return fuelFail("Enter the date.");
+  if(l === null || l <= 0 || l > 10000000) return fuelFail("Enter the litres as a number above 0, e.g. 500.");
+  if(!fuelHasLevel(t)) return fuelFail(fuelLabel(t) + "'s level hasn't been set yet. Use Dip / set level first.");
+  if(!fuelHasLevel(dest)) return fuelFail(fuelLabel(dest) + "'s level hasn't been set yet, so it can't receive fuel. Open it and use Dip / set level first (what is in it now).");
+  var errOut = fuelCheck(t, -l, f.date.value); if(errOut) return fuelFail(errOut);
+  var errIn = fuelCheck(dest, l, f.date.value); if(errIn) return fuelFail(errIn);
+  var xfer = uid("fxfer");
+  fuelNewTx(t, "transfer-out", -l, f.date.value, f.description.value, { transferId: xfer, otherTank: dest.id });
+  fuelNewTx(dest, "transfer-in", l, f.date.value, f.description.value, { transferId: xfer, otherTank: t.id });
+  fuelDone("Transferred " + fuelL(l) + " to " + fuelLabel(dest) + ". This tank now has " + fuelL(fuelBalance(t)) + ".");
+}
+function fuelSaveDetails(e, id){
+  e.preventDefault();
+  var t = fuelFind(id); if(!t || !fuelCanRecord()) return;
+  var f = e.target;
+  if(isAdmin() && f.name){
+    var name = f.name.value.trim();
+    if(!name) return fuelFail("Enter the tank name.");
+    var cap = siloParseT(f.capacity.value);
+    if(cap === null || cap <= 0 || cap > 10000000) return fuelFail("Enter what the tank holds in litres as a number above 0, e.g. 20000.");
+    var type = f.fuelType.value === "ULP" ? "ULP" : "Diesel";
+    if(type !== (t.fuelType || "Diesel") && fuelBalance(t) > 0) return fuelFail("This tank has " + fuelL(fuelBalance(t)) + " in it, so its fuel type can't be changed. Take the fuel out (or transfer it) first.");
+    if(fuelViolations(t.transactions || [], cap) > fuelViolations(t.transactions || [], fuelCap(t))) return fuelFail("The log shows more than " + fuelL(cap) + " in this tank at some point, so it can't be set that low. Check the figure.");
+    t.name = name; t.capacity = cap; t.fuelType = type;
+    if(f.site && byId(fuelData().sites, f.site.value) && f.site.value !== t.site){ t.site = f.site.value; ui.fuelSite = t.site; }
+  }
+  t.notes = f.notes.value.trim();
+  fuelDone("Saved.");
+}
+// ---- Editing / removing an entry --------------------------------------------------------------
+function fuelEditTx(txId){ ui.fuelEditTx = txId; ui.fuelAction = null; ui.fuelError = ""; ui.fuelDraft = {}; render(); }
+function fuelCancelEditTx(){ ui.fuelEditTx = null; ui.fuelError = ""; ui.fuelDraft = {}; render(); }
+function renderFuelTxEdit(t, x){
+  var isDip = x.type === "dip", hasL = isDip || (Number(x.delta) || 0) !== 0;
+  return '<form id="fuel-tx-form" class="form-panel silo-tx-edit" oninput="fuelDraftSet(event)" onchange="fuelDraftSet(event)" onsubmit="fuelSaveTx(event,\'' + t.id + '\',\'' + x.id + '\')">' +
+    '<h4 style="margin:0 0 8px;">Edit entry: ' + esc(fuelTxLabel(x)) + '</h4>' +
+    (ui.fuelError ? '<div class="signin-error" role="alert" style="margin-bottom:12px;">' + esc(ui.fuelError) + '</div>' : '') +
+    '<div class="form-grid">' +
+      '<div class="field"><label>Date</label><input type="date" name="tx_date" required value="' + escAttr(fuelDraftVal("tx_date", x.date || "")) + '" /></div>' +
+      (hasL ? '<div class="field"><label>' + (isDip ? 'Litres in the tank (dip reading)' : 'Litres (' + ((Number(x.delta) || 0) < 0 ? 'taken out' : 'added') + ')') + '</label><input type="text" inputmode="decimal" name="tx_l" required value="' + escAttr(fuelDraftVal("tx_l", String(isDip ? x.level : Math.abs(Number(x.delta) || 0)))) + '" /></div>' : '') +
+      '<div class="field span-2"><label>Description</label><input type="text" name="tx_desc" value="' + escAttr(fuelDraftVal("tx_desc", x.description || "")) + '" placeholder="e.g. Delivery from the depot" /></div>' +
+    '</div>' +
+    (x.transferId ? '<p class="row-muted" style="margin:6px 0 0;font-size:12px;">This is one side of a transfer; the matching entry in the other tank is changed too.</p>' : '') +
+    '<div class="form-actions"><button type="submit" class="btn btn-primary" style="width:auto;">Save entry</button><button type="button" class="btn btn-ghost" style="width:auto;" onclick="fuelCancelEditTx()">Cancel</button></div></form>';
+}
+function fuelSaveTx(e, tankId, txId){
+  e.preventDefault();
+  var t = fuelFind(tankId); if(!t || !fuelCanRecord()) return;
+  var x = byId(t.transactions || [], txId); if(!x) return;
+  var f = e.target;
+  var date = f.tx_date.value;
+  if(!date) return fuelFail("Enter the date.");
+  var isDip = x.type === "dip";
+  var oldD = Number(x.delta) || 0, newD = oldD, newLevel = x.level;
+  if(f.tx_l){
+    var l = siloParseT(f.tx_l.value);
+    if(isDip){
+      if(l === null || l < 0 || l > 10000000) return fuelFail("Enter the litres in the tank as a number (0 or more).");
+      if(fuelCap(t) && l > fuelCap(t)) return fuelFail("The level can't be above what this tank holds (" + fuelL(fuelCap(t)) + ").");
+      newLevel = l;
+    } else {
+      if(l === null || l <= 0 || l > 10000000) return fuelFail("Enter the litres as a number above 0, e.g. 5000.");
+      newD = (oldD < 0 ? -1 : 1) * l;
+    }
+  }
+  var desc = f.tx_desc.value.trim();
+  var parts = [{ t: t, x: x, d: newD, level: newLevel }];
+  if(x.transferId){
+    fuelData().tanks.forEach(function(o){ (o.transactions || []).forEach(function(y){
+      if(y.transferId === x.transferId && y.id !== x.id){ var sg = (Number(y.delta) || 0) < 0 ? -1 : 1; parts.push({ t: o, x: y, d: sg * Math.abs(newD) }); }
+    }); });
+  }
+  var bad = "";
+  parts.forEach(function(p){
+    if(bad) return;
+    var cap = fuelCap(p.t), cur = Number(p.x.delta) || 0;
+    if(p.x.type !== "dip" && p.d > cur && !cap){ bad = fuelLabel(p.t) + " has no capacity set yet, so more fuel can't be put in it. An admin needs to set it first."; return; }
+    var after = p.t.transactions.map(function(y){ return y === p.x ? Object.assign({}, y, { date: date, delta: p.d, level: p.level }) : y; });
+    if(fuelViolations(after, cap) > fuelViolations(p.t.transactions, cap)){
+      var low = false, high = false;
+      fuelRows(after).forEach(function(r){ if(r.bal < -0.005) low = true; if(cap && r.bal > cap + 0.005) high = true; });
+      bad = "With that change " + fuelLabel(p.t) + " would " + (low && high ? "go below zero (empty) and over what it holds" : low ? "go below zero (empty)" : "go over what it holds (" + fuelL(cap) + ")") + " at some date. Check the date and litres.";
+    }
+  });
+  if(bad) return fuelFail(bad);
+  var u = currentUser(), nowIso = new Date().toISOString();
+  parts.forEach(function(p){
+    p.x.date = date; p.x.description = desc;
+    if(p.x.type === "dip") p.x.level = p.level; else p.x.delta = p.d;
+    p.x.editedAt = nowIso; p.x.editedBy = u ? u.name : "";
+  });
+  fuelDone("Entry saved.");
+}
+function removeFuelTx(tankId, txId){
+  var t = fuelFind(tankId); if(!t || !isAdmin()) return;
+  var tx = byId(t.transactions, txId); if(!tx) return;
+  var ids = [[t, tx]];
+  if(tx.transferId){
+    fuelData().tanks.forEach(function(o){ (o.transactions || []).forEach(function(x){ if(x.transferId === tx.transferId && x.id !== tx.id) ids.push([o, x]); }); });
+  }
+  var bad = null;
+  ids.forEach(function(p){
+    var kept = p[0].transactions.filter(function(x){ return !ids.some(function(q){ return q[1].id === x.id; }); });
+    if(fuelViolations(kept, fuelCap(p[0])) > fuelViolations(p[0].transactions, fuelCap(p[0]))) bad = p[0];
+  });
+  if(bad) return fuelFail("That entry can't be removed because " + fuelLabel(bad) + " would then go below zero" + (fuelCap(bad) ? " or over what it holds (" + fuelL(fuelCap(bad)) + ")" : "") + " at some point.");
+  var what = fuelTxLabel(tx) + (tx.type === "dip" ? " of " + fuelL(tx.level) : " of " + fuelL(Math.abs(Number(tx.delta) || 0))) + (tx.transferId ? " (and the matching entry in the other tank)" : "");
+  if(!confirm("Remove this entry: " + what + "? This cannot be undone.")) return;
+  ids.forEach(function(p){ removeById(p[0].transactions, p[1].id); });
+  ui.fuelEditTx = null; ui.fuelError = ""; ui.fuelMsg = "Entry removed.";
+  persist();
+}
+function removeFuelTank(id){
+  var t = fuelFind(id); if(!t || !isAdmin()) return;
+  if(!confirm("Remove " + fuelLabel(t) + " and its whole log? This cannot be undone.")) return;
+  var other = [];
+  (t.transactions || []).forEach(function(x){ if(x.transferId) other.push(x.transferId); });
+  removeById(fuelData().tanks, id);
+  // a transfer needs both ends: take the other tank's half out too so its level stays honest
+  // (only if that leaves the other tank valid; otherwise keep it as a plain adjustment)
+  fuelData().tanks.forEach(function(o){
+    (o.transactions || []).forEach(function(x){
+      if(x.transferId && other.indexOf(x.transferId) > -1){ x.type = x.delta < 0 ? "out" : "in"; delete x.transferId; delete x.otherTank; x.description = (x.description ? x.description + " " : "") + "(other tank since removed)"; }
+    });
+  });
+  ui.fuelOpen = null; ui.fuelAction = null;
+  persist();
+}
+// ---- Admin: headings and new tanks ------------------------------------------------------------
+function fuelAdminFail(msg){ ui.fuelAdminError = msg; render(); }
+function renderFuelManageCard(site){
+  var d = fuelData();
+  var err = ui.fuelAdminError ? '<div class="signin-error" role="alert" style="margin-bottom:12px;">' + esc(ui.fuelAdminError) + '</div>' : '';
+  var empty = site && !d.tanks.some(function(t){ return t.site === site.id; });
+  var html = '<div class="card" style="margin-top:14px;"><h3 style="margin:0 0 4px;">Manage fuel storage (admin)</h3>' + err;
+  if(site){
+    html += '<form class="form-panel" style="margin-top:10px;" onsubmit="fuelSaveSite(event,\'' + site.id + '\')"><h4 style="margin:0 0 8px;">This heading</h4><div class="form-grid">' +
+      '<div class="field span-2"><label>Heading name</label><input type="text" name="name" required value="' + escAttr(site.name) + '" /></div></div>' +
+      '<div class="form-actions"><button type="submit" class="btn btn-primary" style="width:auto;">Rename</button>' +
+      '<button type="button" class="btn btn-danger" style="width:auto;" onclick="fuelRemoveSite(\'' + site.id + '\')"' + (empty ? '' : ' disabled title="Move or remove its tanks first"') + '>Remove heading</button></div></form>';
+  }
+  html += '<form class="form-panel" style="margin-top:12px;" onsubmit="fuelAddTank(event)"><h4 style="margin:0 0 8px;">Add a tank</h4><div class="form-grid">' +
+    '<div class="field"><label>Tank name</label><input type="text" name="name" required placeholder="e.g. Shed tank" /></div>' +
+    '<div class="field"><label>Holds, in litres</label><input type="text" inputmode="decimal" name="capacity" required placeholder="e.g. 20000" /></div>' +
+    '<div class="field"><label>Fuel type</label><select name="fuelType">' + FUEL_TYPES.map(function(f){ return '<option>' + f + '</option>'; }).join("") + '</select></div>' +
+    '<div class="field"><label>Heading</label><select name="site">' + d.sites.map(function(st){ return '<option value="' + escAttr(st.id) + '"' + (site && st.id === site.id ? " selected" : "") + '>' + esc(st.name) + '</option>'; }).join("") + '</select></div>' +
+    '</div><div class="form-actions"><button type="submit" class="btn btn-primary" style="width:auto;">Add tank</button></div></form>';
+  html += '<form class="form-panel" style="margin-top:12px;" onsubmit="fuelAddSite(event)"><h4 style="margin:0 0 8px;">Add a heading</h4><div class="form-grid">' +
+    '<div class="field span-2"><label>Heading name</label><input type="text" name="name" required placeholder="e.g. Another property" /></div></div>' +
+    '<div class="form-actions"><button type="submit" class="btn btn-primary" style="width:auto;">Add heading</button></div></form></div>';
+  return html;
+}
+function fuelAddTank(e){
+  e.preventDefault();
+  if(!isAdmin()) return;
+  var f = e.target, d = fuelData();
+  var name = f.name.value.trim(), cap = siloParseT(f.capacity.value);
+  if(!name) return fuelAdminFail("Enter the tank name.");
+  if(cap === null || cap <= 0 || cap > 10000000) return fuelAdminFail("Enter what the tank holds in litres as a number above 0, e.g. 20000.");
+  if(!byId(d.sites, f.site.value)) return fuelAdminFail("Choose a heading.");
+  d.tanks.push({ id: uid("ftank"), site: f.site.value, name: name, fuelType: f.fuelType.value === "ULP" ? "ULP" : "Diesel", capacity: cap, notes: "", transactions: [] });
+  ui.fuelSite = f.site.value; ui.fuelAdminError = ""; ui.fuelMsg = "Added " + name + ".";
+  persist();
+}
+function fuelAddSite(e){
+  e.preventDefault();
+  if(!isAdmin()) return;
+  var f = e.target, d = fuelData();
+  var name = f.name.value.trim();
+  if(!name) return fuelAdminFail("Enter the heading name.");
+  if(d.sites.some(function(s){ return s.name.toLowerCase() === name.toLowerCase(); })) return fuelAdminFail("There is already a heading called " + name + ".");
+  var s = { id: uid("fsite"), name: name, short: name };
+  d.sites.push(s);
+  ui.fuelSite = s.id; ui.fuelAdminError = ""; ui.fuelMsg = "Added the heading " + name + ".";
+  persist();
+}
+function fuelSaveSite(e, id){
+  e.preventDefault();
+  if(!isAdmin()) return;
+  var s = byId(fuelData().sites, id); if(!s) return;
+  var name = e.target.name.value.trim();
+  if(!name) return fuelAdminFail("Enter the heading name.");
+  if(fuelData().sites.some(function(o){ return o.id !== id && o.name.toLowerCase() === name.toLowerCase(); })) return fuelAdminFail("There is already a heading called " + name + ".");
+  s.name = name; s.short = name;
+  ui.fuelAdminError = ""; ui.fuelMsg = "Heading renamed.";
+  persist();
+}
+function fuelRemoveSite(id){
+  if(!isAdmin()) return;
+  var d = fuelData();
+  if(d.tanks.some(function(t){ return t.site === id; })) return fuelAdminFail("Move or remove this heading's tanks first.");
+  var s = byId(d.sites, id); if(!s) return;
+  if(!confirm("Remove the heading " + s.name + "?")) return;
+  removeById(d.sites, id);
+  ui.fuelSite = null; ui.fuelAdminError = "";
+  persist();
+}
+// Any unexpected error in a fuel handler is shown on the form (and the browser is stopped from doing a plain form submit).
+["fuelMove","fuelMoveOut","fuelSetLevel","fuelTransfer","fuelSaveDetails","fuelSaveTx","fuelAddTank","fuelAddSite","fuelSaveSite"].forEach(function(name){
+  var fn = window[name];
+  window[name] = function(e){
+    try{ return fn.apply(this, arguments); }
+    catch(err){
+      console.error("[Bullamon Plains] fuel action failed:", err);
+      if(e && e.preventDefault) e.preventDefault();
+      fuelFail("That didn't work: " + (err && err.message ? err.message : err) + ". Please tell Maria.");
     }
   };
 });
