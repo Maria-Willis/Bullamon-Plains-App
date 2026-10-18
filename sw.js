@@ -454,6 +454,7 @@
 // v121 (2026-10-18, later): search bar on the Fuel Storage page -- index.html changed.
 // v122 (2026-10-18, later): an admin chooses who can use Fuel Storage (tick per person) -- index.html changed.
 // v123 (2026-10-18, later): Dashboard items open their section when tapped -- index.html changed.
+// v124 (2026-10-18, later): machinery parts get a "replace every X hours" schedule that shows (and can be edited) in the Service Schedule tab -- index.html changed.
 // v117 (2026-10-16, later): Cooks Dam silos 1-4 in one line; silo circles show only crop, where from and tonnes -- index.html changed.
 // v116 (2026-10-16, later): the latest entry's description shows inside each silo circle -- index.html changed.
 // v115 (2026-10-16, later): silo entries can be edited by anyone and show their description; Jobs form says Job / Job details first -- index.html changed.
@@ -464,7 +465,7 @@
 // v110 (2026-10-16, later): Harvest dockets delivered to a silo now add their tonnes to that silo -- index.html changed.
 // v109 (2026-10-16, later): Silo Storage shows shed symbols (Chemical, Machinery) to the right of the Airstrip silos, reached by scrolling right -- index.html changed.
 // v108 (2026-10-16, later): Silo Storage silos scale to fit narrow phones instead of stacking -- index.html changed.
-var CACHE_NAME = "bullamon-plains-shell-v123";
+var CACHE_NAME = "bullamon-plains-shell-v124";
 
 var SHELL_ASSETS = [
   "./",
