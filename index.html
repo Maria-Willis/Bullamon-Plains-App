@@ -1883,7 +1883,7 @@ const DEFAULT_STATE = {
 // change to this file, same as CACHE_NAME in sw.js -- it gives an instant,
 // no-technical-steps-needed way to confirm whether a given device is
 // actually running the latest deploy, without comparing file contents.
-var APP_BUILD = "2026-10-18.6";
+var APP_BUILD = "2026-10-18.8";
 
 /* ======================================================================
    UTILITIES
@@ -2124,6 +2124,8 @@ var ui = {
   machineryFilter: "all",   // "all" | "due" | "out" -- fleet-list filter pills
   machinerySelected: null,  // id of the machine currently open in detail view, or null for the fleet list
   machineryTab: "overview", // "overview" | "parts" | "history" | "issues" -- which tab of the selected machine's detail screen is showing
+  deereImport: null,        // {fileName, rows[], noHours} while the John Deere hours import preview is open (or {error})
+  deereImportDone: null,    // {n, dup} banner after an import
   machineryLogWork: null,   // {id, mode: "service"|"other"} while the full-page "Log work" screen is open, or null
   machineryReportIssue: null, // machine id while the full-page "Report an issue" screen is open, or null
   machineryIssueSelected: null, // issue id while that issue's own detail/action-timeline screen is open, or null
@@ -16921,7 +16923,7 @@ function partScheduleStatus(m, p){
   return {
     every: every, last: last, manual: manual != null, due: due, remaining: remaining, tone: tone,
     isDue: remaining <= every * 0.25, overdue: remaining <= 0,
-    label: remaining <= 0 ? "Overdue by " + fmtNum(-remaining, "hrs") : (remaining <= every * 0.25 ? "Due in " + fmtNum(remaining, "hrs") : "OK · " + fmtNum(remaining, "hrs") + " to go")
+    label: remaining < 0 ? "Overdue by " + fmtNum(-remaining, "hrs") : remaining === 0 ? "Due now" : (remaining <= every * 0.25 ? "Due in " + fmtNum(remaining, "hrs") : "OK · " + fmtNum(remaining, "hrs") + " to go")
   };
 }
 function machinePartsDue(m){
@@ -17126,6 +17128,174 @@ function renderMachinery(){
   return selected ? renderMachineDetail(selected) : renderMachineryList();
 }
 
+// ---- Import engine hours from a John Deere Operations Center export ----
+// (2026-10-18, Maria: "use option 1 but keep the current schedule in the app
+// in place (if one is set)"). The file is the "Export" from Ops Center >
+// Service > Service Overview (.xlsx, or a .csv): columns Name, PIN, Engine
+// Hours, Engine Hours Updated. ONLY each machine's current hour reading is
+// updated (plus a small "hours from John Deere" note and the Deere PIN so the
+// next import matches automatically). Service schedules, hand-set due hours,
+// reminders, part replacement schedules and service history are never
+// touched -- what's "due" simply follows the new reading, as it does when
+// the reading is typed in. Machines are matched by name (ignoring case,
+// spaces and punctuation) or by a Deere PIN saved from an earlier import;
+// anything else is left for the person to pick, never guessed.
+function deereNorm(s){ return String(s == null ? "" : s).toLowerCase().replace(/[^a-z0-9]/g, ""); }
+function deereParseCsv(text){
+  var rows = [], row = [], cur = "", inQ = false;
+  for(var i = 0; i < text.length; i++){
+    var c = text[i];
+    if(inQ){
+      if(c === '"'){ if(text[i + 1] === '"'){ cur += '"'; i++; } else inQ = false; }
+      else cur += c;
+    } else if(c === '"') inQ = true;
+    else if(c === ","){ row.push(cur); cur = ""; }
+    else if(c === "\n" || c === "\r"){
+      if(c === "\r" && text[i + 1] === "\n") i++;
+      row.push(cur); cur = "";
+      if(row.some(function(x){ return x !== ""; })) rows.push(row);
+      row = [];
+    } else cur += c;
+  }
+  row.push(cur);
+  if(row.some(function(x){ return x !== ""; })) rows.push(row);
+  return rows;
+}
+function deereBuildRows(table){
+  // table: array of arrays; first non-empty row = headers
+  if(!table || table.length < 2) return { error: "That file has no data rows." };
+  var head = table[0].map(function(h){ return deereNorm(h); });
+  var col = function(names){
+    for(var i = 0; i < names.length; i++){ var k = head.indexOf(names[i]); if(k > -1) return k; }
+    return -1;
+  };
+  var cName = col(["name", "machine", "machinename", "equipment", "nickname"]);
+  var cPin = col(["pin", "serialnumber", "serial"]);
+  var cHrs = col(["enginehours", "hours", "enginehrs"]);
+  var cUpd = col(["enginehoursupdated", "hoursupdated", "updated"]);
+  if(cName < 0 || cHrs < 0) return { error: "I couldn't find the 'Name' and 'Engine Hours' columns in that file. Use the Export from Ops Center > Service > Service Overview." };
+  var active = (state.machinery || []).filter(function(m){ return m.status !== "archived"; });
+  var rows = [], noHours = 0;
+  table.slice(1).forEach(function(r){
+    var name = String(r[cName] == null ? "" : r[cName]).trim();
+    if(!name) return;
+    var hours = parseHoursInput(r[cHrs]);
+    if(isNaN(hours) || hours <= 0){ noHours++; return; }
+    var pin = cPin > -1 ? String(r[cPin] == null ? "" : r[cPin]).trim() : "";
+    if(pin === "undefined") pin = "";
+    var upd = cUpd > -1 ? String(r[cUpd] == null ? "" : r[cUpd]).trim() : "";
+    var matches = active.filter(function(m){ return pin && m.deerePin && m.deerePin === pin; });
+    if(matches.length !== 1) matches = active.filter(function(m){ return deereNorm(m.name) === deereNorm(name); });
+    var machineId = matches.length === 1 ? matches[0].id : "";
+    rows.push({ name: name, pin: pin, hours: hours, updated: upd, machineId: machineId, apply: false });
+  });
+  rows.forEach(function(r){ deereRowSetDefault(r); });
+  return { rows: rows, noHours: noHours };
+}
+function deereRowSetDefault(r){
+  var m = r.machineId ? byId(state.machinery, r.machineId) : null;
+  r.apply = !!m && r.hours > (Number(m.currentReading) || 0);
+}
+function deereImportFile(input){
+  var file = input.files && input.files[0];
+  if(!file || !canAdminMachinery()) return;
+  var reader = new FileReader();
+  var isCsv = /\.csv$/i.test(file.name);
+  reader.onerror = function(){ ui.deereImport = { fileName: file.name, error: "I couldn't read that file." }; render(); };
+  reader.onload = function(){
+    var table;
+    try {
+      if(isCsv) table = deereParseCsv(String(reader.result).replace(/^﻿/, ""));
+      else {
+        if(typeof XLSX === "undefined"){ ui.deereImport = { fileName: file.name, error: "The Excel reader hasn't loaded (no internet?). Save the file as CSV and try again." }; render(); return; }
+        var wb = XLSX.read(reader.result, { type: "array" });
+        table = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, raw: true, defval: "" });
+        table = table.filter(function(r){ return r.some(function(x){ return x !== "" && x != null; }); });
+      }
+    } catch(e){
+      ui.deereImport = { fileName: file.name, error: "I couldn't read that file. Use the Export from Ops Center > Service > Service Overview." };
+      render();
+      return;
+    }
+    var built = deereBuildRows(table);
+    ui.deereImport = built.error ? { fileName: file.name, error: built.error } : { fileName: file.name, rows: built.rows, noHours: built.noHours };
+    ui.deereImportDone = null;
+    render();
+  };
+  if(isCsv) reader.readAsText(file); else reader.readAsArrayBuffer(file);
+}
+function deereSetMachine(i, id){
+  var r = ui.deereImport && ui.deereImport.rows && ui.deereImport.rows[i];
+  if(!r) return;
+  r.machineId = id;
+  deereRowSetDefault(r);
+  render();
+}
+function deereToggle(i, on){
+  var r = ui.deereImport && ui.deereImport.rows && ui.deereImport.rows[i];
+  if(r){ r.apply = !!on; render(); }
+}
+function deereCancelImport(){ ui.deereImport = null; render(); }
+function deereApplyImport(){
+  if(!canAdminMachinery() || !ui.deereImport || !ui.deereImport.rows) return;
+  var used = {}, n = 0, dup = 0;
+  ui.deereImport.rows.forEach(function(r){
+    if(!r.apply || !r.machineId) return;
+    var m = byId(state.machinery, r.machineId);
+    if(!m) return;
+    if(used[m.id]){ dup++; return; }
+    used[m.id] = true;
+    m.currentReading = r.hours;
+    if(r.pin) m.deerePin = r.pin;
+    m.hoursSource = { source: "John Deere Operations Center", date: todayISO(), updated: r.updated || "", hours: r.hours };
+    n++;
+  });
+  ui.deereImport = null;
+  ui.deereImportDone = { n: n, dup: dup };
+  persist();
+}
+function renderDeereImportPanel(){
+  var imp = ui.deereImport;
+  var done = ui.deereImportDone;
+  var html = "";
+  if(done && !imp){
+    html += '<div class="due-progress-card ok" style="margin-bottom:12px;"><div style="font-weight:700;">Hours updated for ' + done.n + ' machine' + (done.n === 1 ? "" : "s") + ' from John Deere.</div>' +
+      '<div class="row-muted" style="font-size:12px;margin-top:2px;">Service schedules, reminders, part schedules and history were left as they were.' + (done.dup ? " " + done.dup + " row(s) skipped because the same machine was chosen twice." : "") + '</div>' +
+      '<button type="button" class="btn btn-ghost btn-sm" style="margin-top:8px;" onclick="ui.deereImportDone=null;render();">Dismiss</button></div>';
+  }
+  if(!imp) return html;
+  if(imp.error){
+    return html + '<div class="form-panel" style="margin-bottom:12px;"><h4 style="margin-top:0;">Import John Deere hours</h4>' +
+      '<p style="color:var(--danger);font-size:13px;font-weight:600;">' + esc(imp.error) + '</p>' +
+      '<button type="button" class="btn btn-ghost" onclick="deereCancelImport()">Close</button></div>';
+  }
+  var machines = (state.machinery || []).filter(function(m){ return m.status !== "archived"; }).sort(function(a, b){ return String(a.name).localeCompare(String(b.name)); });
+  var seen = {};
+  var rows = imp.rows.map(function(r, i){
+    var m = r.machineId ? byId(state.machinery, r.machineId) : null;
+    var cur = m ? (Number(m.currentReading) || 0) : null;
+    var dupOf = m && seen[m.id]; if(m) seen[m.id] = true;
+    var note = !m ? "Pick the machine" : dupOf ? "Chosen twice" : r.hours > cur ? "+" + fmtNum(r.hours - cur) + " hrs" : r.hours === cur ? "Same as app" : "Lower than app (" + fmtNum(cur) + ")";
+    var sel = '<select onchange="deereSetMachine(' + i + ',this.value)" style="max-width:150px;"><option value="">— skip / choose —</option>' +
+      machines.map(function(x){ return '<option value="' + escAttr(x.id) + '"' + (x.id === r.machineId ? " selected" : "") + '>' + esc(x.name) + '</option>'; }).join("") + '</select>';
+    return '<tr>' +
+      '<td><input type="checkbox" ' + (r.apply && m && !dupOf ? "checked " : "") + (!m || dupOf ? "disabled " : "") + 'onchange="deereToggle(' + i + ',this.checked)" aria-label="Update ' + escAttr(r.name) + '" /></td>' +
+      '<td>' + esc(r.name) + (r.updated ? '<br/><span class="row-muted" style="font-size:10.5px;">reported ' + esc(r.updated) + '</span>' : '') + '</td>' +
+      '<td class="num">' + fmtNum(r.hours) + '</td>' +
+      '<td>' + sel + '</td>' +
+      '<td class="num">' + (cur != null ? fmtNum(cur) : "—") + '</td>' +
+      '<td class="row-muted">' + esc(note) + '</td>' +
+    '</tr>';
+  }).join("");
+  var willUpdate = 0, usedApply = {};
+  imp.rows.forEach(function(r){ if(r.apply && r.machineId && !usedApply[r.machineId]){ usedApply[r.machineId] = true; willUpdate++; } });
+  return html + '<div class="form-panel" style="margin-bottom:12px;"><h4 style="margin-top:0;">Import John Deere hours</h4>' +
+    '<p class="row-muted" style="margin:0 0 8px;font-size:12px;">' + esc(imp.fileName) + ' &middot; only each machine&rsquo;s hour reading is updated &mdash; schedules, reminders, part schedules and history stay as they are. Lower-than-app readings are left unticked.' + (imp.noHours ? ' ' + imp.noHours + ' machine' + (imp.noHours === 1 ? "" : "s") + ' with no hours reported were ignored.' : '') + '</p>' +
+    '<div class="table-wrap" style="box-shadow:none;"><table><thead><tr><th></th><th>Deere machine</th><th>Deere hrs</th><th>App machine</th><th>App hrs now</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
+    '<div class="form-actions"><button type="button" class="btn btn-primary" style="width:auto;" ' + (willUpdate ? "" : "disabled ") + 'onclick="deereApplyImport()">Update ' + willUpdate + ' machine' + (willUpdate === 1 ? "" : "s") + '</button>' +
+    '<button type="button" class="btn btn-ghost" onclick="deereCancelImport()">Cancel</button></div></div>';
+}
+
 function renderMachineryList(){
   var q = ui.machineryQuery.trim().toLowerCase();
   var all = state.machinery || [];
@@ -17150,8 +17320,10 @@ function renderMachineryList(){
   html += '<div class="toolbar">' +
     '<input id="machinery-search-input" class="search-input" type="text" placeholder="Search machinery…" value="' + escAttr(ui.machineryQuery) + '" oninput="ui.machineryQuery=this.value;render();" />' +
     '<span style="flex:1;"></span>' +
+    (canAdminMachinery() ? '<input type="file" id="deere-import-file" accept=".xlsx,.xls,.csv" style="display:none;" onchange="deereImportFile(this)" /><button type="button" class="btn btn-ghost" style="width:auto;" onclick="document.getElementById(\'deere-import-file\').click()">Import John Deere hours</button>' : '') +
     (canAdminMachinery() ? '<button type="button" class="btn btn-primary" style="width:auto;" onclick="toggleForm(\'newMachine\')">' + (ui.openForms.newMachine ? "Cancel" : "+ Add machine") + '</button>' : '') +
   '</div>';
+  html += renderDeereImportPanel();
   html += '<div class="filter-pill-row">' +
     ['all', 'due', 'out'].map(function(key){
       var labels = { all: "All", due: "Service due (" + dueCount + ")", out: "Out of action (" + outCount + ")" };
@@ -17372,15 +17544,20 @@ function renderMachineOverviewTab(m, dueLabel, dueOk, progressPct){
     (ui.openForms["nextdue_" + m.id] && canAdminMachinery() ? renderNextServiceDueForm(m) : '') +
   '</div>';
 
-  var overviewPartsDue = machinePartsDue(m);
-  if(overviewPartsDue.length){
-    html += '<div class="due-progress-card" style="margin-top:10px;"><div class="stat-label">Parts due for replacement</div>' +
-      overviewPartsDue.map(function(d){
-        return '<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;margin-top:6px;"><span style="font-weight:600;">' + esc(d.part.name) + '</span><span class="pill ' + d.status.tone + '">' + esc(d.status.label) + '</span></div>';
+  // Parts to replace at the NEXT service: taken from the Service Schedule
+  // (the same list "Log this service" offers as a checklist), not worked out
+  // separately.
+  var ovSt = machineServiceStatus(m);
+  var overviewParts = ovSt.kind === "hours" ? partsForServiceAt(m, ovSt.target) : machinePartsDue(m).map(function(d){ return { part: d.part, status: d.status }; });
+  if(overviewParts.length){
+    html += '<div class="due-progress-card" style="margin-top:10px;"><div class="stat-label">Parts due at next service' + (ovSt.kind === "hours" ? " (" + fmtNum(ovSt.target, "hrs") + ")" : "") + '</div>' +
+      overviewParts.map(function(d){
+        return '<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;margin-top:6px;"><span style="font-weight:600;">' + esc(d.part.name) + '</span><span class="pill ' + d.status.tone + '">' + esc(d.status.remaining < 0 ? d.status.label : "Replace at " + fmtNum(d.occ != null ? d.occ : d.status.due) + " hrs") + '</span></div>';
       }).join("") +
       '<button type="button" class="btn btn-ghost btn-sm" style="margin-top:10px;" onclick="ui.machineryTab=\'schedule\';render();">Open service schedule</button>' +
     '</div>';
   }
+  if(m.hoursSource && Number(m.hoursSource.hours) === Number(m.currentReading)) html += '<p class="row-muted" style="margin:10px 0 0;font-size:12px;">Hours ' + fmtNum(m.currentReading, "hrs") + ' &middot; from ' + esc(m.hoursSource.source) + ', ' + fmtDate(m.hoursSource.date) + (m.hoursSource.updated ? ' (reported ' + esc(m.hoursSource.updated) + ')' : '') + '</p>';
   html += '<div class="form-grid" style="margin:12px 0;">' +
     '<div><div class="stat-label">Last service</div><div style="font-weight:600;">' + fmtNum(m.lastServiceReading, "hrs") + ' &middot; ' + fmtDate(m.lastServiceDate) + '</div></div>' +
     '<div><div class="stat-label">Interval</div><div style="font-weight:600;">' + esc(m.serviceIntervalDesc || "—") + '</div></div>' +
@@ -17441,6 +17618,111 @@ function applyPartScheduleFields(m, p, every, lastH, lastDate){
     var now = partLastReplaced(p);
     if(now && now.entry) now.entry.date = lastDate; else p.lastReplacedDate = lastDate;
   }
+}
+
+// ---- Part replacements that fall due at a service (2026-10-18, Maria: "add
+// the part replacement to the next services scheduled so they coincide with
+// the current services due ... when you click Log this service ... it comes
+// up with the part that needs replacing on a checklist") ----
+// Each scheduled part's due hours (and every interval after that) is matched
+// to the scheduled services: a part belongs to the first service at which it
+// is due or will fall due within a quarter of its own interval (the same
+// "due soon" window used elsewhere), so a 250-hr filter lands on every
+// 250-hr service and a 500-hr one on every second service.
+function partsByMilestone(m){
+  var res = {};
+  var ms = machineScheduleMilestones(m);
+  if(!ms) return res;
+  (m.parts || []).forEach(function(p){
+    var st = partScheduleStatus(m, p);
+    if(!st) return;
+    var occ = st.due;
+    ms.forEach(function(mm){
+      if(occ <= mm.hours + st.every * 0.25){
+        var key = milestoneKey(mm.hours);
+        (res[key] = res[key] || []).push({ part: p, status: st, occ: occ });
+        occ += st.every;
+      }
+    });
+  });
+  Object.keys(res).forEach(function(k){ res[k].sort(function(a, b){ return String(a.part.name || "").localeCompare(String(b.part.name || "")); }); });
+  return res;
+}
+function partsForServiceAt(m, hours){
+  if(hours == null || isNaN(Number(hours))) return [];
+  hours = Number(hours);
+  var ms = machineScheduleMilestones(m);
+  var key = milestoneKey(hours);
+  if(ms && ms.some(function(x){ return milestoneKey(x.hours) === key; })) return partsByMilestone(m)[key] || [];
+  var out = [];
+  (m.parts || []).forEach(function(p){
+    var st = partScheduleStatus(m, p);
+    if(st && st.due <= hours + st.every * 0.25) out.push({ part: p, status: st, occ: st.due });
+  });
+  out.sort(function(a, b){ return String(a.part.name || "").localeCompare(String(b.part.name || "")); });
+  return out;
+}
+function partFirstNumber(p){
+  var o = partOptions(p).filter(function(x){ return x.brand || x.partNumber; })[0];
+  return o ? [o.brand, o.partNumber].filter(function(x){ return !!x; }).join(" ") : "";
+}
+// Checklist shown inside the log-service forms: parts due at this service are
+// ticked ready to confirm; other scheduled parts are listed unticked in case
+// they were done too. checkedIds (optional) overrides the defaults.
+function renderPartsToReplaceChecklist(m, hours, prefix, checkedIds){
+  var scheduled = (m.parts || []).filter(function(p){ return !!partEvery(p); });
+  if(!scheduled.length) return "";
+  var due = partsForServiceAt(m, hours);
+  var dueIds = {};
+  due.forEach(function(d){ dueIds[d.part.id] = d; });
+  var row = function(p, d){
+    var id = prefix + "_" + p.id;
+    var st = partScheduleStatus(m, p);
+    var isChecked = checkedIds ? checkedIds.indexOf(p.id) > -1 : !!d;
+    var sub = [partFirstNumber(p), "due at " + fmtNum(st.due) + " hrs" + (st.overdue ? " (overdue)" : "")].filter(function(x){ return !!x; }).join(" · ");
+    return '<div class="checkbox-row" style="padding:9px 10px;border-bottom:1px solid var(--divider);">' +
+      '<input type="checkbox" name="partReplaced" value="' + escAttr(p.id) + '" id="' + escAttr(id) + '"' + (isChecked ? " checked" : "") + ' />' +
+      '<label for="' + escAttr(id) + '" style="font-weight:400;text-transform:none;">' + esc(p.name) + '<br/><span class="row-muted" style="font-size:11px;">' + esc(sub) + '</span></label>' +
+    '</div>';
+  };
+  var others = scheduled.filter(function(p){ return !dueIds[p.id]; });
+  var html = '<div class="stat-label" style="margin-top:12px;">Parts to replace at this service</div>' +
+    '<div style="margin-top:6px;border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden;">';
+  if(due.length) html += due.map(function(d){ return row(d.part, d); }).join("");
+  else html += '<div class="empty-state" style="padding:10px;">No parts are due at this service.</div>';
+  html += '</div>';
+  if(others.length){
+    html += '<div class="stat-label" style="margin-top:10px;">Other scheduled parts &mdash; tick any also replaced</div>' +
+      '<div style="margin-top:6px;border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden;">' +
+      others.map(function(p){ return row(p, null); }).join("") + '</div>';
+  }
+  return html;
+}
+// Ticked parts are logged as replaced at this service's reading and date (so
+// each part's next due moves on); linked to the service record by logId so a
+// re-save or delete of that record keeps the parts schedule in step.
+function applyServicePartReplacements(m, ids, entryId, date, reading, by){
+  (m.parts || []).forEach(function(p){
+    if(p.replacements && p.replacements.some(function(r){ return r.logId === entryId; })){
+      p.replacements = p.replacements.filter(function(r){ return r.logId !== entryId; });
+    }
+  });
+  var done = [];
+  ids.forEach(function(id){
+    var p = byId(m.parts || [], id);
+    if(!p) return;
+    p.replacements = p.replacements || [];
+    p.replacements.push({ id: uid("rep"), date: date, hours: reading, by: by || "", note: "Replaced at service (" + fmtNum(reading) + " hrs)", logId: entryId });
+    delete p.nextDueHours;
+    done.push({ partId: p.id, name: p.name });
+  });
+  return done;
+}
+function checkedPartIds(f){
+  return Array.prototype.slice.call(f.querySelectorAll('input[name="partReplaced"]:checked')).map(function(cb){ return cb.value; });
+}
+function partsLineHtml(list){
+  return list.map(function(d){ return esc(d.part.name); }).join(", ");
 }
 
 function renderPartScheduleSection(m){
@@ -17718,11 +18000,14 @@ function renderMachineServiceScheduleTab(m){
   var checklist = m.serviceChecklistItems || [];
   var checklistEditing = ui.openForms["checklist_" + m.id];
   var html = '<div class="stat-label">Due at next service</div>';
-  if(!checklist.length){
+  var nextSt = machineServiceStatus(m);
+  var nextParts = nextSt.kind === "hours" ? partsForServiceAt(m, nextSt.target) : [];
+  if(!checklist.length && !nextParts.length){
     html += '<div class="empty-state" style="margin-top:6px;">No standard service items set for this machine yet.</div>';
   } else {
     html += '<div style="margin-top:6px;border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden;">' +
       checklist.map(function(item){ return '<div class="due-checklist-row"><span class="due-checklist-dot"></span>' + esc(item) + '</div>'; }).join("") +
+      nextParts.map(function(d){ return '<div class="due-checklist-row"><span class="due-checklist-dot"></span>Replace ' + esc(d.part.name) + ' <span class="row-muted" style="font-size:11px;">(every ' + fmtNum(d.status.every) + ' hrs)</span></div>'; }).join("") +
     '</div>';
   }
   if(canAdminMachinery()){
@@ -17987,6 +18272,7 @@ function renderMachineLogWorkForm(m, ctx){
   } else {
     html += '<div class="field" style="margin-top:10px;"><label>What was done</label><textarea name="description" rows="2" required placeholder="e.g. Replaced hydraulic hose, front left"></textarea></div>';
   }
+  if(mode === "service") html += renderPartsToReplaceChecklist(m, target ? target.hours : m.currentReading, "svcparts_" + m.id, null);
   html += '<div class="stat-label" style="margin-top:14px;">Parts used</div>' +
     '<div id="' + partsChipsId + '" class="chip-row"></div>' +
     '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:4px 0;">' + renderPartsUsedPicker(m, partsChipsId) + '</div>' +
@@ -18024,10 +18310,12 @@ function addMachineWorkLog(e, machineId, mode, milestoneHoursKey){
     return { partId: parts[0], name: parts[1], qty: parts[2] };
   });
   m.log = m.log || [];
+  var newLogId = uid("l");
+  var partsReplaced = mode === "service" ? applyServicePartReplacements(m, checkedPartIds(f), newLogId, f.date.value, reading, f.performedBy.value.trim()) : [];
   m.log.unshift({
-    id: uid("l"), date: f.date.value, description: description, performedBy: f.performedBy.value.trim(),
+    id: newLogId, date: f.date.value, description: description, performedBy: f.performedBy.value.trim(),
     reading: reading, notes: f.notes.value.trim(), kind: mode,
-    checklistDone: checklistDone, partsUsed: partsUsed,
+    checklistDone: checklistDone, partsUsed: partsUsed, partsReplaced: partsReplaced,
     milestoneHours: milestoneHoursKey
   });
   m.currentReading = reading;
@@ -18678,6 +18966,7 @@ function renderMilestoneLogForm(m, hours, existing){
       '<div class="field"><label>Performed by</label><input type="text" name="performedBy" value="' + escAttr(existing ? existing.performedBy : currentUser().name) + '" /></div>' +
       '<div class="field span-2"><label>Notes (optional)</label><textarea name="notes" rows="2" placeholder="Anything else worth recording about this service">' + esc(existing ? existing.notes : ((m.reminders && m.reminders[key]) || "")) + '</textarea></div>' +
     '</div>' +
+    renderPartsToReplaceChecklist(m, hours, "msparts_" + m.id + "_" + key, existing && existing.partsReplaced ? existing.partsReplaced.map(function(x){ return x.partId; }) : null) +
     '<div class="form-actions"><button type="submit" class="btn btn-primary" style="width:auto;">Save</button><button type="button" class="btn btn-ghost" onclick="delete ui.formErrors[\'' + formKey + '\'];ui.openForms[\'' + formKey + '\']=false;render();">Close</button></div>' +
   '</form>';
 }
@@ -18755,6 +19044,7 @@ function addMilestoneServiceLog(e, machineId, key){
   // stacking a duplicate, so each scheduled point has one record.
   var existingIdx = m.log.findIndex(function(l){ return l.milestoneHours != null && milestoneKey(l.milestoneHours) === key; });
   var entry = { id: (existingIdx > -1 ? m.log[existingIdx].id : uid("l")), date: f.date.value, description: description, performedBy: f.performedBy.value.trim() || currentUser().name, reading: reading, milestoneHours: key, filtersUsed: f.filtersUsed.value.trim(), oilUsed: f.oilUsed.value.trim(), notes: f.notes.value.trim() };
+  entry.partsReplaced = applyServicePartReplacements(m, checkedPartIds(f), entry.id, f.date.value, reading, entry.performedBy);
   if(existingIdx > -1) m.log[existingIdx] = entry; else m.log.unshift(entry);
   m.currentReading = Math.max(m.currentReading || 0, reading);
   m.lastServiceDate = f.date.value;
@@ -18849,7 +19139,7 @@ function renderMachineServiceHistory(m){
     rows += '<tr>' +
       '<td class="row-muted">—</td>' +
       '<td class="num">' + fmtNum(manualNext.target) + '</td>' +
-      '<td class="row-muted">Not logged yet<br/><span class="row-muted" style="font-size:11px;">Next service due (set by hand)</span></td>' +
+      '<td class="row-muted">Not logged yet<br/><span class="row-muted" style="font-size:11px;">Next service due (set by hand)</span>' + (partsForServiceAt(m, manualNext.target).length ? '<br/><span class="row-muted" style="font-size:11px;">' + iconSvg("wrench") + ' Replace: ' + partsLineHtml(partsForServiceAt(m, manualNext.target)) + '</span>' : "") + '</td>' +
       '<td class="row-muted">—</td>' +
       '<td><span class="pill ' + (manualNext.remaining <= 0 ? "pill-high" : manualNext.tone) + '">' + (manualNext.remaining <= 0 ? "Overdue" : "Next due") + '</span></td>' +
       '<td style="white-space:nowrap;">' + editDueBtn + (canAdminMachinery() ? '<button type="button" class="btn btn-ghost btn-sm" onclick="ui.machineryLogWork={id:\'' + m.id + '\',mode:\'service\'};render();">Log service</button>' : '') + '</td>' +
@@ -18878,7 +19168,8 @@ function renderMachineServiceHistory(m){
       if(hoursOpen && canAdminMachinery()) openForms += renderMilestoneHoursForm(m, ms);
       var editHoursBtn = (canAdminMachinery() && ms.status !== "next") ? '<button type="button" class="btn btn-ghost btn-sm" onclick="toggleForm(\'' + hoursKey + '\')">' + (hoursOpen ? "Cancel" : "Edit hours") + '</button> ' : '';
       var reminderText = (m.reminders && m.reminders[key]) || "";
-      var whatCell = "Not logged yet" + (reminderText ? '<br/><span class="row-muted" style="font-size:11px;white-space:pre-wrap;">' + iconSvg("bell") + ' ' + esc(reminderText) + '</span>' : '');
+      var dueParts = partsForServiceAt(m, ms.hours);
+      var whatCell = "Not logged yet" + (dueParts.length ? '<br/><span class="row-muted" style="font-size:11px;">' + iconSvg("wrench") + ' Replace: ' + partsLineHtml(dueParts) + '</span>' : "") + (reminderText ? '<br/><span class="row-muted" style="font-size:11px;white-space:pre-wrap;">' + iconSvg("bell") + ' ' + esc(reminderText) + '</span>' : '');
       return '<tr>' +
         '<td class="row-muted">—</td>' +
         '<td class="num">' + fmtNum(ms.hours) + '</td>' +
@@ -18899,6 +19190,7 @@ function renderMachineServiceHistory(m){
     var usedTag = "";
     if(l.checklistDone && l.checklistDone.length) usedTag += '<br/><span class="row-muted" style="font-size:11px;">Completed: ' + esc(l.checklistDone.join(", ")) + '</span>';
     if(l.partsUsed && l.partsUsed.length) usedTag += '<br/><span class="row-muted" style="font-size:11px;">Parts used: ' + esc(l.partsUsed.map(function(pu){ return pu.name + (pu.qty ? " ×" + pu.qty : ""); }).join(", ")) + '</span>';
+    if(l.partsReplaced && l.partsReplaced.length) usedTag += '<br/><span class="row-muted" style="font-size:11px;">Parts replaced: ' + esc(l.partsReplaced.map(function(x){ return x.name; }).join(", ")) + '</span>';
     if(l.filtersUsed) usedTag += '<br/><span class="row-muted" style="font-size:11px;">Filters used: ' + esc(l.filtersUsed) + '</span>';
     if(l.oilUsed) usedTag += '<br/><span class="row-muted" style="font-size:11px;">Oil used: ' + esc(l.oilUsed) + '</span>';
     if(l.notes) usedTag += '<br/><span class="row-muted" style="font-size:11px;white-space:pre-wrap;">Notes: ' + esc(l.notes) + '</span>';
@@ -18979,6 +19271,9 @@ function deleteServiceLog(machineId, logId){
   var m = byId(state.machinery, machineId);
   if(!m) return;
   removeById(m.log, logId);
+  (m.parts || []).forEach(function(p){
+    if(p.replacements) p.replacements = p.replacements.filter(function(r){ return r.logId !== logId; });
+  });
   ui.openForms["editlog_" + logId] = false;
   persist();
 }
