@@ -458,6 +458,7 @@
 // v125 (2026-10-18, later): parts due at a service are listed on "Log this service" as a checklist (ticking records the replacement) and on the schedule rows / Overview -- index.html changed.
 // v126 (2026-10-18, later): "Import John Deere hours" on the Machinery page (reads the Ops Centre Service Overview export, updates hour readings only) -- index.html changed.
 // v127 (2026-10-18, later): offline edits now merge with the team's newer saves automatically, the "offline" state recovers by itself, "Try now"/Refresh work after a weak-signal start, and an unsynced clash copy survives closing the app -- index.html changed.
+// v128 (2026-10-19): live John Deere link -- Connect John Deere + "Update hours from John Deere" on Machinery; service worker now leaves /api/ requests alone -- index.html changed.
 // v117 (2026-10-16, later): Cooks Dam silos 1-4 in one line; silo circles show only crop, where from and tonnes -- index.html changed.
 // v116 (2026-10-16, later): the latest entry's description shows inside each silo circle -- index.html changed.
 // v115 (2026-10-16, later): silo entries can be edited by anyone and show their description; Jobs form says Job / Job details first -- index.html changed.
@@ -468,7 +469,7 @@
 // v110 (2026-10-16, later): Harvest dockets delivered to a silo now add their tonnes to that silo -- index.html changed.
 // v109 (2026-10-16, later): Silo Storage shows shed symbols (Chemical, Machinery) to the right of the Airstrip silos, reached by scrolling right -- index.html changed.
 // v108 (2026-10-16, later): Silo Storage silos scale to fit narrow phones instead of stacking -- index.html changed.
-var CACHE_NAME = "bullamon-plains-shell-v127";
+var CACHE_NAME = "bullamon-plains-shell-v128";
 
 var SHELL_ASSETS = [
   "./",
@@ -522,6 +523,7 @@ self.addEventListener("fetch", function(event){
   if(req.method !== "GET") return; // never intercept Supabase reads/writes -- those are POST/PATCH, or GETs to a different origin we don't touch below
 
   var url = new URL(req.url);
+  if(url.origin === self.location.origin && url.pathname.indexOf("/api/") === 0) return; // serverless functions (incl. the John Deere sign-in redirect) always go straight to the network
   var isShellCrossOrigin = CROSS_ORIGIN_ASSETS.indexOf(req.url) > -1;
   // Uploaded map photos/PDFs, and bulls' attached PDFs, live in Supabase
   // Storage, a different origin from the app itself -- matched by path
