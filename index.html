@@ -1883,7 +1883,7 @@ const DEFAULT_STATE = {
 // change to this file, same as CACHE_NAME in sw.js -- it gives an instant,
 // no-technical-steps-needed way to confirm whether a given device is
 // actually running the latest deploy, without comparing file contents.
-var APP_BUILD = "2026-10-19.2";
+var APP_BUILD = "2026-10-19.3";
 
 /* ======================================================================
    UTILITIES
@@ -17549,10 +17549,27 @@ function deereLiveFetch(){
     history.replaceState(null, "", window.location.pathname);
   } catch(e){}
 })();
+function fmtDateTimeShort(iso){
+  var d = new Date(iso);
+  if(isNaN(d.getTime())) return String(iso || "");
+  return d.toLocaleDateString("en-AU", { day: "numeric", month: "short" }) + " " + d.toLocaleTimeString("en-AU", { hour: "numeric", minute: "2-digit" });
+}
 function renderDeereLivePanel(){
   if(!canAdminMachinery()) return "";
   var L = ui.deereLive, html = "";
   if(L.msg) html += '<div class="due-progress-card ok" style="margin-bottom:12px;"><div style="font-weight:700;">' + esc(L.msg) + '</div><button type="button" class="btn btn-ghost btn-sm" style="margin-top:8px;" onclick="ui.deereLive.msg=\'\';render();">Dismiss</button></div>';
+  var st = L.status;
+  if(st && st.connected){
+    var auto = state && state.deereAutoSync, ls = st.lastSync;
+    var line = "";
+    if(!st.autoSync) line = "Automatic daily update: not switched on (needs CRON_SECRET in Vercel \u2014 see DEERE_SETUP.md).";
+    else {
+      line = "Automatic daily update: on (about 6 am).";
+      if(ls && ls.at) line += " Last check " + fmtDateTimeShort(ls.at) + (ls.ok === false ? " \u2014 problem: " + (ls.error || "see Vercel logs") : ls.updated ? " \u2014 " + ls.updated + " machine" + (ls.updated === 1 ? "" : "s") + " updated" : " \u2014 no changes");
+      else line += " Hasn\u2019t run yet.";
+    }
+    html += '<p class="row-muted" style="margin:0 0 10px;font-size:12px;">' + esc(line) + (auto && auto.at ? ' Last hours saved automatically: ' + esc(fmtDateTimeShort(auto.at)) + ' (' + esc((auto.names || []).join(", ")) + ').' : '') + '</p>';
+  }
   if(L.error && !L.askCode) html += '<div class="form-panel" style="margin-bottom:12px;"><p style="color:var(--danger);font-size:13px;font-weight:600;margin:0 0 8px;">' + esc(L.error) + '</p>' +
     '<button type="button" class="btn btn-ghost btn-sm" onclick="ui.deereLive.error=\'\';render();">Dismiss</button></div>';
   if(L.askCode){
