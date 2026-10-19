@@ -24,7 +24,9 @@ function cfg(){
     supaUrl: (process.env.SUPABASE_URL || "").replace(/\/+$/, ""),
     supaKey: process.env.SUPABASE_SERVICE_ROLE_KEY || "",
     apiBase: (process.env.DEERE_API_BASE || "https://sandboxapi.deere.com/platform").replace(/\/+$/, ""),
-    redirectUri: process.env.DEERE_REDIRECT_URI || "https://bullamon-plains-app.vercel.app/api/deere-callback"
+    redirectUri: process.env.DEERE_REDIRECT_URI || "https://bullamon-plains-app.vercel.app/api/deere-callback",
+    // The Equipment API (list of machines) is on its own address, not under /platform.
+    equipmentBase: (process.env.DEERE_EQUIPMENT_BASE || "https://equipmentapi.deere.com/isg").replace(/\/+$/, "")
   };
 }
 function missing(c, needConnectCode){
@@ -103,9 +105,9 @@ async function getAccessToken(c){
 }
 
 // ---- API ----
-async function deereGet(c, token, urlOrPath){
+async function deereGet(c, token, urlOrPath, accept){
   var url = /^https?:/i.test(urlOrPath) ? urlOrPath : c.apiBase + urlOrPath;
-  var r = await fetch(url, { headers: { Authorization: "Bearer " + token, Accept: ACCEPT, "Accept-Encoding": "gzip" } });
+  var r = await fetch(url, { headers: { Authorization: "Bearer " + token, Accept: accept || ACCEPT, "Accept-Encoding": "gzip" } });
   var text = await r.text();
   var j = null;
   try { j = text ? JSON.parse(text) : null; } catch(e){}
@@ -117,10 +119,10 @@ function linkOf(obj, rel){
   return "";
 }
 // Follows nextPage links, returns all "values".
-async function deereList(c, token, urlOrPath, maxPages){
+async function deereList(c, token, urlOrPath, maxPages, accept){
   var out = [], url = urlOrPath, pages = 0, last = null;
   while(url && pages < (maxPages || 10)){
-    var r = await deereGet(c, token, url);
+    var r = await deereGet(c, token, url, accept);
     last = r;
     if(r.status !== 200 || !r.json) return { ok: false, status: r.status, text: r.text, warning: r.warning, termsUrl: r.termsUrl, values: out };
     var vals = Array.isArray(r.json) ? r.json : (r.json.values || []);
