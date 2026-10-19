@@ -1883,7 +1883,7 @@ const DEFAULT_STATE = {
 // change to this file, same as CACHE_NAME in sw.js -- it gives an instant,
 // no-technical-steps-needed way to confirm whether a given device is
 // actually running the latest deploy, without comparing file contents.
-var APP_BUILD = "2026-10-19.1";
+var APP_BUILD = "2026-10-19.2";
 
 /* ======================================================================
    UTILITIES
@@ -17523,7 +17523,8 @@ function deereLiveFetch(){
     var noHrs = 0;
     j.machines.forEach(function(m){ if(m.hours == null) noHrs++; else table.push([m.name, m.pin, m.hours, m.updated]); });
     if(table.length < 2){
-      L.error = "John Deere answered, but none of the machines had an engine-hours reading." + (j.notes && j.notes.length ? " " + j.notes.join(" ") : "");
+      var probs = j.machines.filter(function(m){ return m.problem; }).slice(0, 4).map(function(m){ return m.name + " (" + m.problem + ")"; });
+      L.error = "John Deere answered, but none of the machines had an engine-hours reading." + (j.machines.length ? " Found " + j.machines.length + " machine" + (j.machines.length === 1 ? "" : "s") + (probs.length ? ": " + probs.join(", ") : "") + "." : "") + (j.notes && j.notes.length ? " " + j.notes.join(" ") : "");
       render(); return;
     }
     var built = deereBuildRows(table);
