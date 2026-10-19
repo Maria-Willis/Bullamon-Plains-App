@@ -1883,7 +1883,7 @@ const DEFAULT_STATE = {
 // change to this file, same as CACHE_NAME in sw.js -- it gives an instant,
 // no-technical-steps-needed way to confirm whether a given device is
 // actually running the latest deploy, without comparing file contents.
-var APP_BUILD = "2026-10-18.9";
+var APP_BUILD = "2026-10-19.1";
 
 /* ======================================================================
    UTILITIES
@@ -2307,6 +2307,7 @@ var ui = {
   machineryTab: "overview", // "overview" | "parts" | "history" | "issues" -- which tab of the selected machine's detail screen is showing
   deereImport: null,        // {fileName, rows[], noHours} while the John Deere hours import preview is open (or {error})
   deereImportDone: null,    // {n, dup} banner after an import
+  deereLive: { status: null, checked: false, busy: "", error: "", msg: "", askCode: false }, // live John Deere link (see deereLive* functions)
   machineryLogWork: null,   // {id, mode: "service"|"other"} while the full-page "Log work" screen is open, or null
   machineryReportIssue: null, // machine id while the full-page "Report an issue" screen is open, or null
   machineryIssueSelected: null, // issue id while that issue's own detail/action-timeline screen is open, or null
@@ -17473,6 +17474,109 @@ function deereApplyImport(){
   ui.deereImportDone = { n: n, dup: dup };
   persist();
 }
+// ---- Live John Deere link (2026-10-19) ----
+// Instead of exporting a file, "Update hours from John Deere" asks the server
+// (api/deere-hours.js) for each machine's latest engine hours straight from
+// Operations Center and drops them into the SAME check-before-updating screen
+// the file import uses -- so exactly the same safe rules apply: only hour
+// readings change, schedules/reminders/part schedules/history never do, and
+// machines are matched by Deere PIN or name, never guessed. The John Deere
+// sign-in itself is kept on the server (not in the shared app data). Setup:
+// DEERE_SETUP.md.
+function deereLiveApi(body){
+  return fetch("/api/deere-hours", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) })
+    .then(function(r){ return r.json().catch(function(){ return {}; }).then(function(j){ j.__status = r.status; return j; }); });
+}
+function deereLiveStatus(){
+  var L = ui.deereLive;
+  if(L.checked || !canAdminMachinery() || isOffline) return;
+  L.checked = true;
+  deereLiveApi({ action: "status" }).then(function(j){ L.status = j; render(); }).catch(function(){ L.checked = false; });
+}
+function deereLiveAskCode(){ ui.deereLive.askCode = true; ui.deereLive.error = ""; render(); }
+function deereLiveCancel(){ ui.deereLive.askCode = false; ui.deereLive.error = ""; ui.deereLive.msg = ""; render(); }
+function deereLiveConnect(){
+  var L = ui.deereLive;
+  var inp = document.getElementById("deere-connect-code");
+  var code = inp ? inp.value.trim() : "";
+  if(!code){ L.error = "Enter the connect code."; render(); return; }
+  L.busy = "connect"; L.error = ""; render();
+  fetch("/api/deere-connect", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code: code }) })
+    .then(function(r){ return r.json().catch(function(){ return {}; }).then(function(j){ return { ok: r.ok, j: j }; }); })
+    .then(function(x){
+      if(x.ok && x.j.url){ window.location.href = x.j.url; return; }
+      L.busy = ""; L.error = x.j.error || "Couldn't start the John Deere connection."; render();
+    }).catch(function(){ L.busy = ""; L.error = "Couldn't reach the server. Check your internet connection."; render(); });
+}
+function deereLiveFetch(){
+  var L = ui.deereLive;
+  if(!canAdminMachinery() || L.busy) return;
+  L.busy = "hours"; L.error = ""; L.msg = ""; ui.deereImportDone = null; render();
+  deereLiveApi({}).then(function(j){
+    L.busy = "";
+    if(j.__status !== 200 || !j.machines){
+      L.error = j.error || "John Deere didn't send back any machines.";
+      if(j.notConnected) L.status = { configured: true, connected: false };
+      render(); return;
+    }
+    var table = [["Name", "PIN", "Engine Hours", "Engine Hours Updated"]];
+    var noHrs = 0;
+    j.machines.forEach(function(m){ if(m.hours == null) noHrs++; else table.push([m.name, m.pin, m.hours, m.updated]); });
+    if(table.length < 2){
+      L.error = "John Deere answered, but none of the machines had an engine-hours reading." + (j.notes && j.notes.length ? " " + j.notes.join(" ") : "");
+      render(); return;
+    }
+    var built = deereBuildRows(table);
+    ui.deereImport = built.error ? { fileName: "John Deere", error: built.error } : {
+      fileName: "Live from John Deere Operations Centre" + (j.orgs && j.orgs.length ? " (" + j.orgs.join(", ") + ")" : ""),
+      rows: built.rows, noHours: noHrs + built.noHours, notes: j.notes || []
+    };
+    render();
+  }).catch(function(){ L.busy = ""; L.error = "Couldn't reach the server. Check your internet connection."; render(); });
+}
+// Coming back from the John Deere sign-in (api/deere-callback.js redirects to /?deere=...)
+(function(){
+  try {
+    var qs = new URLSearchParams(window.location.search);
+    var r = qs.get("deere");
+    if(!r) return;
+    var L = ui.deereLive;
+    if(r === "connected") L.msg = "John Deere is connected. Tap “Update hours from John Deere” to pull in your machines’ hours.";
+    else if(r === "noorg") L.error = "You signed in, but no organization was shared with the app. Tap Connect John Deere again and tick the Bullamon organization.";
+    else L.error = qs.get("deeremsg") || "The John Deere connection didn’t finish.";
+    ui.section = "machinery";
+    history.replaceState(null, "", window.location.pathname);
+  } catch(e){}
+})();
+function renderDeereLivePanel(){
+  if(!canAdminMachinery()) return "";
+  var L = ui.deereLive, html = "";
+  if(L.msg) html += '<div class="due-progress-card ok" style="margin-bottom:12px;"><div style="font-weight:700;">' + esc(L.msg) + '</div><button type="button" class="btn btn-ghost btn-sm" style="margin-top:8px;" onclick="ui.deereLive.msg=\'\';render();">Dismiss</button></div>';
+  if(L.error && !L.askCode) html += '<div class="form-panel" style="margin-bottom:12px;"><p style="color:var(--danger);font-size:13px;font-weight:600;margin:0 0 8px;">' + esc(L.error) + '</p>' +
+    '<button type="button" class="btn btn-ghost btn-sm" onclick="ui.deereLive.error=\'\';render();">Dismiss</button></div>';
+  if(L.askCode){
+    html += '<div class="form-panel" style="margin-bottom:12px;"><h4 style="margin-top:0;">Connect John Deere</h4>' +
+      '<p class="row-muted" style="font-size:12px;margin:0 0 8px;">Enter the connect code set up for the farm (the DEERE_CONNECT_CODE in Vercel). You&rsquo;ll then sign in to John Deere and choose the Bullamon organization to share. Only engine hours are read.</p>' +
+      '<input id="deere-connect-code" type="password" autocomplete="off" placeholder="Connect code" style="max-width:260px;" />' +
+      (L.error ? '<p style="color:var(--danger);font-size:13px;font-weight:600;margin:8px 0 0;">' + esc(L.error) + '</p>' : '') +
+      '<div class="form-actions"><button type="button" class="btn btn-primary" style="width:auto;" ' + (L.busy === "connect" ? "disabled " : "") + 'onclick="deereLiveConnect()">' + (L.busy === "connect" ? "Opening John Deere…" : "Continue to John Deere") + '</button>' +
+      '<button type="button" class="btn btn-ghost" onclick="deereLiveCancel()">Cancel</button></div></div>';
+  }
+  return html;
+}
+function renderDeereLiveButtons(){
+  if(!canAdminMachinery()) return "";
+  deereLiveStatus();
+  var L = ui.deereLive, st = L.status;
+  var connected = !!(st && st.connected);
+  if(connected){
+    return '<button type="button" class="btn btn-primary" style="width:auto;" ' + (L.busy ? "disabled " : "") + 'onclick="deereLiveFetch()">' + (L.busy === "hours" ? "Asking John Deere…" : "Update hours from John Deere") + '</button>';
+  }
+  if(st && st.configured === false){
+    return '<button type="button" class="btn btn-ghost" style="width:auto;" onclick="ui.deereLive.error=\'The live link isn\\u2019t switched on yet on the server. Still to set in Vercel: ' + escAttr((st.missing || []).join(", ")) + '. See DEERE_SETUP.md.\';render();">Connect John Deere</button>';
+  }
+  return '<button type="button" class="btn btn-ghost" style="width:auto;" onclick="deereLiveAskCode()">Connect John Deere</button>';
+}
 function renderDeereImportPanel(){
   var imp = ui.deereImport;
   var done = ui.deereImportDone;
@@ -17510,6 +17614,7 @@ function renderDeereImportPanel(){
   imp.rows.forEach(function(r){ if(r.apply && r.machineId && !usedApply[r.machineId]){ usedApply[r.machineId] = true; willUpdate++; } });
   return html + '<div class="form-panel" style="margin-bottom:12px;"><h4 style="margin-top:0;">Import John Deere hours</h4>' +
     '<p class="row-muted" style="margin:0 0 8px;font-size:12px;">' + esc(imp.fileName) + ' &middot; only each machine&rsquo;s hour reading is updated &mdash; schedules, reminders, part schedules and history stay as they are. Lower-than-app readings are left unticked.' + (imp.noHours ? ' ' + imp.noHours + ' machine' + (imp.noHours === 1 ? "" : "s") + ' with no hours reported were ignored.' : '') + '</p>' +
+    (imp.notes && imp.notes.length ? '<p style="color:var(--danger);font-size:12px;margin:0 0 8px;">' + esc(imp.notes.join(" ")) + '</p>' : '') +
     '<div class="table-wrap" style="box-shadow:none;"><table><thead><tr><th></th><th>Deere machine</th><th>Deere hrs</th><th>App machine</th><th>App hrs now</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
     '<div class="form-actions"><button type="button" class="btn btn-primary" style="width:auto;" ' + (willUpdate ? "" : "disabled ") + 'onclick="deereApplyImport()">Update ' + willUpdate + ' machine' + (willUpdate === 1 ? "" : "s") + '</button>' +
     '<button type="button" class="btn btn-ghost" onclick="deereCancelImport()">Cancel</button></div></div>';
@@ -17539,9 +17644,11 @@ function renderMachineryList(){
   html += '<div class="toolbar">' +
     '<input id="machinery-search-input" class="search-input" type="text" placeholder="Search machinery…" value="' + escAttr(ui.machineryQuery) + '" oninput="ui.machineryQuery=this.value;render();" />' +
     '<span style="flex:1;"></span>' +
-    (canAdminMachinery() ? '<input type="file" id="deere-import-file" accept=".xlsx,.xls,.csv" style="display:none;" onchange="deereImportFile(this)" /><button type="button" class="btn btn-ghost" style="width:auto;" onclick="document.getElementById(\'deere-import-file\').click()">Import John Deere hours</button>' : '') +
+    renderDeereLiveButtons() +
+    (canAdminMachinery() ? '<input type="file" id="deere-import-file" accept=".xlsx,.xls,.csv" style="display:none;" onchange="deereImportFile(this)" /><button type="button" class="btn btn-ghost" style="width:auto;" onclick="document.getElementById(\'deere-import-file\').click()">Import John Deere file</button>' : '') +
     (canAdminMachinery() ? '<button type="button" class="btn btn-primary" style="width:auto;" onclick="toggleForm(\'newMachine\')">' + (ui.openForms.newMachine ? "Cancel" : "+ Add machine") + '</button>' : '') +
   '</div>';
+  html += renderDeereLivePanel();
   html += renderDeereImportPanel();
   html += '<div class="filter-pill-row">' +
     ['all', 'due', 'out'].map(function(key){
