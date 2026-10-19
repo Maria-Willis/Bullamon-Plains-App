@@ -1,0 +1,5 @@
+{
+  "crons": [
+    { "path": "/api/deere-sync", "schedule": "0 20 * * *" }
+  ]
+}
