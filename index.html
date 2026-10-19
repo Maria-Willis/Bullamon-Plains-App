@@ -1883,7 +1883,7 @@ const DEFAULT_STATE = {
 // change to this file, same as CACHE_NAME in sw.js -- it gives an instant,
 // no-technical-steps-needed way to confirm whether a given device is
 // actually running the latest deploy, without comparing file contents.
-var APP_BUILD = "2026-10-19.3";
+var APP_BUILD = "2026-10-19.4";
 
 /* ======================================================================
    UTILITIES
@@ -2250,7 +2250,32 @@ setInterval(function(){
 }, 20000);
 document.addEventListener("visibilitychange", function(){
   if(document.visibilityState === "visible" && booted && (isOffline || hasPendingOfflineEdits())) reconnectNow(false);
+  else if(document.visibilityState === "visible" && booted) catchUpWithTeam();
 });
+// Safety net for the live updates: a phone that was in the background (or lost
+// its live connection) can be several saves behind. When the app comes back to
+// the front, and every minute while it's open, quietly fetch the newest copy if
+// there is one -- but never while a save is running, offline edits are waiting,
+// or someone is typing in a box (so nothing they're entering is disturbed).
+var catchingUp = false;
+async function catchUpWithTeam(){
+  if(catchingUp || !booted || !supabaseClient || isOffline || savesInFlight > 0 || hasPendingOfflineEdits()) return;
+  var ae = document.activeElement;
+  if(ae && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName)) return;
+  catchingUp = true;
+  try{
+    var res = await supabaseClient.from("app_state").select("data,version").eq("id", "main").maybeSingle();
+    if(!res.error && res.data && typeof res.data.version === "number" && res.data.version > stateVersion && savesInFlight === 0 && !hasPendingOfflineEdits()){
+      state = res.data.data;
+      stateVersion = res.data.version;
+      isNewRow = false;
+      cacheGoodState();
+      render();
+    }
+  }catch(e){ /* quiet -- the next try will do */ }
+  catchingUp = false;
+}
+setInterval(function(){ if(document.visibilityState === "visible") catchUpWithTeam(); }, 60000);
 try{ var storedConflictRaw = getLocal(CONFLICT_KEY); if(storedConflictRaw) offlineConflict = JSON.parse(storedConflictRaw); }catch(e){ offlineConflict = null; }
 
 function downloadOfflineConflict(){
@@ -13849,9 +13874,11 @@ var saveQueue = Promise.resolve();
 // machinery issue, since a silently-dropped delete is exactly what made a
 // "deleted" issue seem to come back on its own (2026-09-25, root-caused
 // after Maria reported the same reopened-issue reappearing a second time).
+var savesInFlight = 0; // saves queued or running; the "catch up" check below waits until this is 0
 function persist(redo){
   render(); // optimistic local update, immediately
-  saveQueue = saveQueue.then(function(){ return doPersist(redo); });
+  savesInFlight++;
+  saveQueue = saveQueue.then(function(){ return doPersist(redo); }).then(function(){ savesInFlight--; }, function(){ savesInFlight--; });
   return saveQueue;
 }
 
@@ -13921,19 +13948,52 @@ async function doPersist(redo){
 }
 
 async function adoptLatestAfterConflict(redo){
-  setNotice("conflict", "Someone else just saved a change — refreshing with the latest.");
-  var adopted = false;
+  setNotice("conflict", "Someone else just saved a change — combining it with yours.");
+  var adopted = false, mergedSaved = false;
   try{
     var res = await supabaseClient.from("app_state").select("data,version").eq("id", "main").single();
     if(!res.error && res.data){
-      state = res.data.data;
-      stateVersion = res.data.version;
-      isNewRow = false;
-      isOffline = false;
-      cacheGoodState();
-      adopted = true;
+      // 2026-10-19: a phone that was a little out of date (e.g. the app had been
+      // in the background) used to lose whatever it had just entered -- a
+      // dashboard note showed for a moment, then vanished and nobody else got
+      // it -- because the team's newer copy simply replaced it. Now the two are
+      // combined (three-way merge against the copy this device last knew) and
+      // the combined copy is saved, so the new entry survives.
+      var cached = loadCachedGoodState();
+      if(cached && cached.version === stateVersion && !hasPendingOfflineEdits()){
+        try{
+          var mr = mergeStates(cached.data, state, res.data.data);
+          if(mr && mr.merged && typeof mr.merged === "object"){
+            var mNext = res.data.version + 1;
+            var up = await supabaseClient.from("app_state")
+              .update({ data: mr.merged, version: mNext, updated_at: new Date().toISOString() })
+              .eq("id", "main").eq("version", res.data.version)
+              .select("version");
+            if(!up.error && up.data && up.data.length > 0){
+              state = mr.merged;
+              stateVersion = mNext;
+              isNewRow = false;
+              isOffline = false;
+              cacheGoodState();
+              mergedSaved = true;
+            }
+          }
+        }catch(me){ console.error("[Bullamon Plains] merge after conflict failed:", me); }
+      }
+      if(!mergedSaved){
+        state = res.data.data;
+        stateVersion = res.data.version;
+        isNewRow = false;
+        isOffline = false;
+        cacheGoodState();
+        adopted = true;
+      }
     }
   }catch(e){ console.error("[Bullamon Plains] could not refresh after conflict:", e); }
+  if(mergedSaved){
+    setTimeout(function(){ if(notice && notice.kind === "conflict") setNotice(null); render(); }, 800);
+    return;
+  }
   // Without this, whatever change was in flight when the conflict happened
   // (e.g. deleting/resolving a machinery issue) is just discarded here --
   // the freshly-adopted server state overwrites local `state` entirely, so
