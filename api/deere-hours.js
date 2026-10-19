@@ -37,10 +37,11 @@ module.exports = async function handler(req, res){
     var machines = [], notes = [], debug = [];
     for(var oi = 0; oi < enabled.length; oi++){
       var org = enabled[oi];
-      var ml = await D.deereList(c, token, "/organizations/" + encodeURIComponent(org.id) + "/machines?itemLimit=100", 10);
+      // The Equipment API lives on its own address (equipmentapi.deere.com/isg), not under /platform.
+      var ml = await D.deereList(c, token, c.equipmentBase + "/equipment?organizationIds=" + encodeURIComponent(org.id) + "&categories=Machine&archived=false&itemLimit=200", 10, "application/json");
       if(!ml.ok){
-        notes.push("Couldn't list machines for " + (org.name || org.id) + " (" + ml.status + ")" + (ml.warning ? ": " + ml.warning : ""));
-        debug.push({ org: org.id, call: "machines", status: ml.status, text: ml.text });
+        notes.push("Couldn't list machines for " + (org.name || org.id) + " (" + ml.status + ")" + (ml.warning ? ": " + ml.warning : "") + (ml.text ? " " + String(ml.text).slice(0, 160) : ""));
+        debug.push({ org: org.id, call: "equipment", status: ml.status, text: ml.text });
         continue;
       }
       var list = ml.values;
@@ -48,19 +49,26 @@ module.exports = async function handler(req, res){
       for(var i = 0; i < list.length; i += 6){
         var batch = list.slice(i, i + 6);
         var got = await Promise.all(batch.map(async function(m){
-          var link = D.linkOf(m, "engineHours") || (D.cfg().apiBase + "/machines/" + encodeURIComponent(m.id) + "/engineHours");
-          try {
-            var r = await D.deereGet(c, token, link);
-            if(r.status !== 200 || !r.json) return { m: m, err: r.status };
-            var item = Array.isArray(r.json) ? r.json[0] : (r.json.values ? r.json.values[0] : r.json);
-            var hrs = D.readingOf(item);
-            return { m: m, hours: hrs, updated: item && (item.reportTime || item.reportedTime || item.time) || "" };
-          } catch(e){ return { m: m, err: "network" }; }
+          var tries = [];
+          var lk = D.linkOf(m, "engineHours"); if(lk) tries.push(lk);
+          [m.principalId, m.id].forEach(function(x){ if(x != null && x !== ""){ var u = c.apiBase + "/machines/" + encodeURIComponent(x) + "/engineHours"; if(tries.indexOf(u) < 0) tries.push(u); } });
+          var lastErr = "no id";
+          for(var t = 0; t < tries.length; t++){
+            try {
+              var r = await D.deereGet(c, token, tries[t]);
+              if(r.status !== 200 || !r.json){ lastErr = r.status; continue; }
+              var item = Array.isArray(r.json) ? r.json[0] : (r.json.values ? r.json.values[0] : r.json);
+              var hrs = D.readingOf(item);
+              if(hrs == null){ lastErr = "no reading"; continue; }
+              return { m: m, hours: hrs, updated: item && (item.reportTime || item.reportedTime || item.time) || "" };
+            } catch(e){ lastErr = "network"; }
+          }
+          return { m: m, err: lastErr };
         }));
         got.forEach(function(g){
-          var nm = g.m.name || g.m.nickname || g.m.vin || ("Machine " + g.m.id);
-          if(g.hours == null || g.hours <= 0){ machines.push({ name: nm, pin: g.m.vin || g.m.pin || "", hours: null, updated: "", problem: g.err ? ("HTTP " + g.err) : "no hours reported" }); return; }
-          machines.push({ name: nm, pin: g.m.vin || g.m.pin || "", hours: Math.round(g.hours * 10) / 10, updated: g.updated ? String(g.updated).slice(0, 16).replace("T", " ") : "" });
+          var nm = g.m.name || g.m.nickname || g.m.serialNumber || g.m.vin || ("Machine " + g.m.id);
+          if(g.hours == null || g.hours <= 0){ machines.push({ name: nm, pin: g.m.serialNumber || g.m.vin || g.m.pin || "", hours: null, updated: "", problem: g.err ? ("HTTP " + g.err) : "no hours reported" }); return; }
+          machines.push({ name: nm, pin: g.m.serialNumber || g.m.vin || g.m.pin || "", hours: Math.round(g.hours * 10) / 10, updated: g.updated ? String(g.updated).slice(0, 16).replace("T", " ") : "" });
         });
       }
     }
