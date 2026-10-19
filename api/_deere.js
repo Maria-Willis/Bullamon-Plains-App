@@ -140,5 +140,54 @@ function readingOf(item){
   v = Number(v);
   return isFinite(v) ? v : null;
 }
-module.exports = { cfg: cfg, missing: missing, dbGet: dbGet, dbSet: dbSet, authorizeUrl: authorizeUrl, tokenRequest: tokenRequest,
+
+// Reads every connected organization's machines and their latest engine hours.
+// Returns { ok:true, machines, notes, orgs, debug } or { ok:false, status, error, notConnected?, termsUrl? }.
+async function fetchHours(c, token){
+  var orgRes = await deereList(c, token, "/organizations?itemLimit=100", 3);
+  if(!orgRes.ok) return { ok: false, status: 502, error: "John Deere wouldn't list the organizations (" + orgRes.status + "). " + (orgRes.warning || orgRes.text || ""), termsUrl: orgRes.termsUrl || undefined };
+  var enabled = orgRes.values.filter(function(o){ return !linkOf(o, "connections") || linkOf(o, "manage_connections"); });
+  if(!enabled.length) return { ok: false, status: 409, notConnected: true, error: "No John Deere organization is shared with the app yet. Tap Connect John Deere and choose the Bullamon organization." };
+  var machines = [], notes = [], debug = [];
+  for(var oi = 0; oi < enabled.length; oi++){
+    var org = enabled[oi];
+    // The Equipment API lives on its own address (equipmentapi.deere.com/isg), not under /platform.
+    var ml = await deereList(c, token, c.equipmentBase + "/equipment?organizationIds=" + encodeURIComponent(org.id) + "&categories=Machine&archived=false&itemLimit=200", 10, "application/json");
+    if(!ml.ok){
+      notes.push("Couldn't list machines for " + (org.name || org.id) + " (" + ml.status + ")" + (ml.warning ? ": " + ml.warning : "") + (ml.text ? " " + String(ml.text).slice(0, 160) : ""));
+      debug.push({ org: org.id, call: "equipment", status: ml.status, text: ml.text });
+      continue;
+    }
+    var list = ml.values;
+    if(list[0]) debug.push({ org: org.id, machineSampleKeys: Object.keys(list[0]) });
+    for(var i = 0; i < list.length; i += 6){
+      var got = await Promise.all(list.slice(i, i + 6).map(async function(m){
+        var tries = [];
+        var lk = linkOf(m, "engineHours"); if(lk) tries.push(lk);
+        [m.principalId, m.id].forEach(function(x){ if(x != null && x !== ""){ var u = c.apiBase + "/machines/" + encodeURIComponent(x) + "/engineHours"; if(tries.indexOf(u) < 0) tries.push(u); } });
+        var lastErr = "no id";
+        for(var t = 0; t < tries.length; t++){
+          try {
+            var r = await deereGet(c, token, tries[t]);
+            if(r.status !== 200 || !r.json){ lastErr = r.status; continue; }
+            var item = Array.isArray(r.json) ? r.json[0] : (r.json.values ? r.json.values[0] : r.json);
+            var hrs = readingOf(item);
+            if(hrs == null){ lastErr = "no reading"; continue; }
+            return { m: m, hours: hrs, updated: item && (item.reportTime || item.reportedTime || item.time) || "" };
+          } catch(e){ lastErr = "network"; }
+        }
+        return { m: m, err: lastErr };
+      }));
+      got.forEach(function(g){
+        var nm = g.m.name || g.m.nickname || g.m.serialNumber || g.m.vin || ("Machine " + g.m.id);
+        var pin = g.m.serialNumber || g.m.vin || g.m.pin || "";
+        if(g.hours == null || g.hours <= 0){ machines.push({ name: nm, pin: pin, hours: null, updated: "", problem: g.err ? ("HTTP " + g.err) : "no hours reported" }); return; }
+        machines.push({ name: nm, pin: pin, hours: Math.round(g.hours * 10) / 10, updated: g.updated ? String(g.updated).slice(0, 16).replace("T", " ") : "" });
+      });
+    }
+  }
+  var any = machines.filter(function(x){ return x.hours != null; }).length;
+  return { ok: true, machines: machines, notes: notes, orgs: enabled.map(function(o){ return o.name || o.id; }), debug: any ? undefined : debug };
+}
+module.exports = { fetchHours: fetchHours, cfg: cfg, missing: missing, dbGet: dbGet, dbSet: dbSet, authorizeUrl: authorizeUrl, tokenRequest: tokenRequest,
   tokensToRecord: tokensToRecord, getAccessToken: getAccessToken, deereGet: deereGet, deereList: deereList, linkOf: linkOf, readingOf: readingOf, SCOPES: SCOPES };
