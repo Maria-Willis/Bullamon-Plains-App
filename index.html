@@ -1862,7 +1862,7 @@ const DEFAULT_STATE = {
 // change to this file, same as CACHE_NAME in sw.js -- it gives an instant,
 // no-technical-steps-needed way to confirm whether a given device is
 // actually running the latest deploy, without comparing file contents.
-var APP_BUILD = "2026-10-20.7";
+var APP_BUILD = "2026-10-20.10";
 
 /* ======================================================================
    UTILITIES
@@ -13715,6 +13715,17 @@ async function boot(){
       migrated = true;
     }
   }
+  // one-time (2026-10-20, Maria): time in lieu entries made by a time sheet only carry the fortnight's dates as the note.
+  if(!state.settings.tilNotesV1){
+    if(state.timeInLieu && Array.isArray(state.timeInLieu.entries)){
+      state.timeInLieu.entries.forEach(function(en){
+        var sh = en && en.sheetId && state.timesheets && (state.timesheets.items || []).filter(function(x){ return x.id === en.sheetId; })[0];
+        if(sh && sh.startDate) en.note = tsRangeLabel(sh.startDate);
+      });
+      state.settings.tilNotesV1 = true;
+      migrated = true;
+    }
+  }
   // one-time (2026-10-20, Maria): Thallon is the first tab in Fuel Storage. Only moves the heading to the front
   // once, so any order an admin sets later is left alone. Tanks and balances aren't touched.
   if(!state.settings.fuelThallonFirstV1){
@@ -15192,6 +15203,22 @@ function tsTilEffect(sheet){
   var take = Math.min(-d, avail);
   return { d: d, applied: -take, short: Math.round((-d - take) * 100) / 100 };
 }
+// A sheet that asks to be paid for more hours than were worked + taken as annual leave must be covered by time in
+// lieu; if there isn't enough available, it cannot be submitted at all (Maria, 2026-10-20). Returns the reason, or "".
+function tsSubmitBlock(sheet){
+  var ef = tsTilEffect(sheet);
+  if(!ef || ef.d >= 0 || ef.short <= 0.004) return "";
+  var avail = Math.max(0, tilLedger(sheet.person, sheet.id).balance);
+  var annual = tsAnnualTotal(sheet), worked = tsTotal(sheet), paid = tsPaidNum(sheet);
+  var most = Math.floor((worked + annual + avail) * 100) / 100;
+  // hours to be paid for, less any annual leave, is what the hours worked (then time in lieu) have to cover
+  var needs = Math.round((paid - annual) * 100) / 100;
+  return "You can't submit this time sheet. You want to be paid for " + tilFmtHours(paid) +
+    (annual > 0.004 ? " hrs, less " + tilFmtHours(annual) + " hrs annual leave, leaving " + tilFmtHours(needs) : "") +
+    " hrs to cover, but you only worked " + tilFmtHours(worked) + " hrs. The " + tilFmtHours(-ef.d) +
+    " hrs short has to come out of your time in lieu, and you " + (avail <= 0.004 ? "have no time in lieu available" : "only have " + tilFmtHours(avail) + " hrs available") +
+    " (it can't go below zero). Lower \"Hours you want to be paid for\" to " + tilFmtHours(most) + " or less.";
+}
 function tsTilText(sheet){
   var ef = tsTilEffect(sheet);
   if(ef === null) return "Fill in the hours you want to be paid for";
@@ -15213,7 +15240,7 @@ function tsApplyTil(sheet){
   tilData().entries.push({
     id: uid("til"), person: sheet.person, date: tilLocalToday(),
     type: ef.applied > 0 ? "earned" : "taken", hours: Math.abs(ef.applied),
-    note: "Time sheet #" + tsPad(sheet.no) + " (" + tsRangeLabel(sheet.startDate) + "): " + tilFmtHours(tsTotal(sheet)) + " worked + " + tilFmtHours(tsAnnualTotal(sheet)) + " annual leave \u2212 " + tilFmtHours(tsPaidNum(sheet)) + " paid" + (ef.short > 0.004 ? " (only " + tilFmtHours(-ef.applied) + " of " + tilFmtHours(-ef.d) + " hrs taken: time in lieu can't go below zero)" : ""),
+    note: tsRangeLabel(sheet.startDate),   // just the fortnight's dates (Maria, 2026-10-20)
     addedBy: sheet.submittedBy || sheet.person, addedAt: new Date().toISOString(), sheetId: sheet.id
   });
 }
@@ -15311,6 +15338,11 @@ function tsRefresh(sheet){
   set("ts_annual", tilFmtHours(tsAnnualTotal(sheet)));
   set("ts_all", tilFmtHours(tsTotal(sheet) + tsAnnualTotal(sheet)));
   set("ts_til", tsTilText(sheet));
+  // the "can't submit" warning only appears once they have tried to submit; it updates live and goes away when fixed
+  var blk = tsSubmitBlock(sheet), bEl = document.getElementById("ts_block");
+  if(!blk && ui.tsBlockId === sheet.id) ui.tsBlockId = null;
+  var showBlk = ui.tsBlockId === sheet.id ? blk : "";
+  if(bEl){ bEl.textContent = showBlk; bEl.style.display = showBlk ? "" : "none"; }
 }
 function tsStatusPill(sheet){
   return sheet.status === "submitted" ? '<span class="pill pill-done">Submitted</span>' : '<span class="pill pill-progress">Draft</span>';
@@ -15411,8 +15443,10 @@ function renderTsSheet(sheet){
     html += '<p style="margin:12px 0 4px;font-size:13px;"><b>Signed:</b> ' + esc(sheet.submittedBy || sheet.person) + ' — submitted ' + (sheet.submittedAt ? fmtDateTime(sheet.submittedAt) : "") + '</p>' +
       '<div style="margin-bottom:8px;">' + tsEmailLine(sheet) + '</div>' + tsCopyPanel(sheet);
   }
+  var shownBlock = ui.tsBlockId === sheet.id ? tsSubmitBlock(sheet) : "";
+  if(editable) html += '<div id="ts_block" class="signin-error" role="alert" style="margin-top:12px;' + (shownBlock ? '' : 'display:none;') + '">' + esc(shownBlock) + '</div>';
   html += '<div class="form-actions" style="margin-top:12px;">' +
-    (editable ? '<button type="button" class="btn btn-primary" style="width:auto;" onclick="tsSubmit(\'' + sheet.id + '\')">Submit time sheet</button>' : '') +
+    (editable ? '<button type="button" id="ts_submit" class="btn btn-primary" style="width:auto;" onclick="tsSubmit(\'' + sheet.id + '\')">Submit time sheet</button>' : '') +
     (sheet.status === "submitted" && !(ui.tsCopy && ui.tsCopy.id === sheet.id) ? '<button type="button" class="btn btn-ghost" style="width:auto;" onclick="tsOpenCopy(\'' + sheet.id + '\')">Email me a copy</button>' : '') +
     '<button type="button" class="btn btn-ghost" style="width:auto;" onclick="tsPrint(\'' + sheet.id + '\')">Print</button>' +
     (isAdmin() && sheet.status === "submitted" ? '<button type="button" class="btn btn-ghost" style="width:auto;" onclick="tsReopen(\'' + sheet.id + '\')">Reopen for editing</button>' : '') +
@@ -15433,6 +15467,17 @@ function tsSubmit(id){
   if(!sheet.rows.some(function(r){ return tsNett(r) !== null || tsAnnualHrs(r) > 0; })) return fail("Enter start and finish times (or annual leave hours) for at least one day before submitting.");
   var paid = String(sheet.paidHours == null ? "" : sheet.paidHours).trim();
   if(paid === "" || !isFinite(parseFloat(paid)) || parseFloat(paid) < 0) return fail("Enter the hours you want to be paid for (a number, e.g. 76).");
+  // not enough time in lieu to cover the hours they want paid: warn and refuse (Maria, 2026-10-20)
+  var blockMsg = tsSubmitBlock(sheet);
+  if(blockMsg){
+    ui.tsError = "";
+    ui.tsBlockId = sheet.id;
+    render();
+    var bEl = document.getElementById("ts_block");
+    if(bEl && bEl.scrollIntoView) bEl.scrollIntoView({ block: "center", behavior: "smooth" });
+    return;
+  }
+  ui.tsBlockId = null;
   if(!confirm("Submit this time sheet? It will be locked and emailed, and your time in lieu will be updated: " + tsTilText(sheet) + ". An admin can reopen it if you need to change it.")) return;
   ui.tsError = "";
   sheet.status = "submitted";
