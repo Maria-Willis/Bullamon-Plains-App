@@ -492,7 +492,9 @@
 // v149 (2026-10-20, later): time sheet "Hours you want to be paid for" is bold and its box sits in the same column as the nett and annual hours -- index.html changed.
 // v150 (2026-10-20, later): "Time in lieu from this sheet" shows just +4.5 / -4.5 -- index.html changed.
 // v151 (2026-10-20, later): Service Schedule tab: Due at next service now sits under Schedule & history -- index.html changed.
-var CACHE_NAME = "bullamon-plains-shell-v151";
+// v152 (2026-10-20, later): machines (and parts) only show as due for service within 25 hours of the deadline -- index.html changed.
+// v153 (2026-10-20, later): Safety Data Sheets: manufacturer SDS upload + issue date + status, filters, product-name checks, optional hiding of unverified summaries -- index.html changed.
+var CACHE_NAME = "bullamon-plains-shell-v153";
 
 var SHELL_ASSETS = [
   "./",
