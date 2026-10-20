@@ -30,7 +30,7 @@ function applyHours(state, deereMachines, todayISO){
     if(!(d.hours > cur)) return;               // never lower a reading automatically
     m.currentReading = d.hours;
     if(d.pin) m.deerePin = d.pin;
-    m.hoursSource = { source: "John Deere Operations Center", date: todayISO, updated: d.updated || "", hours: d.hours };
+    m.hoursSource = { source: "John Deere Operations Center", date: todayISO, at: new Date().toISOString(), updated: d.updated || "", hours: d.hours };
     names.push(m.name);
   });
   return { changed: names.length, names: names, skipped: skipped };
