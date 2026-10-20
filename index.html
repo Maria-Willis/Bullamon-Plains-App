@@ -1862,7 +1862,7 @@ const DEFAULT_STATE = {
 // change to this file, same as CACHE_NAME in sw.js -- it gives an instant,
 // no-technical-steps-needed way to confirm whether a given device is
 // actually running the latest deploy, without comparing file contents.
-var APP_BUILD = "2026-10-19.6";
+var APP_BUILD = "2026-10-20.1";
 
 /* ======================================================================
    UTILITIES
@@ -14742,7 +14742,7 @@ function renderShell(){
         '<button type="button" class="signout-btn" onclick="signOut()">Sign out</button>' +
       '</div>' +
     '</nav>' +
-    '<main>' + renderMobileBackBar() + renderOfflineBanner() + renderNotice() + renderReauthCard() + (ui.openForms.changeMyCode ? renderChangeCodePanel() : "") + renderSection() + '</main>' +
+    '<main>' + renderMobileBackBar() + renderUpdateBanner() + renderOfflineBanner() + renderNotice() + renderReauthCard() + (ui.openForms.changeMyCode ? renderChangeCodePanel() : "") + renderSection() + '</main>' +
   '</div>';
 }
 
@@ -14836,6 +14836,56 @@ function handleMobileBackPopState(e){
   try{ render(); } finally { restoringScreen = false; }
 }
 if(typeof window !== "undefined"){ window.addEventListener("popstate", handleMobileBackPopState); }
+
+/* ======================================================================
+   "NEW VERSION READY" PROMPT (added 2026-10-20)
+   The app's own files are kept on each device (sw.js) so it opens with no
+   signal. When a new version is published the device quietly downloads it,
+   but the screen already open keeps running the old one until it is
+   reloaded. This shows a bar with an Update now button as soon as the new
+   copy is ready, and also goes looking for new versions when the app is
+   brought back to the front. It never reloads by itself, and Update now
+   waits for any save in progress.
+   ====================================================================== */
+var updateReady = false;
+var updateBusy = false;
+function markUpdateReady(){
+  if(updateReady) return;
+  updateReady = true;
+  try{ if(typeof render === "function" && typeof state !== "undefined" && state) render(); }catch(e){}
+}
+function renderUpdateBanner(){
+  if(!updateReady) return "";
+  return '<div class="banner ok" id="updateBanner" style="display:flex;justify-content:space-between;gap:12px;align-items:center;">' +
+    '<span>A new version of the app is ready. Tap <strong>Update now</strong> to get it.</span>' +
+    '<button type="button" class="subtle-btn" onclick="applyUpdateNow()"' + (updateBusy ? ' disabled' : '') + '>' + (updateBusy ? "Updating\u2026" : "Update now") + '</button>' +
+  '</div>';
+}
+function anyOpenForm(){
+  var k, f = (ui && ui.openForms) || {};
+  for(k in f){ if(Object.prototype.hasOwnProperty.call(f, k) && f[k]) return true; }
+  return false;
+}
+function applyUpdateNow(){
+  if(updateBusy) return;
+  var unsavedPrivate = (typeof PV !== "undefined" && PV && (PV.saving || PV.dirty || PV.unsaved));
+  if(anyOpenForm() || unsavedPrivate){
+    if(!confirm("You have something open that hasn't been saved. Updating will close it and anything not saved will be lost. Update anyway?")) return;
+  }
+  updateBusy = true; render();
+  var waited = 0;
+  (function go(){
+    // wait (up to about 10 seconds) for any save that's still going to the team's record
+    if(typeof savesInFlight !== "undefined" && savesInFlight > 0 && waited < 10000){ waited += 500; setTimeout(go, 500); return; }
+    // changes saved offline stay on the device and sync after the reload, so those don't need to block it
+    location.href = location.pathname + "?updated=" + Date.now();
+  })();
+}
+// Looks for a newer version now (and again whenever it's brought to the front, or hourly while open).
+function checkForAppUpdate(){
+  if(!("serviceWorker" in navigator)) return;
+  navigator.serviceWorker.getRegistration().then(function(reg){ if(reg) return reg.update(); }).catch(function(){});
+}
 
 function renderOfflineBanner(){
   var html = "";
@@ -25207,8 +25257,31 @@ if("serviceWorker" in navigator){
   // Keeps a cached copy of the app itself so it can still open with no
   // signal at all -- see sw.js. If this fails (unsupported browser, etc.)
   // the app still works fine, it just needs a connection to load fresh.
+  // A device that already had the app's files saved (a controller exists) and then gets a
+  // different worker taking over has a newer version waiting -- see renderUpdateBanner().
+  // (The very first install also fires this, but with no earlier controller, so it's ignored.)
+  var hadController = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.addEventListener("controllerchange", function(){
+    if(hadController) markUpdateReady();
+    hadController = true;
+  });
+  document.addEventListener("visibilitychange", function(){
+    if(document.visibilityState === "visible") checkForAppUpdate();
+  });
+  setInterval(function(){ if(document.visibilityState === "visible") checkForAppUpdate(); }, 60 * 60 * 1000);
   window.addEventListener("load", function(){
-    navigator.serviceWorker.register("./sw.js").then(function(){
+    navigator.serviceWorker.register("./sw.js").then(function(reg){
+      if(reg){
+        reg.addEventListener("updatefound", function(){
+          var w = reg.installing;
+          if(!w) return;
+          // only an update if this device was already running a saved copy when the new one began downloading
+          var wasControlled = !!navigator.serviceWorker.controller;
+          w.addEventListener("statechange", function(){
+            if(wasControlled && (w.state === "installed" || w.state === "activated")) markUpdateReady();
+          });
+        });
+      }
       // Checks whether this device already has a saved push subscription
       // (e.g. from a previous visit) so the "Get notified" button on the
       // Dashboard shows the right state from the start.
