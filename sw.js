@@ -477,7 +477,9 @@
 // v134 (2026-10-20): the app now shows a "new version ready -- Update now" bar when this file changes -- index.html changed.
 // v135 (2026-10-20, later): "Email me a copy" button on submitted time sheets -- index.html changed.
 // v136 (2026-10-20, later): parts catalogue PDFs on each machine's Parts tab -- index.html changed.
-var CACHE_NAME = "bullamon-plains-shell-v136";
+// v137 (2026-10-20, later): Thallon is now the first tab in Fuel Storage -- index.html changed.
+// v138 (2026-10-20, later): time sheets get an Annual leave tick per day and feed Time in Lieu; machine hours shown big with source/time; Service Schedule order swapped; receipts visible to their uploader; Chemical Register storage location is a drop-down -- index.html changed.
+var CACHE_NAME = "bullamon-plains-shell-v138";
 
 var SHELL_ASSETS = [
   "./",
