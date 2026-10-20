@@ -51,6 +51,9 @@ module.exports = async function handler(req, res) {
     var td = "style=\"border:1px solid #999;padding:4px 6px;font-size:13px;text-align:center;\"";
     var tdl = "style=\"border:1px solid #999;padding:4px 6px;font-size:13px;text-align:left;\"";
     var rowsHtml = body.rows.map(function (r) {
+      if (r.annual) {
+        return "<tr><td " + tdl + "><b>" + escapeHtml(r.day || "") + "</b></td><td " + td + ">" + escapeHtml(r.date || "") + "</td><td " + td.replace("padding:4px 6px;", "padding:4px 6px;background:#eaf3ea;") + " colspan=\"4\"><b>ANNUAL LEAVE</b></td><td " + td.replace("padding:4px 6px;", "padding:4px 6px;background:#f0f0f0;font-weight:700;") + ">" + escapeHtml(r.annualHours || "") + "</td><td " + tdl + ">" + escapeHtml(r.location || "") + "</td></tr>";
+      }
       return "<tr><td " + tdl + "><b>" + escapeHtml(r.day || "") + "</b></td><td " + td + ">" + escapeHtml(r.date || "") + "</td><td " + td + ">" + escapeHtml(r.start || "") + "</td><td " + td + ">" + escapeHtml(r.finish || "") + "</td><td " + td + ">" + escapeHtml(r.smoko || "") + "</td><td " + td + ">" + escapeHtml(r.lunch || "") + "</td><td " + td.replace("padding:4px 6px;", "padding:4px 6px;background:#f0f0f0;font-weight:700;") + ">" + escapeHtml(r.nett || "") + "</td><td " + tdl + ">" + escapeHtml(r.location || "") + "</td></tr>";
     }).join("");
     var html = "<h2 style=\"margin:0 0 2px;\">Bullamon Plains Pastoral Company</h2>" +
@@ -59,8 +62,11 @@ module.exports = async function handler(req, res) {
       "<p style=\"margin:0 0 2px;font-size:14px;\"><b>Employee:</b> " + escapeHtml(body.person) + "</p>" +
       "<p style=\"margin:0 0 12px;font-size:14px;\"><b>Fortnight:</b> " + escapeHtml(body.range || "") + "</p>" +
       "<table style=\"border-collapse:collapse;\"><thead><tr><th " + th + ">DAY</th><th " + th + ">DATE</th><th " + th + ">START</th><th " + th + ">FINISH</th><th " + th + ">SMOKO (mins)</th><th " + th + ">LUNCH (mins)</th><th " + th + ">NETT HRS</th><th " + th + ">WORK LOCATION &amp; DESCRIPTION</th></tr></thead><tbody>" + rowsHtml + "</tbody></table>" +
-      "<p style=\"margin:14px 0 2px;font-size:14px;\"><b>Total nett hours for the fortnight:</b> " + escapeHtml(body.totalNett || "0") + "</p>" +
+      "<p style=\"margin:14px 0 2px;font-size:14px;\"><b>Nett hours worked:</b> " + escapeHtml(body.totalNett || "0") + "</p>" +
+      (body.annualHours !== undefined ? "<p style=\"margin:0 0 2px;font-size:14px;\"><b>Annual leave hours:</b> " + escapeHtml(String(body.annualHours)) + "</p>" +
+        "<p style=\"margin:0 0 2px;font-size:14px;\"><b>Total (worked + annual leave):</b> " + escapeHtml(String(body.totalAll || "")) + "</p>" : "") +
       "<p style=\"margin:0 0 10px;font-size:14px;\"><b>Hours to be paid for:</b> " + escapeHtml(String(body.paidHours == null ? "" : body.paidHours)) + "</p>" +
+      (body.tilText ? "<p style=\"margin:0 0 10px;font-size:14px;\"><b>Time in lieu:</b> " + escapeHtml(String(body.tilText)) + "</p>" : "") +
       (body.comments ? "<p style=\"margin:0 0 10px;font-size:14px;\"><b>Comments:</b> " + escapeHtml(body.comments) + "</p>" : "") +
       "<p style=\"margin:10px 0 0;color:#777;font-size:12px;\">Signed electronically by " + escapeHtml(body.submittedBy || body.person) + (body.submittedAt ? " on " + escapeHtml(body.submittedAt) : "") + ".</p>";
     var emailResp = await fetch("https://api.resend.com/emails", {
