@@ -1862,7 +1862,7 @@ const DEFAULT_STATE = {
 // change to this file, same as CACHE_NAME in sw.js -- it gives an instant,
 // no-technical-steps-needed way to confirm whether a given device is
 // actually running the latest deploy, without comparing file contents.
-var APP_BUILD = "2026-10-20.2";
+var APP_BUILD = "2026-10-20.3";
 
 /* ======================================================================
    UTILITIES
@@ -18745,8 +18745,103 @@ function renderMachinePartsTab(m){
     (canAddMachineParts() ? '<button type="button" class="btn btn-primary" style="width:auto;" onclick="toggleForm(\'' + addKey + '\')">' + (ui.openForms[addKey] ? "Cancel" : "+ Add part") + '</button>' : "") +
   '</div>';
   if(ui.openForms[addKey]) html += renderMachinePartForm(m, null);
+  html += renderMachinePartsPdfs(m);
   html += renderMachinePartsSection(m, q);
   return html;
+}
+
+/* ======================================================================
+   PARTS CATALOGUE PDFs (added 2026-10-20, at Maria's request: "a section to
+   the parts under machinery where I can upload a pdf with the John Deere
+   parts listed"). Per machine, on its Parts tab: m.partsPdfs = [{id, name,
+   url, storagePath, size, addedBy, addedAt}]. The PDF itself lives in the
+   existing "machinery-photos" storage bucket under parts/ (same upload
+   pattern as the bulls' PDFs; public URL kept on the machine). Anyone signed
+   in can open them; adding/removing needs canAddMachineParts().
+   ====================================================================== */
+var PARTS_PDF_MAX_BYTES = 50 * 1024 * 1024;   // Supabase's default per-file limit on the free plan
+function fmtFileSize(n){
+  if(!(n > 0)) return "";
+  return n >= 1048576 ? (n / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round(n / 1024)) + " KB";
+}
+function renderMachinePartsPdfs(m){
+  var list = m.partsPdfs || [];
+  var key = "partsPdf_" + m.id;
+  var canEdit = canAddMachineParts();
+  if(!list.length && !canEdit) return "";
+  var html = '<div class="card" style="margin:0 0 14px;padding:12px 14px;">' +
+    '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">' +
+      '<div class="stat-label" style="margin:0;">Parts catalogues (PDF)</div>' +
+      (canEdit ? '<button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="toggleForm(\'' + key + '\')">' + (ui.openForms[key] ? "Cancel" : "+ Upload PDF") + '</button>' : "") +
+    '</div>';
+  // warning (Maria, 2026-10-20): the listed parts must be cross-checked before anyone relies on them
+  html += '<div class="banner warn" id="partsPdfWarning_' + m.id + '" style="margin:8px 0 0;">' +
+    '<span><strong>Cross-check before ordering.</strong> These parts lists haven&rsquo;t been verified. Check every part number against the machine&rsquo;s own parts book, the machine itself, or John Deere / the dealer before you order or fit anything.</span></div>';
+  if(list.length){
+    html += '<div style="margin-top:8px;">' + list.map(function(a){
+      var meta = [a.size ? fmtFileSize(a.size) : "", a.addedBy ? "added by " + a.addedBy : "", a.addedAt ? fmtDate(String(a.addedAt).slice(0, 10)) : ""].filter(Boolean).join(" · ");
+      return '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-top:1px solid var(--border);">' +
+        '<div style="min-width:0;"><a href="' + escAttr(a.url) + '" target="_blank" rel="noopener" onclick="return openStoredFile(\'' + escAttr(a.url) + '\')" style="font-size:13.5px;font-weight:600;">' + iconSvg("file-text") + ' ' + esc(a.name || "Parts PDF") + '</a> <span class="pill pill-progress" style="font-size:10px;">Needs cross-checking</span>' +
+        (meta ? '<div class="row-muted" style="font-size:11.5px;">' + esc(meta) + '</div>' : "") + '</div>' +
+        (canEdit ? '<button type="button" class="subtle-btn" title="Remove" style="flex-shrink:0;" onclick="removeMachinePartsPdf(\'' + m.id + '\',\'' + a.id + '\')">Remove</button>' : "") +
+      '</div>';
+    }).join("") + '</div>';
+  } else {
+    html += '<p class="row-muted" style="margin:8px 0 0;font-size:12.5px;">No parts catalogue uploaded for this machine yet.</p>';
+  }
+  if(ui.openForms[key]){
+    html += '<form class="form-panel" style="margin-top:10px;" onsubmit="addMachinePartsPdf(event,\'' + m.id + '\')">' +
+      '<div class="form-grid">' +
+        '<div class="field"><label>Label</label><input type="text" name="label" placeholder="e.g. John Deere 8R parts catalogue" /></div>' +
+        '<div class="field"><label>PDF file</label><input type="file" name="pdf" accept="application/pdf,.pdf" required /></div>' +
+      '</div>' +
+      (ui.formErrors[key] ? '<div class="signin-error" style="margin-bottom:8px;">' + esc(ui.formErrors[key]) + '</div>' : '') +
+      '<div class="form-actions"><button type="submit" class="btn btn-primary" style="width:auto;">Upload</button><button type="button" class="btn btn-ghost" onclick="toggleForm(\'' + key + '\')">Cancel</button></div>' +
+      '<p class="row-muted" style="margin:8px 0 0;font-size:12px;">Needs a connection while it uploads. Large catalogues can take a minute; the limit is 50 MB per file.</p>' +
+    '</form>';
+  }
+  return html + '</div>';
+}
+async function addMachinePartsPdf(e, id){
+  e.preventDefault();
+  var f = e.target, key = "partsPdf_" + id;
+  var m = byId(state.machinery || [], id);
+  var file = f.pdf.files && f.pdf.files[0];
+  if(!m || !file || !canAddMachineParts()) return;
+  var label = f.label.value.trim();
+  var fail = function(msg){ ui.formErrors[key] = msg; render(); };
+  if(!/\.pdf$/i.test(file.name || "") && file.type !== "application/pdf") return fail("That doesn't look like a PDF file.");
+  if(file.size > PARTS_PDF_MAX_BYTES) return fail("That file is " + fmtFileSize(file.size) + ", over the 50 MB limit. Split it into smaller PDFs (e.g. one per section) and upload each.");
+  if(!supabaseClient || isOffline) return fail("Can't upload a PDF without a connection. Try again once you have signal.");
+  var btn = f.querySelector('button[type="submit"]');
+  if(btn){ btn.disabled = true; btn.textContent = "Uploading\u2026"; }
+  try{
+    var path = "parts/" + uid("ppdf") + ".pdf";
+    var up = await supabaseClient.storage.from("machinery-photos").upload(path, file, { cacheControl: "3600", upsert: false, contentType: "application/pdf" });
+    if(up.error) throw up.error;
+    var pub = supabaseClient.storage.from("machinery-photos").getPublicUrl(path);
+    m.partsPdfs = m.partsPdfs || [];
+    m.partsPdfs.push({ id: uid("ppdf"), name: label || (file.name || "Parts PDF").replace(/\.pdf$/i, ""), url: pub.data.publicUrl, storagePath: path, size: file.size, addedBy: currentUser().name, addedAt: new Date().toISOString() });
+    delete ui.formErrors[key];
+    ui.openForms[key] = false;
+    persist();
+  }catch(err){
+    console.error("[Bullamon Plains] parts PDF upload failed:", err);
+    fail("Couldn't upload that PDF (" + (err && err.message ? err.message : "unknown error") + "). If you're offline or have a weak signal, try again once you're back in range.");
+  }
+}
+function removeMachinePartsPdf(machineId, pdfId){
+  var m = byId(state.machinery || [], machineId);
+  if(!m || !canAddMachineParts()) return;
+  var a = (m.partsPdfs || []).find(function(x){ return x.id === pdfId; });
+  if(!a || !confirm("Remove \"" + (a.name || "this PDF") + "\" from this machine's parts? This deletes the uploaded file.")) return;
+  if(a.storagePath && supabaseClient){
+    supabaseClient.storage.from("machinery-photos").remove([a.storagePath]).catch(function(err){
+      console.error("[Bullamon Plains] couldn't delete the stored parts PDF (left in storage, doesn't affect the app):", err);
+    });
+  }
+  removeById(m.partsPdfs, pdfId);
+  persist();
 }
 
 // Service Schedule tab (2026-09-28, at Maria's follow-up request: "the
