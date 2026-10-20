@@ -481,7 +481,8 @@
 // v138 (2026-10-20, later): time sheets get an Annual leave tick per day and feed Time in Lieu; machine hours shown big with source/time; Service Schedule order swapped; receipts visible to their uploader; Chemical Register storage location is a drop-down -- index.html changed.
 // v139 (2026-10-20, later): time in lieu can never go below zero (time sheets take only what is available) -- index.html changed.
 // v140 (2026-10-20, later): on the time sheet summary only the Total (worked + annual leave) line is bold -- index.html changed.
-var CACHE_NAME = "bullamon-plains-shell-v140";
+// v141 (2026-10-20, later): a time sheet can't be submitted when it asks to be paid for more hours than worked + annual leave and there isn't enough time in lieu to cover it -- index.html changed.
+var CACHE_NAME = "bullamon-plains-shell-v141";
 
 var SHELL_ASSETS = [
   "./",
