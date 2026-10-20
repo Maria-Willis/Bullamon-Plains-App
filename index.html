@@ -1862,7 +1862,7 @@ const DEFAULT_STATE = {
 // change to this file, same as CACHE_NAME in sw.js -- it gives an instant,
 // no-technical-steps-needed way to confirm whether a given device is
 // actually running the latest deploy, without comparing file contents.
-var APP_BUILD = "2026-10-20.3";
+var APP_BUILD = "2026-10-20.5";
 
 /* ======================================================================
    UTILITIES
@@ -13699,6 +13699,33 @@ async function boot(){
     state.settings.fuelSeedV1 = true;
     migrated = true;
   }
+  // one-time (2026-10-20): Chemical Register storage location becomes a drop-down. Seed its list from the
+  // locations already used in the register (first-seen order); never replaces a list that already exists.
+  if(!state.settings.chemLocationsV1){
+    if(state.chemicals){
+      if(!Array.isArray(state.chemicals.storageLocations)){
+        var seenLoc = {}, locs = [];
+        (state.chemicals.register || []).forEach(function(r){
+          var l = String(r && r.storageLocation || "").trim();
+          if(l && !seenLoc[l.toLowerCase()]){ seenLoc[l.toLowerCase()] = true; locs.push(l); }
+        });
+        state.chemicals.storageLocations = locs;
+      }
+      state.settings.chemLocationsV1 = true;
+      migrated = true;
+    }
+  }
+  // one-time (2026-10-20, Maria): Thallon is the first tab in Fuel Storage. Only moves the heading to the front
+  // once, so any order an admin sets later is left alone. Tanks and balances aren't touched.
+  if(!state.settings.fuelThallonFirstV1){
+    var fsites = state.fuel && state.fuel.sites;
+    if(Array.isArray(fsites)){
+      var ti = fsites.findIndex(function(x){ return x && String(x.name || "").trim().toLowerCase() === "thallon"; });
+      if(ti > 0){ fsites.unshift(fsites.splice(ti, 1)[0]); }
+    }
+    state.settings.fuelThallonFirstV1 = true;
+    migrated = true;
+  }
   // one-time: Silo Storage's column layout (2026-10-16) -- silos saved earlier get a
   // column/position (Airstrip becomes two columns like Maria's drawing). Balances and
   // transactions are not touched.
@@ -15116,6 +15143,7 @@ function tsMins(t){ var m = /^(\d{1,2}):(\d{2})$/.exec(t || ""); return m ? (par
 var TS_PAID_BREAK_MINS = 30;
 // Nett hours for one row: finish - start - (smoko beyond the paid 30 minutes) - lunch (a finish earlier than the start is taken as past midnight). null until both times are in.
 function tsNett(r){
+  if(r && r.annual) return null;            // an Annual Leave day bypasses start/finish/smoko/lunch
   var a = tsMins(r.start), b = tsMins(r.finish);
   if(a === null || b === null) return null;
   var d = b - a; if(d < 0) d += 1440;
@@ -15126,6 +15154,59 @@ function tsTotal(sheet){
   return (sheet.rows || []).reduce(function(sum, r){ var n = tsNett(r); return sum + (n || 0); }, 0);
 }
 function tsNettText(r){ var n = tsNett(r); return n === null ? "" : tilFmtHours(n); }
+/* ANNUAL LEAVE + TIME IN LIEU LINK (2026-10-20, Maria). Each day has an "Annual leave" tick: ticked, the day skips
+   start/finish/smoko/lunch and the employee types their own annual leave hours for it. The sheet then shows nett
+   hours worked, annual leave hours, and their total. On Submit, (worked + annual leave) minus "hours you want to be
+   paid for" goes into Time in Lieu in the usual format: more than paid = Earned, less than paid = Taken. Each
+   entry carries the sheet's id (sheetId), so re-submitting, reopening or deleting a sheet corrects its own entry
+   instead of doubling it. */
+function tsAnnualHrs(r){
+  if(!r || !r.annual) return 0;
+  var n = parseFloat(String(r.annualHours == null ? "" : r.annualHours).replace(/,/g, ""));
+  return isFinite(n) && n > 0 ? n : 0;
+}
+function tsAnnualTotal(sheet){ return (sheet.rows || []).reduce(function(sum, r){ return sum + tsAnnualHrs(r); }, 0); }
+function tsPaidNum(sheet){
+  var t = String(sheet.paidHours == null ? "" : sheet.paidHours).trim(), n = parseFloat(t.replace(/,/g, ""));
+  return t !== "" && isFinite(n) ? n : null;
+}
+// hours going to Time in Lieu: + earned, - taken; null until "hours to be paid" is filled in
+function tsTilDelta(sheet){
+  var paid = tsPaidNum(sheet);
+  if(paid === null) return null;
+  return Math.round((tsTotal(sheet) + tsAnnualTotal(sheet) - paid) * 100) / 100;
+}
+function tsTilText(sheet){
+  var d = tsTilDelta(sheet);
+  if(d === null) return "Fill in the hours you want to be paid for";
+  if(Math.abs(d) < 0.005) return "No change to time in lieu";
+  return d > 0 ? "+" + tilFmtHours(d) + " hrs earned (added to time in lieu)" : "\u2212" + tilFmtHours(-d) + " hrs taken (deducted from time in lieu)";
+}
+function tsRowText(r){ return r && r.annual ? (tsAnnualHrs(r) ? "AL " + tilFmtHours(tsAnnualHrs(r)) : "AL") : tsNettText(r); }
+function tsRemoveTil(sheetId){
+  var arr = tilData().entries;
+  for(var i = arr.length - 1; i >= 0; i--) if(arr[i] && arr[i].sheetId === sheetId) arr.splice(i, 1);
+}
+function tsApplyTil(sheet){
+  tsRemoveTil(sheet.id);
+  var d = tsTilDelta(sheet);
+  if(d === null || Math.abs(d) < 0.005) return;
+  tilData().entries.push({
+    id: uid("til"), person: sheet.person, date: tilLocalToday(),
+    type: d > 0 ? "earned" : "taken", hours: Math.abs(d),
+    note: "Time sheet #" + tsPad(sheet.no) + " (" + tsRangeLabel(sheet.startDate) + "): " + tilFmtHours(tsTotal(sheet)) + " worked + " + tilFmtHours(tsAnnualTotal(sheet)) + " annual leave \u2212 " + tilFmtHours(tsPaidNum(sheet)) + " paid",
+    addedBy: sheet.submittedBy || sheet.person, addedAt: new Date().toISOString(), sheetId: sheet.id
+  });
+}
+function tsToggleAnnual(id, i, on){
+  var sheet = tsFind(id);
+  if(!sheet || !tsCanEdit(sheet) || !sheet.rows[i]) return;
+  sheet.rows[i].annual = !!on;
+  if(tsSaveTimer){ clearTimeout(tsSaveTimer); tsSaveTimer = null; }
+  render();
+  persist();
+}
+
 function tsFind(id){ return byId(tsData().items, id); }
 // Only the person a sheet belongs to, and admins, can see it (like My Time in Lieu).
 function tsCanView(sheet){
@@ -15138,7 +15219,7 @@ function tsCanEdit(sheet){
 }
 function tsNewRows(){
   var rows = [];
-  for(var i = 0; i < 14; i++) rows.push({ start: "", finish: "", smoko: "", lunch: "", location: "" });
+  for(var i = 0; i < 14; i++) rows.push({ start: "", finish: "", smoko: "", lunch: "", location: "", annual: false, annualHours: "" });
   return rows;
 }
 function tsOpenMine(offsetCycles){
@@ -15196,10 +15277,14 @@ window.addEventListener("pagehide", function(){ if(tsSaveTimer){ clearTimeout(ts
 function tsRefresh(sheet){
   (sheet.rows || []).forEach(function(r, i){
     var el = document.getElementById("ts_n" + i);
-    if(el) el.textContent = tsNettText(r);
+    if(el) el.textContent = tsRowText(r);
   });
   var t = document.getElementById("ts_total");
   if(t) t.textContent = tilFmtHours(tsTotal(sheet));
+  var set = function(id, v){ var el = document.getElementById(id); if(el) el.textContent = v; };
+  set("ts_annual", tilFmtHours(tsAnnualTotal(sheet)));
+  set("ts_all", tilFmtHours(tsTotal(sheet) + tsAnnualTotal(sheet)));
+  set("ts_til", tsTilText(sheet));
 }
 function tsStatusPill(sheet){
   return sheet.status === "submitted" ? '<span class="pill pill-done">Submitted</span>' : '<span class="pill pill-progress">Draft</span>';
@@ -15249,7 +15334,7 @@ function renderTimeSheets(){
       return '<div class="card" style="margin-bottom:10px;"><div class="card-row" style="gap:10px;align-items:flex-start;">' +
         '<div><div style="font-weight:700;">#' + tsPad(s.no) + ' · ' + esc(s.person) + ' ' + tsStatusPill(s) + '</div>' +
         '<div class="row-muted" style="font-size:12.5px;margin-top:2px;">' + tsRangeLabel(s.startDate) + '</div>' +
-        '<div style="font-size:13px;margin-top:6px;">Nett hours: <b>' + tilFmtHours(tsTotal(s)) + '</b>' + (s.paidHours !== "" && s.paidHours != null ? ' · To be paid: <b>' + esc(String(s.paidHours)) + '</b>' : '') + '</div>' +
+        '<div style="font-size:13px;margin-top:6px;">Nett hours: <b>' + tilFmtHours(tsTotal(s)) + '</b>' + (tsAnnualTotal(s) ? ' · Annual leave: <b>' + tilFmtHours(tsAnnualTotal(s)) + '</b>' : '') + (s.paidHours !== "" && s.paidHours != null ? ' · To be paid: <b>' + esc(String(s.paidHours)) + '</b>' : '') + '</div>' +
         (s.status === "submitted" ? '<div style="margin-top:4px;">' + tsEmailLine(s) + '</div>' : '') + '</div>' +
         '<div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;"><button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="tsOpenSheet(\'' + s.id + '\')">Open</button>' +
         '<button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="tsPrint(\'' + s.id + '\')">Print</button></div>' +
@@ -15273,21 +15358,28 @@ function renderTsSheet(sheet){
       '<div style="text-align:right;">' + tsStatusPill(sheet) + '</div></div>' +
     '<p style="margin:12px 0 2px;font-size:14px;"><b>Employee:</b> ' + esc(sheet.person) + '</p>' +
     '<p class="row-muted" style="margin:0 0 12px;font-size:12.5px;">Fortnight: ' + tsRangeLabel(sheet.startDate) + '</p>' +
-    '<div class="table-wrap" style="box-shadow:none;"><table class="ts-grid" style="min-width:680px;"><thead><tr><th>Day</th><th>Date</th><th>Start</th><th>Finish</th><th>Smoko (mins)</th><th>Lunch (mins)</th><th>Nett hrs</th><th style="min-width:170px;">Work location &amp; description</th></tr></thead><tbody>' +
+    '<div class="table-wrap" style="box-shadow:none;"><table class="ts-grid" style="min-width:760px;"><thead><tr><th>Day</th><th>Date</th><th>Annual leave</th><th>Start</th><th>Finish</th><th>Smoko (mins)</th><th>Lunch (mins)</th><th>Nett hrs</th><th style="min-width:170px;">Work location &amp; description</th></tr></thead><tbody>' +
     sheet.rows.map(function(r, i){
       var f = function(field, type, extra){ return '<input id="ts_r' + i + '_' + field + '" type="' + type + '" class="ts-in" value="' + escAttr(r[field] || "") + '"' + dis + ' ' + (extra || "") + ' onchange="tsSet(\'' + sheet.id + '\',' + i + ',\'' + field + '\',this.value)" />'; };
-      return '<tr' + (i === 7 ? ' style="border-top:3px solid var(--border);"' : '') + '><td style="white-space:nowrap;font-weight:600;">' + TS_DAY_LABELS[i] + '</td>' +
-        '<td style="white-space:nowrap;">' + tsDM(dates[i]) + '</td>' +
-        '<td>' + f("start", "time", 'style="min-width:92px;"') + '</td><td>' + f("finish", "time", 'style="min-width:92px;"') + '</td>' +
-        '<td>' + f("smoko", "number", 'min="0" step="1" inputmode="numeric" style="width:60px;"') + '</td><td>' + f("lunch", "number", 'min="0" step="1" inputmode="numeric" style="width:60px;"') + '</td>' +
-        '<td id="ts_n' + i + '" style="background:var(--surface-2);font-weight:700;white-space:nowrap;">' + tsNettText(r) + '</td>' +
+      var al = '<td style="text-align:center;"><input type="checkbox" aria-label="Annual leave on ' + TS_DAY_LABELS[i] + ' ' + tsDM(dates[i]) + '"' + (r.annual ? ' checked' : '') + dis + ' onchange="tsToggleAnnual(\'' + sheet.id + '\',' + i + ',this.checked)" /></td>';
+      var middle = r.annual
+        ? '<td colspan="4">' + f("annualHours", "number", 'min="0" max="24" step="0.25" inputmode="decimal" placeholder="Annual leave hours" aria-label="Annual leave hours" style="width:100%;min-width:150px;"') + '</td>'
+        : '<td>' + f("start", "time", 'style="min-width:92px;"') + '</td><td>' + f("finish", "time", 'style="min-width:92px;"') + '</td>' +
+          '<td>' + f("smoko", "number", 'min="0" step="1" inputmode="numeric" style="width:60px;"') + '</td><td>' + f("lunch", "number", 'min="0" step="1" inputmode="numeric" style="width:60px;"') + '</td>';
+      return '<tr' + (i === 7 ? ' style="border-top:3px solid var(--border);"' : '') + (r.annual ? ' class="ts-leave-row"' : '') + '><td style="white-space:nowrap;font-weight:600;">' + TS_DAY_LABELS[i] + '</td>' +
+        '<td style="white-space:nowrap;">' + tsDM(dates[i]) + '</td>' + al + middle +
+        '<td id="ts_n' + i + '" style="background:var(--surface-2);font-weight:700;white-space:nowrap;">' + tsRowText(r) + '</td>' +
         '<td>' + f("location", "text", 'placeholder="" style="min-width:170px;"') + '</td></tr>';
     }).join("") + '</tbody></table></div>' +
     '<p class="row-muted" style="margin:8px 0 0;font-size:12px;">Nett hrs = finish \u2212 start, less lunch, and less any smoko time over ' + TS_PAID_BREAK_MINS + ' minutes (the first ' + TS_PAID_BREAK_MINS + ' minutes of smoko each day are paid).</p>' +
-    '<div style="margin-top:14px;display:grid;gap:8px;max-width:420px;">' +
-      '<div class="card-row"><b>Total nett hours for the fortnight:</b><span id="ts_total" style="font-size:18px;font-weight:700;">' + tilFmtHours(tsTotal(sheet)) + '</span></div>' +
+    '<div style="margin-top:14px;display:grid;gap:8px;max-width:460px;">' +
+      '<div class="card-row"><b>Nett hours worked:</b><span id="ts_total" style="font-size:18px;font-weight:700;">' + tilFmtHours(tsTotal(sheet)) + '</span></div>' +
+      '<div class="card-row"><b>Annual leave hours:</b><span id="ts_annual" style="font-size:18px;font-weight:700;">' + tilFmtHours(tsAnnualTotal(sheet)) + '</span></div>' +
+      '<div class="card-row"><b>Total (worked + annual leave):</b><span id="ts_all" style="font-size:18px;font-weight:700;">' + tilFmtHours(tsTotal(sheet) + tsAnnualTotal(sheet)) + '</span></div>' +
       '<div class="card-row" style="align-items:center;"><b>Hours you want to be paid for:</b><input id="ts_paid" type="text" inputmode="decimal" class="ts-in" style="width:90px;text-align:right;" value="' + escAttr(sheet.paidHours == null ? "" : sheet.paidHours) + '"' + dis + ' onchange="tsSet(\'' + sheet.id + '\',null,\'paidHours\',this.value)" /></div>' +
+      '<div class="card-row" style="align-items:center;border-top:1px solid var(--border);padding-top:8px;"><b>Time in lieu from this sheet:</b><span id="ts_til" style="font-weight:700;text-align:right;">' + esc(tsTilText(sheet)) + '</span></div>' +
     '</div>' +
+    '<p class="row-muted" style="margin:6px 0 0;font-size:12px;">Time in lieu = nett hours worked + annual leave hours \u2212 the hours you want to be paid for. It is added to (or taken from) your Time in Lieu when you submit.</p>' +
     '<div class="field" style="margin-top:12px;"><label>Comments</label><textarea id="ts_comments" rows="2"' + dis + ' onchange="tsSet(\'' + sheet.id + '\',null,\'comments\',this.value)">' + esc(sheet.comments || "") + '</textarea></div>';
   if(sheet.status === "submitted"){
     html += '<p style="margin:12px 0 4px;font-size:13px;"><b>Signed:</b> ' + esc(sheet.submittedBy || sheet.person) + ' — submitted ' + (sheet.submittedAt ? fmtDateTime(sheet.submittedAt) : "") + '</p>' +
@@ -15309,10 +15401,13 @@ function tsSubmit(id){
   var sheet = tsFind(id);
   if(!sheet || !tsCanEdit(sheet)) return;
   var fail = function(m){ ui.tsError = m; render(); window.scrollTo(0, 0); };
-  if(!sheet.rows.some(function(r){ return tsNett(r) !== null; })) return fail("Enter start and finish times for at least one day before submitting.");
+  var badLeave = -1;
+  sheet.rows.forEach(function(r, i){ if(badLeave < 0 && r.annual && (tsAnnualHrs(r) <= 0 || tsAnnualHrs(r) > 24)) badLeave = i; });
+  if(badLeave > -1) return fail("Enter the annual leave hours (between 0 and 24) for " + TS_DAY_LABELS[badLeave] + " " + tsDM(tsAddDays(sheet.startDate, badLeave)) + ", or untick Annual leave for that day.");
+  if(!sheet.rows.some(function(r){ return tsNett(r) !== null || tsAnnualHrs(r) > 0; })) return fail("Enter start and finish times (or annual leave hours) for at least one day before submitting.");
   var paid = String(sheet.paidHours == null ? "" : sheet.paidHours).trim();
   if(paid === "" || !isFinite(parseFloat(paid)) || parseFloat(paid) < 0) return fail("Enter the hours you want to be paid for (a number, e.g. 76).");
-  if(!confirm("Submit this time sheet? It will be locked and emailed. An admin can reopen it if you need to change it.")) return;
+  if(!confirm("Submit this time sheet? It will be locked and emailed, and your time in lieu will be updated: " + tsTilText(sheet) + ". An admin can reopen it if you need to change it.")) return;
   ui.tsError = "";
   sheet.status = "submitted";
   sheet.submittedAt = new Date().toISOString();
@@ -15320,6 +15415,7 @@ function tsSubmit(id){
   sheet.submitCount = (sheet.submitCount || 0) + 1;
   sheet.emailStatus = "pending";
   sheet.emailError = "";
+  tsApplyTil(sheet);
   persist();
   tsSendEmail(sheet.id);
   tsOpenCopy(sheet.id);   // offers "Email a copy to ..." straight away (they can cancel it)
@@ -15330,6 +15426,7 @@ function tsReopen(id){
   if(!confirm("Reopen this time sheet so it can be edited? It will need submitting again.")) return;
   sheet.status = "draft";
   sheet.emailStatus = null; sheet.emailError = "";
+  tsRemoveTil(sheet.id);        // its time in lieu entry comes off until the sheet is submitted again
   persist();
 }
 function tsDelete(id){
@@ -15337,6 +15434,7 @@ function tsDelete(id){
   if(!isAdmin() || !sheet) return;
   if(!confirm("Delete the time sheet for " + sheet.person + " (" + tsRangeLabel(sheet.startDate) + ")? This cannot be undone.")) return;
   removeById(tsData().items, id);
+  tsRemoveTil(id);
   ui.tsOpen = null;
   persist();
 }
@@ -15348,8 +15446,9 @@ function tsEmailPayload(s){
     no: tsPad(s.no), person: s.person, range: tsRangeLabel(s.startDate),
     resubmitted: (s.submitCount || 1) > 1,
     submittedAt: s.submittedAt, submittedBy: s.submittedBy,
-    rows: s.rows.map(function(r, i){ return { day: TS_DAY_LABELS[i], date: tsDM(dates[i]), start: r.start, finish: r.finish, smoko: r.smoko, lunch: r.lunch, nett: tsNettText(r), location: r.location }; }),
-    totalNett: tilFmtHours(tsTotal(s)), paidHours: s.paidHours, comments: s.comments
+    rows: s.rows.map(function(r, i){ return { day: TS_DAY_LABELS[i], date: tsDM(dates[i]), start: r.start, finish: r.finish, smoko: r.smoko, lunch: r.lunch, nett: tsNettText(r), location: r.location, annual: !!r.annual, annualHours: r.annual ? tilFmtHours(tsAnnualHrs(r)) : "" }; }),
+    totalNett: tilFmtHours(tsTotal(s)), annualHours: tilFmtHours(tsAnnualTotal(s)), totalAll: tilFmtHours(tsTotal(s) + tsAnnualTotal(s)), tilText: tsTilText(s),
+    paidHours: s.paidHours, comments: s.comments
   };
 }
 /* "Email me a copy" (added 2026-10-20): on a submitted sheet the employee can send a copy to
@@ -15452,6 +15551,7 @@ function tsPrintHtml(sheet){
   var dates = [];
   for(var i = 0; i < 14; i++) dates.push(tsAddDays(sheet.startDate, i));
   var rows = sheet.rows.map(function(r, i){
+    if(r.annual) return '<tr><td class="d">' + TS_DAY_LABELS[i] + '</td><td>' + tsDM(dates[i]) + '</td><td colspan="4"><b>ANNUAL LEAVE</b></td><td class="n">' + tilFmtHours(tsAnnualHrs(r)) + '</td><td class="l">' + esc(r.location || "") + '</td></tr>';
     return '<tr><td class="d">' + TS_DAY_LABELS[i] + '</td><td>' + tsDM(dates[i]) + '</td><td>' + esc(r.start || "") + '</td><td>' + esc(r.finish || "") + '</td><td>' + esc(r.smoko || "") + '</td><td>' + esc(r.lunch || "") + '</td><td class="n">' + tsNettText(r) + '</td><td class="l">' + esc(r.location || "") + '</td></tr>';
   }).join("");
   return '<div class="ts-head"><div><div class="ts-co">BULLAMON PLAINS PASTORAL</div>' +
@@ -15461,8 +15561,11 @@ function tsPrintHtml(sheet){
     '<div class="ts-line"><span>EMPLOYEE SIGNATURE:</span> <u>' + (sheet.status === "submitted" ? esc(sheet.submittedBy || sheet.person) + ' (submitted ' + (sheet.submittedAt ? fmtDateTime(sheet.submittedAt) : "") + ')' : '&nbsp;') + '</u></div></div></div>' +
     '<div class="ts-range">Fortnight: ' + tsRangeLabel(sheet.startDate) + '</div>' +
     '<table class="ts-table"><thead><tr><th>DAY</th><th>DATE</th><th>START<br>TIME</th><th>FINISH<br>TIME</th><th>SMOKO<br>(mins)</th><th>LUNCH<br>(mins)</th><th>NETT<br>HRS</th><th class="l">WORK LOCATION &amp;<br>DESCRIPTION</th></tr></thead><tbody>' + rows + '</tbody></table>' +
-    '<div class="ts-totals"><div><b>TOTAL NETT HOURS FOR THE FORTNIGHT:</b> <span class="box">' + tilFmtHours(tsTotal(sheet)) + '</span></div>' +
-    '<div><b>HOURS YOU WANT TO BE PAID FOR:</b> <span class="box">' + esc(String(sheet.paidHours == null ? "" : sheet.paidHours)) + '</span></div></div>' +
+    '<div class="ts-totals"><div><b>TOTAL NETT HOURS WORKED:</b> <span class="box">' + tilFmtHours(tsTotal(sheet)) + '</span></div>' +
+    '<div><b>ANNUAL LEAVE HOURS:</b> <span class="box">' + tilFmtHours(tsAnnualTotal(sheet)) + '</span></div>' +
+    '<div><b>TOTAL (WORKED + ANNUAL LEAVE):</b> <span class="box">' + tilFmtHours(tsTotal(sheet) + tsAnnualTotal(sheet)) + '</span></div>' +
+    '<div><b>HOURS YOU WANT TO BE PAID FOR:</b> <span class="box">' + esc(String(sheet.paidHours == null ? "" : sheet.paidHours)) + '</span></div>' +
+    '<div><b>TIME IN LIEU:</b> ' + esc(tsTilText(sheet)) + '</div></div>' +
     '<div class="ts-comments">Comments: ' + esc(sheet.comments || "") + '</div>';
 }
 function tsPrint(id){
@@ -16475,8 +16578,8 @@ function fuelData(){
 }
 function fuelSeed(){
   var sites = [
-    { id: "fsite_mungindi", name: "Mungindi", short: "Mungindi" },
-    { id: "fsite_thallon", name: "Thallon", short: "Thallon" }
+    { id: "fsite_thallon", name: "Thallon", short: "Thallon" },
+    { id: "fsite_mungindi", name: "Mungindi", short: "Mungindi" }
   ];
   var tanks = [];
   var mk = function(site, name, type, cap, n){
@@ -17887,7 +17990,7 @@ function deereApplyImport(){
     used[m.id] = true;
     m.currentReading = r.hours;
     if(r.pin) m.deerePin = r.pin;
-    m.hoursSource = { source: "John Deere Operations Center", date: todayISO(), updated: r.updated || "", hours: r.hours };
+    m.hoursSource = { source: "John Deere Operations Center", date: todayISO(), at: new Date().toISOString(), updated: r.updated || "", hours: r.hours };
     n++;
   });
   ui.deereImport = null;
@@ -18111,6 +18214,29 @@ function renderMachineryList(){
 // type/rego, and a status pill -- exactly what the reference photos show.
 // The whole row is the click target and always navigates into that
 // machine's own detail screen (renderMachineDetail); nothing expands here.
+/* Engine hours, made prominent (2026-10-20, Maria): a big figure on each machine's detail screen (every tab)
+   and on the fleet list, with where it came from -- John Deere Operations Centre -- and the date and time. */
+function machineHoursSourceText(m){
+  var hs = m.hoursSource;
+  if(hs && Number(hs.hours) === Number(m.currentReading)){
+    var when = hs.at ? fmtDateTime(hs.at) : (hs.date ? fmtDate(hs.date) : "");
+    var rep = hs.updated ? String(hs.updated) : "";
+    var repNice = rep && !isNaN(new Date(rep).getTime()) ? fmtDateTime(rep) : rep;
+    return { src: (hs.source === "John Deere Operations Center" ? "John Deere Ops Centre" : hs.source), when: when, reported: repNice };
+  }
+  return null;
+}
+function machineHoursBlockHtml(m){
+  var info = machineHoursSourceText(m);
+  var hasHrs = m.currentReading != null && m.currentReading !== "";
+  return '<div class="machine-hours" style="margin:12px 0 4px;padding:12px 14px;border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--surface-2);">' +
+    '<div class="stat-label" style="margin:0;">Engine hours</div>' +
+    '<div style="font-size:30px;line-height:1.15;font-weight:800;color:var(--accent-strong);">' + (hasHrs ? fmtNum(m.currentReading, "hrs") : "Not recorded") + '</div>' +
+    '<div class="row-muted" style="font-size:12.5px;margin-top:2px;">' +
+      (info ? 'From <b>' + esc(info.src) + '</b>' + (info.when ? ' &middot; ' + esc(info.when) : '') + (info.reported ? ' &middot; reported by John Deere ' + esc(info.reported) : '')
+            : (hasHrs ? 'Entered by hand (not from John Deere Ops Centre)' : 'Enter a reading when you log work or a service')) +
+    '</div></div>';
+}
 function renderMachineFleetCard(m){
   var issues = m.issues || [];
   var openIssues = issues.filter(function(i){ return i.status !== "Resolved"; });
@@ -18126,7 +18252,8 @@ function renderMachineFleetCard(m){
       '<div style="display:flex;gap:12px;align-items:center;min-width:0;">' +
         '<div class="machine-photo">' + machineIconHtml(m, "machine-icon-img") + '</div>' +
         '<div style="min-width:0;"><h3 style="margin-bottom:2px;font-size:18px;color:var(--accent-strong);">' + esc(m.name) + '</h3>' +
-        '<p class="row-muted" style="margin:0;font-size:12.5px;">' + esc(m.type) + (m.regNo ? " &middot; " + esc(m.regNo) : "") + '</p></div>' +
+        '<p class="row-muted" style="margin:0;font-size:12.5px;">' + esc(m.type) + (m.regNo ? " &middot; " + esc(m.regNo) : "") + '</p>' +
+        (m.currentReading != null && m.currentReading !== "" ? '<p style="margin:3px 0 0;font-size:15px;font-weight:800;color:var(--accent-strong);">' + fmtNum(m.currentReading, "hrs") + (machineHoursSourceText(m) ? ' <span class="row-muted" style="font-size:11px;font-weight:500;">' + (machineHoursSourceText(m).when ? esc(machineHoursSourceText(m).when) : "John Deere") + '</span>' : '') + '</p>' : '') + '</div>' +
       '</div>' +
       '<div style="display:flex;gap:6px;align-items:center;flex-shrink:0;">' +
         (machineOutOfAction(m) ? '<span class="pill pill-high">' + iconSvg("alert-triangle") + ' Out of action</span>' : (openIssues.length ? '<span class="pill pill-medium">' + openIssues.length + ' issue' + (openIssues.length === 1 ? "" : "s") + '</span>' : "")) +
@@ -18195,6 +18322,7 @@ function renderMachineDetail(m){
       (m.status === "archived" ? '<span class="pill pill-todo">Sold / Other</span>' : '') +
     '</div>' +
   '</div>';
+  html += machineHoursBlockHtml(m);
 
   if(m.status === "archived"){
     html += '<p class="row-muted" style="margin:10px 0 0;font-size:12px;">' +
@@ -18321,7 +18449,6 @@ function renderMachineOverviewTab(m, dueLabel, dueOk, progressPct){
       '<button type="button" class="btn btn-ghost btn-sm" style="margin-top:10px;" onclick="ui.machineryTab=\'schedule\';render();">Open service schedule</button>' +
     '</div>';
   }
-  if(m.hoursSource && Number(m.hoursSource.hours) === Number(m.currentReading)) html += '<p class="row-muted" style="margin:10px 0 0;font-size:12px;">Hours ' + fmtNum(m.currentReading, "hrs") + ' &middot; from ' + esc(m.hoursSource.source) + ', ' + fmtDate(m.hoursSource.date) + (m.hoursSource.updated ? ' (reported ' + esc(m.hoursSource.updated) + ')' : '') + '</p>';
   html += '<div class="form-grid" style="margin:12px 0;">' +
     '<div><div class="stat-label">Last service</div><div style="font-weight:600;">' + fmtNum(m.lastServiceReading, "hrs") + ' &middot; ' + fmtDate(m.lastServiceDate) + '</div></div>' +
     '<div><div class="stat-label">Interval</div><div style="font-weight:600;">' + esc(m.serviceIntervalDesc || "—") + '</div></div>' +
@@ -18874,8 +19001,7 @@ function renderMachineServiceScheduleTab(m){
     if(checklistEditing) html += renderMachineChecklistForm(m);
   }
 
-  html += renderPartScheduleSection(m);
-
+  // Order (Maria, 2026-10-20): Schedule & history first, then the parts replacement schedule underneath.
   html += '<div class="stat-label" style="margin-top:18px;">Schedule &amp; history</div>';
   html += renderMachineServiceHistory(m);
   if(canAdminMachinery()){
@@ -18885,6 +19011,8 @@ function renderMachineServiceScheduleTab(m){
     '</div>';
   }
   if(ui.openForms["setSchedule_" + m.id]) html += renderMaintenanceScheduleForm(m);
+
+  html += renderPartScheduleSection(m);
   return html;
 }
 
@@ -21512,6 +21640,7 @@ function renderChemicalRegister(){
     '</div>';
   }
 
+  if(isAdmin()) html += renderChemLocationsCard();
   var fields = state.chemicals.registerFields || [];
   html += '<div class="card"><div class="card-row"><h3 style="margin:0;">Chemicals on hand</h3>' +
     '<button type="button" class="btn btn-primary btn-sm" style="width:auto;" onclick="toggleForm(\'newReg\')">' + (ui.openForms.newReg ? "Cancel" : "+ Add stock entry") + '</button></div>';
@@ -22137,6 +22266,61 @@ function renderRegisterFieldsEditor(){
   html += '<button type="button" class="btn btn-ghost btn-sm" style="margin-top:10px;width:auto;" onclick="addRegisterField()">+ Add field</button>';
   return html;
 }
+/* Storage locations for the Chemical Register are a drop-down list (Maria, 2026-10-20). The list is kept in
+   state.chemicals.storageLocations (seeded once from the locations already in the register); admins edit it on
+   the Chemical Register page. An entry whose saved location isn't on the list keeps showing it. */
+function chemLocations(){
+  if(!state.chemicals) state.chemicals = {};
+  if(!Array.isArray(state.chemicals.storageLocations)) state.chemicals.storageLocations = [];
+  return state.chemicals.storageLocations;
+}
+function chemLocationSelectHtml(current){
+  var list = chemLocations().slice(), cur = String(current || "").trim();
+  var extra = cur && list.indexOf(cur) === -1;
+  return '<select name="storageLocation"><option value="">— choose a location —</option>' +
+    list.map(function(l){ return '<option value="' + escAttr(l) + '"' + (l === cur ? " selected" : "") + '>' + esc(l) + '</option>'; }).join("") +
+    (extra ? '<option value="' + escAttr(cur) + '" selected>' + esc(cur) + ' (not on the list)</option>' : '') + '</select>';
+}
+function renderChemLocationsCard(){
+  var list = chemLocations(), open = ui.openForms.chemLocations;
+  var html = '<div class="card"><div class="card-row"><h3 style="margin:0;">Storage locations</h3>' +
+    '<button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="toggleForm(\'chemLocations\')">' + (open ? "Done" : "Edit locations") + '</button></div>';
+  if(!open) return html + '<p class="row-muted" style="margin:0;font-size:12.5px;">The drop-down list used for each chemical\'s storage location (' + list.length + ' location' + (list.length === 1 ? "" : "s") + ').</p></div>';
+  html += '<p class="row-muted" style="margin:0 0 10px;font-size:12.5px;">Add, rename or remove the locations offered in the list. Renaming also updates every chemical stored there; removing one leaves existing chemicals as they are.</p>';
+  html += list.map(function(l, i){
+    return '<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;"><input type="text" style="flex:1;min-width:0;" value="' + escAttr(l) + '" onchange="renameChemLocation(' + i + ',this.value)" />' +
+      '<button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="removeChemLocation(' + i + ')">Remove</button></div>';
+  }).join("");
+  html += '<form onsubmit="addChemLocation(event)" style="display:flex;gap:8px;align-items:center;margin-top:8px;"><input type="text" name="loc" placeholder="New location, e.g. Chemical shed - Bay 4" style="flex:1;min-width:0;" required />' +
+    '<button type="submit" class="btn btn-primary btn-sm" style="width:auto;">+ Add</button></form>';
+  if(ui.chemLocError) html += '<p style="color:var(--danger);font-size:12.5px;margin:8px 0 0;">' + esc(ui.chemLocError) + '</p>';
+  return html + '</div>';
+}
+function addChemLocation(e){
+  e.preventDefault();
+  if(!isAdmin()) return;
+  var v = String(e.target.loc.value || "").trim(), list = chemLocations();
+  if(!v) return;
+  if(list.some(function(l){ return l.toLowerCase() === v.toLowerCase(); })){ ui.chemLocError = "That location is already on the list."; render(); return; }
+  ui.chemLocError = ""; list.push(v); persist();
+}
+function renameChemLocation(i, value){
+  if(!isAdmin()) return;
+  var list = chemLocations(), old = list[i], v = String(value || "").trim();
+  if(old == null) return;
+  if(!v){ ui.chemLocError = "A location can't be blank. Use Remove to delete it."; render(); return; }
+  if(list.some(function(l, k){ return k !== i && l.toLowerCase() === v.toLowerCase(); })){ ui.chemLocError = "That name is already on the list."; render(); return; }
+  ui.chemLocError = ""; list[i] = v;
+  (state.chemicals.register || []).forEach(function(r){ if(r.storageLocation === old) r.storageLocation = v; });
+  persist();
+}
+function removeChemLocation(i){
+  if(!isAdmin()) return;
+  var list = chemLocations();
+  if(list[i] == null) return;
+  if(!confirm('Remove "' + list[i] + '" from the list? Chemicals already stored there keep that location.')) return;
+  list.splice(i, 1); ui.chemLocError = ""; persist();
+}
 function renderRegisterForm(existing){
   var fields = state.chemicals.registerFields || [];
   return '<form class="form-panel" onsubmit="' + (existing ? "saveRegister(event,'" + existing.id + "')" : "addRegister(event)") + '">' +
@@ -22145,7 +22329,7 @@ function renderRegisterForm(existing){
       '<div class="field"><label>Chemical</label><input type="text" name="chemicalName" required value="' + escAttr(existing ? existing.chemicalName : "") + '" /></div>' +
       '<div class="field"><label>Quantity</label><input type="number" step="0.1" name="quantity" required value="' + (existing ? existing.quantity : "") + '" /></div>' +
       '<div class="field"><label>Unit</label><input type="text" name="unit" value="' + escAttr(existing ? existing.unit : "L") + '" /></div>' +
-      '<div class="field"><label>Storage location</label><input type="text" name="storageLocation" value="' + escAttr(existing ? existing.storageLocation : "") + '" /></div>' +
+      '<div class="field"><label>Storage location</label>' + chemLocationSelectHtml(existing ? existing.storageLocation : "") + '</div>' +
       fields.map(function(f){
         var val = existing ? registerFieldValue(existing, f) : (f.legacyKey === "purchaseDate" ? todayISO() : "");
         var inputType = f.type === "date" ? "date" : "text";
@@ -22746,14 +22930,14 @@ function renderReceipts(){
     '<button type="button" class="btn btn-primary" style="width:auto;" onclick="toggleForm(\'newReceipt\')">' + (ui.openForms.newReceipt ? "Cancel" : "+ Add receipt") + '</button>' +
   '</div>';
   if(ui.openForms.newReceipt) html += renderReceiptForm();
-  // Uploading stays open to everyone above, unconditionally -- only seeing
-  // what's already been uploaded is gated, at Maria's request.
-  if(!canViewReceipts()){
-    html += '<div class="empty-state">Receipts you (or anyone else) upload still go out by email right away -- you just don\'t have access to view the list here. Ask an admin if you need that.</div>';
-    return html;
-  }
-  var items = (state.receipts.items || []).slice().sort(function(a,b){ return (b.uploadedAt||"").localeCompare(a.uploadedAt||""); });
-  if(items.length === 0){ html += '<div class="empty-state">No receipts uploaded yet. Tap "+ Add receipt" above to upload one — it\'ll be emailed on automatically.</div>'; }
+  // Who sees what (Maria, 2026-10-20): the person who uploaded a receipt sees their own, admins (and anyone ticked
+  // "Can view receipts") see them all. Nobody else sees other people's receipts.
+  var seeAll = canViewReceipts();
+  var meName = (currentUser() && currentUser().name) || session.name || "";
+  var items = (state.receipts.items || []).filter(function(r){ return seeAll || (meName && r.uploadedBy === meName); })
+    .sort(function(a,b){ return (b.uploadedAt||"").localeCompare(a.uploadedAt||""); });
+  if(!seeAll) html += '<p class="row-muted" style="margin:0 0 12px;font-size:12.5px;">You can see the receipts you have uploaded. Only admins can see everyone\'s.</p>';
+  if(items.length === 0){ html += '<div class="empty-state">' + (seeAll ? 'No receipts uploaded yet.' : 'You haven\'t uploaded any receipts yet.') + ' Tap "+ Add receipt" above to upload one — it\'ll be emailed on automatically.</div>'; }
   else {
     html += '<div class="list-cards">' + items.map(receiptCardHtml).join("") + '</div>';
   }
