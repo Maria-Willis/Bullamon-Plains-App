@@ -1862,7 +1862,7 @@ const DEFAULT_STATE = {
 // change to this file, same as CACHE_NAME in sw.js -- it gives an instant,
 // no-technical-steps-needed way to confirm whether a given device is
 // actually running the latest deploy, without comparing file contents.
-var APP_BUILD = "2026-10-20.5";
+var APP_BUILD = "2026-10-20.7";
 
 /* ======================================================================
    UTILITIES
@@ -15010,8 +15010,8 @@ function tilLocalToday(){
 }
 // One person's transactions oldest-first with a running balance; returns
 // { rows: newest-first [{e, bal}], balance, earned, taken }.
-function tilLedger(name){
-  var list = tilData().entries.filter(function(e){ return e.person === name; }).sort(function(a, b){
+function tilLedger(name, excludeSheetId){
+  var list = tilData().entries.filter(function(e){ return e.person === name && !(excludeSheetId && e.sheetId === excludeSheetId); }).sort(function(a, b){
     return (a.date || "").localeCompare(b.date || "") || (a.addedAt || "").localeCompare(b.addedAt || "");
   });
   var bal = 0, earned = 0, taken = 0;
@@ -15082,6 +15082,8 @@ function addTilEntry(e){
   if(!person){ setNotice("err", "Pick a team member first."); return; }
   if(!f.date.value){ setNotice("err", "Enter the date."); return; }
   if(!isFinite(hours) || hours <= 0 || hours > 1000){ setNotice("err", "Enter the hours as a number above 0, e.g. 7.5."); return; }
+  // time in lieu can't go below zero (Maria, 2026-10-20)
+  if(f.type.value === "taken" && hours > tilLedger(person).balance + 0.004){ setNotice("err", person + " only has " + tilFmtHours(Math.max(0, tilLedger(person).balance)) + " hrs of time in lieu, so " + tilFmtHours(hours) + " hrs can't be taken (it can't go below zero)."); render(); return; }
   tilData().entries.push({
     id: uid("til"), person: person, date: f.date.value,
     type: f.type.value === "taken" ? "taken" : "earned",
@@ -15094,6 +15096,10 @@ function removeTilEntry(id){
   if(!isAdmin()) return;
   var entry = byId(tilData().entries, id);
   if(!entry) return;
+  if(entry.type !== "taken" && tilLedger(entry.person).balance - (Number(entry.hours) || 0) < -0.004){
+    setNotice("err", "Can't remove this earned entry: " + entry.person + " has already used that time in lieu, and the balance can't go below zero. Remove or reduce the taken entries first.");
+    render(); return;
+  }
   if(!confirm("Remove this " + (entry.type === "taken" ? "taken" : "earned") + " entry of " + tilFmtHours(entry.hours) + " hrs for " + entry.person + "? This cannot be undone.")) return;
   removeById(tilData().entries, id);
   persist();
@@ -15176,11 +15182,24 @@ function tsTilDelta(sheet){
   if(paid === null) return null;
   return Math.round((tsTotal(sheet) + tsAnnualTotal(sheet) - paid) * 100) / 100;
 }
-function tsTilText(sheet){
+// What would really go into Time in Lieu: time in lieu can't go below zero (Maria, 2026-10-20), so hours to be
+// taken are limited to what the person has available (their balance not counting this sheet's own entry).
+function tsTilEffect(sheet){
   var d = tsTilDelta(sheet);
-  if(d === null) return "Fill in the hours you want to be paid for";
-  if(Math.abs(d) < 0.005) return "No change to time in lieu";
-  return d > 0 ? "+" + tilFmtHours(d) + " hrs earned (added to time in lieu)" : "\u2212" + tilFmtHours(-d) + " hrs taken (deducted from time in lieu)";
+  if(d === null) return null;
+  if(d >= 0) return { d: d, applied: d, short: 0 };
+  var avail = Math.max(0, tilLedger(sheet.person, sheet.id).balance);
+  var take = Math.min(-d, avail);
+  return { d: d, applied: -take, short: Math.round((-d - take) * 100) / 100 };
+}
+function tsTilText(sheet){
+  var ef = tsTilEffect(sheet);
+  if(ef === null) return "Fill in the hours you want to be paid for";
+  if(Math.abs(ef.d) < 0.005) return "No change to time in lieu";
+  if(ef.d > 0) return "+" + tilFmtHours(ef.d) + " hrs earned (added to time in lieu)";
+  if(ef.applied === 0) return "No time in lieu available to take (it can't go below zero)";
+  var txt = "\u2212" + tilFmtHours(-ef.applied) + " hrs taken (deducted from time in lieu)";
+  return ef.short > 0.004 ? txt + " \u2014 only " + tilFmtHours(-ef.applied) + " of " + tilFmtHours(-ef.d) + " hrs available; it can't go below zero" : txt;
 }
 function tsRowText(r){ return r && r.annual ? (tsAnnualHrs(r) ? "AL " + tilFmtHours(tsAnnualHrs(r)) : "AL") : tsNettText(r); }
 function tsRemoveTil(sheetId){
@@ -15189,14 +15208,21 @@ function tsRemoveTil(sheetId){
 }
 function tsApplyTil(sheet){
   tsRemoveTil(sheet.id);
-  var d = tsTilDelta(sheet);
-  if(d === null || Math.abs(d) < 0.005) return;
+  var ef = tsTilEffect(sheet);
+  if(ef === null || Math.abs(ef.applied) < 0.005) return;
   tilData().entries.push({
     id: uid("til"), person: sheet.person, date: tilLocalToday(),
-    type: d > 0 ? "earned" : "taken", hours: Math.abs(d),
-    note: "Time sheet #" + tsPad(sheet.no) + " (" + tsRangeLabel(sheet.startDate) + "): " + tilFmtHours(tsTotal(sheet)) + " worked + " + tilFmtHours(tsAnnualTotal(sheet)) + " annual leave \u2212 " + tilFmtHours(tsPaidNum(sheet)) + " paid",
+    type: ef.applied > 0 ? "earned" : "taken", hours: Math.abs(ef.applied),
+    note: "Time sheet #" + tsPad(sheet.no) + " (" + tsRangeLabel(sheet.startDate) + "): " + tilFmtHours(tsTotal(sheet)) + " worked + " + tilFmtHours(tsAnnualTotal(sheet)) + " annual leave \u2212 " + tilFmtHours(tsPaidNum(sheet)) + " paid" + (ef.short > 0.004 ? " (only " + tilFmtHours(-ef.applied) + " of " + tilFmtHours(-ef.d) + " hrs taken: time in lieu can't go below zero)" : ""),
     addedBy: sheet.submittedBy || sheet.person, addedAt: new Date().toISOString(), sheetId: sheet.id
   });
+}
+// Removing a sheet's earned entry (reopen/delete) mustn't leave the person's balance below zero.
+function tsTilRemovalBlocked(sheet){
+  var mine = tilData().entries.filter(function(e){ return e.sheetId === sheet.id && e.type !== "taken"; });
+  if(!mine.length) return false;
+  var after = tilLedger(sheet.person, sheet.id).balance;
+  return after < -0.004;
 }
 function tsToggleAnnual(id, i, on){
   var sheet = tsFind(id);
@@ -15373,11 +15399,11 @@ function renderTsSheet(sheet){
     }).join("") + '</tbody></table></div>' +
     '<p class="row-muted" style="margin:8px 0 0;font-size:12px;">Nett hrs = finish \u2212 start, less lunch, and less any smoko time over ' + TS_PAID_BREAK_MINS + ' minutes (the first ' + TS_PAID_BREAK_MINS + ' minutes of smoko each day are paid).</p>' +
     '<div style="margin-top:14px;display:grid;gap:8px;max-width:460px;">' +
-      '<div class="card-row"><b>Nett hours worked:</b><span id="ts_total" style="font-size:18px;font-weight:700;">' + tilFmtHours(tsTotal(sheet)) + '</span></div>' +
-      '<div class="card-row"><b>Annual leave hours:</b><span id="ts_annual" style="font-size:18px;font-weight:700;">' + tilFmtHours(tsAnnualTotal(sheet)) + '</span></div>' +
+      '<div class="card-row"><span>Nett hours worked:</span><span id="ts_total" style="font-size:18px;font-weight:400;">' + tilFmtHours(tsTotal(sheet)) + '</span></div>' +
+      '<div class="card-row"><span>Annual leave hours:</span><span id="ts_annual" style="font-size:18px;font-weight:400;">' + tilFmtHours(tsAnnualTotal(sheet)) + '</span></div>' +
       '<div class="card-row"><b>Total (worked + annual leave):</b><span id="ts_all" style="font-size:18px;font-weight:700;">' + tilFmtHours(tsTotal(sheet) + tsAnnualTotal(sheet)) + '</span></div>' +
-      '<div class="card-row" style="align-items:center;"><b>Hours you want to be paid for:</b><input id="ts_paid" type="text" inputmode="decimal" class="ts-in" style="width:90px;text-align:right;" value="' + escAttr(sheet.paidHours == null ? "" : sheet.paidHours) + '"' + dis + ' onchange="tsSet(\'' + sheet.id + '\',null,\'paidHours\',this.value)" /></div>' +
-      '<div class="card-row" style="align-items:center;border-top:1px solid var(--border);padding-top:8px;"><b>Time in lieu from this sheet:</b><span id="ts_til" style="font-weight:700;text-align:right;">' + esc(tsTilText(sheet)) + '</span></div>' +
+      '<div class="card-row" style="align-items:center;"><span>Hours you want to be paid for:</span><input id="ts_paid" type="text" inputmode="decimal" class="ts-in" style="width:90px;text-align:right;" value="' + escAttr(sheet.paidHours == null ? "" : sheet.paidHours) + '"' + dis + ' onchange="tsSet(\'' + sheet.id + '\',null,\'paidHours\',this.value)" /></div>' +
+      '<div class="card-row" style="align-items:center;border-top:1px solid var(--border);padding-top:8px;"><span>Time in lieu from this sheet:</span><span id="ts_til" style="font-weight:400;text-align:right;">' + esc(tsTilText(sheet)) + '</span></div>' +
     '</div>' +
     '<p class="row-muted" style="margin:6px 0 0;font-size:12px;">Time in lieu = nett hours worked + annual leave hours \u2212 the hours you want to be paid for. It is added to (or taken from) your Time in Lieu when you submit.</p>' +
     '<div class="field" style="margin-top:12px;"><label>Comments</label><textarea id="ts_comments" rows="2"' + dis + ' onchange="tsSet(\'' + sheet.id + '\',null,\'comments\',this.value)">' + esc(sheet.comments || "") + '</textarea></div>';
@@ -15423,6 +15449,7 @@ function tsSubmit(id){
 function tsReopen(id){
   var sheet = tsFind(id);
   if(!isAdmin() || !sheet) return;
+  if(tsTilRemovalBlocked(sheet)){ ui.tsError = sheet.person + " has already used the time in lieu earned on this sheet, so it can't be reopened without taking their balance below zero. Reduce their taken entries first."; render(); window.scrollTo(0, 0); return; }
   if(!confirm("Reopen this time sheet so it can be edited? It will need submitting again.")) return;
   sheet.status = "draft";
   sheet.emailStatus = null; sheet.emailError = "";
@@ -15432,6 +15459,7 @@ function tsReopen(id){
 function tsDelete(id){
   var sheet = tsFind(id);
   if(!isAdmin() || !sheet) return;
+  if(tsTilRemovalBlocked(sheet)){ ui.tsError = sheet.person + " has already used the time in lieu earned on this sheet, so it can't be deleted without taking their balance below zero. Reduce their taken entries first."; render(); window.scrollTo(0, 0); return; }
   if(!confirm("Delete the time sheet for " + sheet.person + " (" + tsRangeLabel(sheet.startDate) + ")? This cannot be undone.")) return;
   removeById(tsData().items, id);
   tsRemoveTil(id);
@@ -15561,11 +15589,11 @@ function tsPrintHtml(sheet){
     '<div class="ts-line"><span>EMPLOYEE SIGNATURE:</span> <u>' + (sheet.status === "submitted" ? esc(sheet.submittedBy || sheet.person) + ' (submitted ' + (sheet.submittedAt ? fmtDateTime(sheet.submittedAt) : "") + ')' : '&nbsp;') + '</u></div></div></div>' +
     '<div class="ts-range">Fortnight: ' + tsRangeLabel(sheet.startDate) + '</div>' +
     '<table class="ts-table"><thead><tr><th>DAY</th><th>DATE</th><th>START<br>TIME</th><th>FINISH<br>TIME</th><th>SMOKO<br>(mins)</th><th>LUNCH<br>(mins)</th><th>NETT<br>HRS</th><th class="l">WORK LOCATION &amp;<br>DESCRIPTION</th></tr></thead><tbody>' + rows + '</tbody></table>' +
-    '<div class="ts-totals"><div><b>TOTAL NETT HOURS WORKED:</b> <span class="box">' + tilFmtHours(tsTotal(sheet)) + '</span></div>' +
-    '<div><b>ANNUAL LEAVE HOURS:</b> <span class="box">' + tilFmtHours(tsAnnualTotal(sheet)) + '</span></div>' +
+    '<div class="ts-totals"><div>TOTAL NETT HOURS WORKED: <span class="box">' + tilFmtHours(tsTotal(sheet)) + '</span></div>' +
+    '<div>ANNUAL LEAVE HOURS: <span class="box">' + tilFmtHours(tsAnnualTotal(sheet)) + '</span></div>' +
     '<div><b>TOTAL (WORKED + ANNUAL LEAVE):</b> <span class="box">' + tilFmtHours(tsTotal(sheet) + tsAnnualTotal(sheet)) + '</span></div>' +
-    '<div><b>HOURS YOU WANT TO BE PAID FOR:</b> <span class="box">' + esc(String(sheet.paidHours == null ? "" : sheet.paidHours)) + '</span></div>' +
-    '<div><b>TIME IN LIEU:</b> ' + esc(tsTilText(sheet)) + '</div></div>' +
+    '<div>HOURS YOU WANT TO BE PAID FOR: <span class="box">' + esc(String(sheet.paidHours == null ? "" : sheet.paidHours)) + '</span></div>' +
+    '<div>TIME IN LIEU: ' + esc(tsTilText(sheet)) + '</div></div>' +
     '<div class="ts-comments">Comments: ' + esc(sheet.comments || "") + '</div>';
 }
 function tsPrint(id){
