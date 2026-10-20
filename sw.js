@@ -482,7 +482,9 @@
 // v139 (2026-10-20, later): time in lieu can never go below zero (time sheets take only what is available) -- index.html changed.
 // v140 (2026-10-20, later): on the time sheet summary only the Total (worked + annual leave) line is bold -- index.html changed.
 // v141 (2026-10-20, later): a time sheet can't be submitted when it asks to be paid for more hours than worked + annual leave and there isn't enough time in lieu to cover it -- index.html changed.
-var CACHE_NAME = "bullamon-plains-shell-v141";
+// v142 (2026-10-20, later): the time sheet Submit button stays clickable; when there is not enough time in lieu to cover the hours to be paid, clicking it shows a red warning and refuses -- index.html changed.
+// v143 (2026-10-20, later): time in lieu entries from a time sheet show only the fortnight dates as the note; the can't-submit warning shows the hours-to-pay less annual leave sum -- index.html changed.
+var CACHE_NAME = "bullamon-plains-shell-v143";
 
 var SHELL_ASSETS = [
   "./",
