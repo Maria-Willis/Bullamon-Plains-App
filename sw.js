@@ -479,7 +479,9 @@
 // v136 (2026-10-20, later): parts catalogue PDFs on each machine's Parts tab -- index.html changed.
 // v137 (2026-10-20, later): Thallon is now the first tab in Fuel Storage -- index.html changed.
 // v138 (2026-10-20, later): time sheets get an Annual leave tick per day and feed Time in Lieu; machine hours shown big with source/time; Service Schedule order swapped; receipts visible to their uploader; Chemical Register storage location is a drop-down -- index.html changed.
-var CACHE_NAME = "bullamon-plains-shell-v138";
+// v139 (2026-10-20, later): time in lieu can never go below zero (time sheets take only what is available) -- index.html changed.
+// v140 (2026-10-20, later): on the time sheet summary only the Total (worked + annual leave) line is bold -- index.html changed.
+var CACHE_NAME = "bullamon-plains-shell-v140";
 
 var SHELL_ASSETS = [
   "./",
