@@ -1870,7 +1870,7 @@ const DEFAULT_STATE = {
 // change to this file, same as CACHE_NAME in sw.js -- it gives an instant,
 // no-technical-steps-needed way to confirm whether a given device is
 // actually running the latest deploy, without comparing file contents.
-var APP_BUILD = "2026-10-20.17";
+var APP_BUILD = "2026-10-20.18";
 
 /* ======================================================================
    UTILITIES
@@ -19154,24 +19154,9 @@ function renderMachineServiceScheduleTab(m){
   var scheduleConfigured = machineScheduleConfigured(m);
   var checklist = m.serviceChecklistItems || [];
   var checklistEditing = ui.openForms["checklist_" + m.id];
-  var html = '<div class="stat-label">Due at next service</div>';
-  var nextSt = machineServiceStatus(m);
-  var nextParts = nextSt.kind === "hours" ? partsForServiceAt(m, nextSt.target) : [];
-  if(!checklist.length && !nextParts.length){
-    html += '<div class="empty-state" style="margin-top:6px;">No standard service items set for this machine yet.</div>';
-  } else {
-    html += '<div style="margin-top:6px;border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden;">' +
-      checklist.map(function(item){ return '<div class="due-checklist-row"><span class="due-checklist-dot"></span>' + esc(item) + '</div>'; }).join("") +
-      nextParts.map(function(d){ return '<div class="due-checklist-row"><span class="due-checklist-dot"></span>Replace ' + esc(d.part.name) + ' <span class="row-muted" style="font-size:11px;">(every ' + fmtNum(d.status.every) + ' hrs)</span></div>'; }).join("") +
-    '</div>';
-  }
-  if(canAdminMachinery()){
-    html += '<button type="button" class="btn btn-ghost btn-sm" style="margin-top:8px;" onclick="toggleForm(\'checklist_' + m.id + '\')">' + (checklistEditing ? "Cancel" : "Edit service checklist") + '</button>';
-    if(checklistEditing) html += renderMachineChecklistForm(m);
-  }
-
-  // Order (Maria, 2026-10-20): Schedule & history first, then the parts replacement schedule underneath.
-  html += '<div class="stat-label" style="margin-top:18px;">Schedule &amp; history</div>';
+  var html = '';
+  // Order (Maria, 2026-10-20): Schedule & history first, then Due at next service, then the parts replacement schedule.
+  html += '<div class="stat-label">Schedule &amp; history</div>';
   html += renderMachineServiceHistory(m);
   if(canAdminMachinery()){
     html += '<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">' +
@@ -19180,6 +19165,25 @@ function renderMachineServiceScheduleTab(m){
     '</div>';
   }
   if(ui.openForms["setSchedule_" + m.id]) html += renderMaintenanceScheduleForm(m);
+
+  // Order (Maria, 2026-10-20, later): Due at next service sits directly under Schedule & history.
+  var dueHtml = '<div class="stat-label" style="margin-top:18px;">Due at next service</div>';
+  var nextSt = machineServiceStatus(m);
+  var nextParts = nextSt.kind === "hours" ? partsForServiceAt(m, nextSt.target) : [];
+  if(!checklist.length && !nextParts.length){
+    dueHtml += '<div class="empty-state" style="margin-top:6px;">No standard service items set for this machine yet.</div>';
+  } else {
+    dueHtml += '<div style="margin-top:6px;border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden;">' +
+      checklist.map(function(item){ return '<div class="due-checklist-row"><span class="due-checklist-dot"></span>' + esc(item) + '</div>'; }).join("") +
+      nextParts.map(function(d){ return '<div class="due-checklist-row"><span class="due-checklist-dot"></span>Replace ' + esc(d.part.name) + ' <span class="row-muted" style="font-size:11px;">(every ' + fmtNum(d.status.every) + ' hrs)</span></div>'; }).join("") +
+    '</div>';
+  }
+  if(canAdminMachinery()){
+    dueHtml += '<button type="button" class="btn btn-ghost btn-sm" style="margin-top:8px;" onclick="toggleForm(\'checklist_' + m.id + '\')">' + (checklistEditing ? "Cancel" : "Edit service checklist") + '</button>';
+    if(checklistEditing) dueHtml += renderMachineChecklistForm(m);
+  }
+
+  html += dueHtml;
 
   html += renderPartScheduleSection(m);
   return html;
