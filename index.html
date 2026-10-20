@@ -1116,8 +1116,7 @@ const DEFAULT_STATE = {
       "sopsAdmin": false,
       "canViewReceipts": false,
       "active": true,
-      "isAdmin": false,
-      "passcode": ""
+      "isAdmin": false
     },
     {
       "name": "Maria",
@@ -1128,8 +1127,7 @@ const DEFAULT_STATE = {
       "sopsAdmin": false,
       "canViewReceipts": false,
       "active": true,
-      "isAdmin": true,
-      "passcode": ""
+      "isAdmin": true
     },
     {
       "name": "Milo Morris",
@@ -1140,13 +1138,11 @@ const DEFAULT_STATE = {
       "sopsAdmin": false,
       "canViewReceipts": false,
       "active": true,
-      "isAdmin": false,
-      "passcode": ""
+      "isAdmin": false
     }
   ],
   "settings": {
-    "locks": {},
-    "privateAccess": []
+    "locks": {}
   },
   "sidebarConfig": {
     "headings": [
@@ -1166,23 +1162,6 @@ const DEFAULT_STATE = {
     "updatedBy": null
   },
   "dashboardNotes": [],
-  "privateNotes": [],
-  "privateInfo": {
-    "groups": [
-      { "id": "grp_cotton", "title": "Cotton", "fields": [
-        { "id": "fld_cotton_sold", "label": "Bales/tonnes sold", "value": "" },
-        { "id": "fld_cotton_revenue", "label": "Revenue to date", "value": "" },
-        { "id": "fld_cotton_remaining", "label": "Volume still to sell", "value": "" }
-      ]},
-      { "id": "grp_dryland", "title": "Dryland", "fields": [
-        { "id": "fld_dryland_sold", "label": "Tonnes sold", "value": "" },
-        { "id": "fld_dryland_revenue", "label": "Revenue to date", "value": "" },
-        { "id": "fld_dryland_remaining", "label": "Volume remaining", "value": "" }
-      ]}
-    ],
-    "updatedAt": null,
-    "updatedBy": null
-  },
   "receipts": {
     "items": []
   },
@@ -1883,7 +1862,7 @@ const DEFAULT_STATE = {
 // change to this file, same as CACHE_NAME in sw.js -- it gives an instant,
 // no-technical-steps-needed way to confirm whether a given device is
 // actually running the latest deploy, without comparing file contents.
-var APP_BUILD = "2026-10-19.5";
+var APP_BUILD = "2026-10-19.6";
 
 /* ======================================================================
    UTILITIES
@@ -2237,6 +2216,7 @@ async function reconnectNow(manual){
     }
     isOffline = false;
     subscribeRealtime();
+    secureMigrate();
     if(manual && !notice) setNotice("ok", "You're connected and up to date.");
     else render();
   }catch(e){
@@ -2526,13 +2506,226 @@ function canAdminSops(){ var u = currentUser(); return !!(u && (u.isAdmin || u.s
 function canViewReceipts(){ var u = currentUser(); return !!(u && (u.isAdmin || u.canViewReceipts)); }
 // The "Private" section (see renderPrivate()) is visible to admins (so it
 // can always be found and managed, even before anyone's been given access)
-// plus whichever up-to-two people are listed in state.settings.privateAccess.
+// plus whoever is on the Private access list. As of 2026-10-19 that list is
+// kept on the server (see "SERVER-CHECKED ACCESS CODES + PRIVATE DATA"), so
+// the screen only keeps a hint for the person signed in on this device; the
+// server re-checks every time Private data is asked for.
 function canSeePrivateSection(){
   if(isAdmin()) return true;
   var u = currentUser();
-  return !!(u && (state.settings.privateAccess || []).indexOf(u.name) > -1);
+  return !!(u && getLocal(PRIVATE_HINT_KEY) === u.name);
 }
 function isSignedIn(){ return !!(session.name && findTeam(session.name) && findTeam(session.name).active); }
+
+/* ======================================================================
+   SERVER-CHECKED ACCESS CODES + PRIVATE DATA (added 2026-10-19, at Maria's
+   request after an audit showed the Private section and everyone's access
+   codes sat in the shared data every phone downloads).
+   * Access codes are now checked by the server (api/auth.js) against a
+     scrambled copy in a locked table. The shared data only says WHETHER a
+     person has a code (team[].hasCode), never what it is.
+   * Signing in gives the phone a signed "proof" (kept in localStorage for
+     about six months), so people stay signed in -- nobody is asked for a
+     code each time they open the app. The proof is only needed for the
+     server-checked things: Private, and setting access codes.
+   * The Private notes, Cropping Summary and access list live in a locked
+     table and are fetched from api/private.js only for an admin or someone
+     on the access list who also entered their separate Private code. They are
+     held in memory only (never in this phone's saved copy of the data).
+   * Until the one-off database setup (supabase-private-setup.sql) is run,
+     everything here quietly falls back to how the app worked before.
+   ====================================================================== */
+var SESSION_TOKEN_KEY = "bp_session_token";
+var SESSION_TOKEN_NAME_KEY = "bp_session_token_name";
+var SESSION_TOKEN_EXP_KEY = "bp_session_token_exp";
+var PRIVATE_TOKEN_KEY = "bp_private_token";
+var PRIVATE_TOKEN_NAME_KEY = "bp_private_token_name";
+var PRIVATE_TOKEN_EXP_KEY = "bp_private_token_exp";
+var PRIVATE_HINT_KEY = "bp_private_hint";
+var PRIVATE_MIN_CODE = 6;
+
+// Does this person have an access code? (old data: the code itself; new data: just a yes/no flag)
+function codeIsSet(t){ return !!(t && (t.passcode || t.hasCode)); }
+
+function getSessionToken(){
+  var tok = getLocal(SESSION_TOKEN_KEY);
+  if(!tok || !session.name) return null;
+  if(getLocal(SESSION_TOKEN_NAME_KEY) !== session.name) return null;
+  var exp = parseInt(getLocal(SESSION_TOKEN_EXP_KEY) || "0", 10);
+  if(!(exp > Date.now())) return null;
+  return tok;
+}
+function setSessionToken(tok, exp, name){
+  setLocal(SESSION_TOKEN_KEY, tok); setLocal(SESSION_TOKEN_EXP_KEY, String(exp || 0)); setLocal(SESSION_TOKEN_NAME_KEY, name || session.name || "");
+}
+function clearSessionToken(){ removeLocal(SESSION_TOKEN_KEY); removeLocal(SESSION_TOKEN_EXP_KEY); removeLocal(SESSION_TOKEN_NAME_KEY); }
+function getPrivateToken(){
+  var tok = getLocal(PRIVATE_TOKEN_KEY);
+  if(!tok || !session.name) return null;
+  if(getLocal(PRIVATE_TOKEN_NAME_KEY) !== session.name) return null;
+  var exp = parseInt(getLocal(PRIVATE_TOKEN_EXP_KEY) || "0", 10);
+  if(!(exp > Date.now())) return null;
+  return tok;
+}
+function setPrivateToken(tok, exp){ setLocal(PRIVATE_TOKEN_KEY, tok); setLocal(PRIVATE_TOKEN_EXP_KEY, String(exp || 0)); setLocal(PRIVATE_TOKEN_NAME_KEY, session.name || ""); }
+function clearPrivateToken(){ removeLocal(PRIVATE_TOKEN_KEY); removeLocal(PRIVATE_TOKEN_EXP_KEY); removeLocal(PRIVATE_TOKEN_NAME_KEY); }
+function setPrivateHint(allowed){
+  if(allowed && session.name) setLocal(PRIVATE_HINT_KEY, session.name); else removeLocal(PRIVATE_HINT_KEY);
+}
+function clearAllSecureLocal(){ clearSessionToken(); clearPrivateToken(); removeLocal(PRIVATE_HINT_KEY); }
+// Phones that already had the old copy of the data saved keep their place: if this person was on the
+// old Private access list, remember that so the menu item doesn't vanish before they next sign in.
+(function seedPrivateHintFromOldCopy(){
+  try{
+    var who = getLocal("bp_signed_in_name");
+    if(!who || getLocal(PRIVATE_HINT_KEY)) return;
+    var raw = getLocal(CACHE_STATE_KEY);
+    if(!raw || raw.indexOf('"privateAccess"') === -1) return;
+    var d = JSON.parse(raw);
+    var list = d && d.settings && d.settings.privateAccess;
+    if(Array.isArray(list) && list.indexOf(who) > -1) setLocal(PRIVATE_HINT_KEY, who);
+  }catch(e){}
+})();
+
+// Asks the server something. Never throws. Result always has .ok; on failure also one of
+//   .network (couldn't reach it), .notConfigured (setup not done / not uploaded), or .error/.status (it said no).
+async function secureCall(path, payload, timeoutMs){
+  var ctl = (typeof AbortController !== "undefined") ? new AbortController() : null;
+  var timer = setTimeout(function(){ if(ctl) ctl.abort(); }, timeoutMs || 12000);
+  try{
+    var r = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload || {}), signal: ctl ? ctl.signal : undefined, cache: "no-store" });
+    clearTimeout(timer);
+    var j = null;
+    try{ j = await r.json(); }catch(e){ j = null; }
+    if(!j || typeof j.ok === "undefined"){
+      // A 404 means the server function isn't there at all (not uploaded yet, or a plain web server): "not set up".
+      // Anything else that isn't our JSON (a gateway error, a timeout page...) is just "couldn't reach it" -- it must
+      // never be mistaken for "not set up", because that would switch back to the old plain-text way of saving codes.
+      if(r.status === 404) return { ok: false, notConfigured: true, status: r.status };
+      return { ok: false, network: true, status: r.status, error: "Couldn't reach the server." };
+    }
+    j.status = r.status;
+    return j;
+  }catch(e){
+    clearTimeout(timer);
+    return { ok: false, network: true, error: "Couldn't reach the server." };
+  }
+}
+
+// Gets a sign-in proof without asking, for people who have no access code. (Returns null if one is needed.)
+async function obtainTokenSilently(){
+  var existing = getSessionToken();
+  if(existing) return existing;
+  var u = currentUser();
+  if(!u || codeIsSet(u)) return null;
+  var r = await secureCall("/api/auth", { action: "signin", name: u.name, code: "" });
+  if(r.ok && r.token){ setSessionToken(r.token, r.exp, r.name); setPrivateHint(r.canPrivate); return r.token; }
+  return null;
+}
+
+// One-off tidy-up, run quietly the first time the app is open with a connection: the server moves plain-text
+// access codes and the Private data out of the shared data, then this phone swaps to the cleaned copy.
+var secureMigrateStarted = false;
+var secretsScrubbed = false;
+function stateHasLegacySecrets(){
+  if(!state) return false;
+  if(state.privateNotes !== undefined || state.privateInfo !== undefined || (state.settings && state.settings.privateAccess !== undefined)) return true;
+  return (state.team || []).some(function(t){ return t && Object.prototype.hasOwnProperty.call(t, "passcode"); });
+}
+function scrubLegacySecretsFrom(obj){
+  if(!obj || typeof obj !== "object") return;
+  delete obj.privateNotes; delete obj.privateInfo; delete obj.privateSpreadsheetSummary;
+  if(obj.settings) delete obj.settings.privateAccess;
+  (obj.team || []).forEach(function(t){
+    if(!t) return;
+    if(t.passcode) t.hasCode = true;
+    delete t.passcode;
+  });
+}
+function scrubLegacySecretsInMemory(){ scrubLegacySecretsFrom(state); }
+async function secureMigrate(){
+  if(secureMigrateStarted || !booted || isOffline || !state) return;
+  secureMigrateStarted = true;
+  var r = await secureCall("/api/auth", { action: "migrate" }, 20000);
+  if(!r.ok){ secureMigrateStarted = false; return; }       // not set up yet (or no signal): try again next time the app opens
+  if(!stateHasLegacySecrets() && !(r.migrated && (r.migrated.stripped || r.migrated.moved))){ secretsScrubbed = true; return; }
+  // Pick up the cleaned copy from the server if nothing of ours is waiting to be saved; otherwise just clean our own copy.
+  try{
+    if(supabaseClient && savesInFlight === 0 && !hasPendingOfflineEdits()){
+      var res = await supabaseClient.from("app_state").select("data,version").eq("id", "main").maybeSingle();
+      if(!res.error && res.data && typeof res.data.version === "number" && res.data.version >= stateVersion && savesInFlight === 0 && !hasPendingOfflineEdits()){
+        state = res.data.data; stateVersion = res.data.version; isNewRow = false;
+      }
+    }
+  }catch(e){}
+  if(stateHasLegacySecrets()) scrubLegacySecretsInMemory();
+  secretsScrubbed = true;
+  if(savesInFlight === 0){
+    if(hasPendingOfflineEdits()){ setLocal(PENDING_STATE_KEY, JSON.stringify(state)); }
+    else cacheGoodState();
+  }
+  scrubStoredCopies();
+  render();
+}
+// Old private notes / codes can also sit in this phone's kept copy of unsynced offline edits or of a clash: clean those too.
+function scrubStoredCopies(){
+  var marker = /"privateNotes"|"privateInfo"|"privateAccess"|"passcode"/;
+  try{
+    var pend = getLocal(PENDING_STATE_KEY);
+    if(pend && marker.test(pend)){ var ps = JSON.parse(pend); scrubLegacySecretsFrom(ps); setLocal(PENDING_STATE_KEY, JSON.stringify(ps)); }
+  }catch(e){}
+  try{
+    var cf = getLocal(CONFLICT_KEY);
+    if(cf && marker.test(cf)){ var co = JSON.parse(cf); if(co && co.state) scrubLegacySecretsFrom(co.state); setLocal(CONFLICT_KEY, JSON.stringify(co)); if(offlineConflict && offlineConflict.state) scrubLegacySecretsFrom(offlineConflict.state); }
+  }catch(e){}
+}
+// Keeps the "can this person open Private" hint fresh and drops a proof the server no longer accepts.
+async function secureRefreshWho(){
+  var tok = getSessionToken();
+  if(!tok || isOffline) return;
+  var r = await secureCall("/api/auth", { action: "whoami", token: tok });
+  if(r.ok){ var was = canSeePrivateSection(); setPrivateHint(r.canPrivate); if(was !== canSeePrivateSection()) render(); }
+  else if(r.needReauth || r.status === 401){ clearSessionToken(); }
+}
+
+/* "Confirm it's you" card: shown when something needs the server's proof of who you are
+   (opening Private, setting someone's access code) and this phone doesn't have one yet --
+   e.g. you signed in before this update. Ask once; then it's remembered for months. */
+function askReauth(reason, resume){
+  ui.reauth = { reason: reason || "", error: "", busy: false, resume: resume || null };
+  render();
+}
+function cancelReauth(){ var cb = ui.reauth && ui.reauth.onCancel; ui.reauth = null; render(); if(cb) cb(); }
+function renderReauthCard(){
+  var ra = ui.reauth;
+  if(!ra) return "";
+  return '<div class="card" style="max-width:460px;margin-bottom:16px;">' +
+    '<h3 style="margin:0 0 4px;">Confirm it&rsquo;s you</h3>' +
+    '<p class="row-muted" style="margin:0 0 12px;font-size:12.5px;">' + esc(ra.reason || "Please enter your access code.") + ' You&rsquo;ll only be asked again if you sign out or after a few months.</p>' +
+    (ra.error ? '<div class="signin-error" style="margin-bottom:10px;">' + esc(ra.error) + '</div>' : '') +
+    '<form onsubmit="submitReauth(event)" autocomplete="off">' +
+      '<div class="field"><label>Your access code</label><input type="password" name="code" autocomplete="current-password" required /></div>' +
+      '<div class="form-actions"><button type="submit" class="btn btn-primary" style="width:auto;"' + (ra.busy ? ' disabled' : '') + '>' + (ra.busy ? "Checking…" : "Confirm") + '</button>' +
+      '<button type="button" class="btn btn-ghost" onclick="cancelReauth()">Cancel</button></div>' +
+    '</form></div>';
+}
+async function submitReauth(e){
+  e.preventDefault();
+  var ra = ui.reauth, u = currentUser();
+  if(!ra || !u || ra.busy) return;
+  var code = e.target.code.value;
+  ra.busy = true; ra.error = ""; render();
+  var r = await secureCall("/api/auth", { action: "signin", name: u.name, code: code });
+  if(r.ok && r.token){
+    setSessionToken(r.token, r.exp, r.name); setPrivateHint(r.canPrivate);
+    var resume = ra.resume; ui.reauth = null; render();
+    if(resume) resume();
+    return;
+  }
+  ra.busy = false;
+  ra.error = r.network ? "Couldn't reach the server -- check your connection and try again." : r.notConfigured ? "The server check isn't set up yet. Ask an admin to finish the one-off setup." : (r.error || "That didn't work. Try again.");
+  render();
+}
 
 /* ======================================================================
    SUPABASE — the shared database backing this app. See config.js for the
@@ -2671,6 +2864,7 @@ async function boot(){
   if(session.name && !(findTeam(session.name) && findTeam(session.name).active)){
     session.name = null;
     removeLocal("bp_signed_in_name");
+    clearAllSecureLocal();
   }
   // one-time migration: jobs saved before the Irrigation/Dryland/Livestock/General
   // split get a sensible default area so nothing disappears from view.
@@ -13488,39 +13682,9 @@ async function boot(){
     state.bulls.bullsImportV1 = true;
     migrated = true;
   }
-  // one-time migration: the Private section's old fixed-shape "Spreadsheet
-  // Summary" card (Cotton/Dryland with three set fields each) was replaced
-  // with a fully editable set of headings/fields, at Maria's request ("Can
-  // you please make the private section fully editable including creating
-  // new headings, names, information etc"). Converts anything already
-  // typed into the old card into the new shape so nothing already entered
-  // is lost. Guarded so it only ever runs once.
-  if(!state.settings.privateInfoMigratedV1){
-    if(!state.privateInfo){
-      var oldSummary = state.privateSpreadsheetSummary || {};
-      var oldCotton = oldSummary.cotton || {};
-      var oldDryland = oldSummary.dryland || {};
-      state.privateInfo = {
-        groups: [
-          { id: "grp_cotton", title: "Cotton", fields: [
-            { id: "fld_cotton_sold", label: "Bales/tonnes sold", value: oldCotton.volumeSold || "" },
-            { id: "fld_cotton_revenue", label: "Revenue to date", value: oldCotton.revenueToDate || "" },
-            { id: "fld_cotton_remaining", label: "Volume still to sell", value: oldCotton.volumeRemaining || "" }
-          ]},
-          { id: "grp_dryland", title: "Dryland", fields: [
-            { id: "fld_dryland_sold", label: "Tonnes sold", value: oldDryland.volumeSold || "" },
-            { id: "fld_dryland_revenue", label: "Revenue to date", value: oldDryland.revenueToDate || "" },
-            { id: "fld_dryland_remaining", label: "Volume remaining", value: oldDryland.volumeRemaining || "" }
-          ]}
-        ],
-        updatedAt: oldSummary.updatedAt || null,
-        updatedBy: oldSummary.updatedBy || null
-      };
-    }
-    delete state.privateSpreadsheetSummary;
-    state.settings.privateInfoMigratedV1 = true;
-    migrated = true;
-  }
+  // (The Private section's data no longer lives in this shared state at all --
+  // see "SERVER-CHECKED ACCESS CODES + PRIVATE DATA" -- so the old one-time
+  // Private card migration that used to run here is gone.)
   // one-time seed: Silo Storage (2026-10-16) starts with the silos and tonnes from
   // Maria's "Silo Storage App.xlsx" (opening balances dated 1 Feb 2026). Runs once.
   if(!state.settings.siloSeedV1){
@@ -13706,6 +13870,8 @@ async function boot(){
   if(migrated){ persist(); } else { render(); }
   if(hasPendingOfflineEdits()){ attemptOfflineSync(); }
   retryPendingHarvestEmails();
+  secureMigrate();
+  secureRefreshWho();
 }
 
 function bootOffline(){
@@ -14152,7 +14318,7 @@ function attachSignInHandlers(){
   var codeInput = document.getElementById("signin-code");
   nameSel.addEventListener("change", function(){ signinSelectedName = nameSel.value; });
   if(signinFocusCode && codeInput){ codeInput.focus(); signinFocusCode = false; }
-  form.addEventListener("submit", function(e){
+  form.addEventListener("submit", async function(e){
     e.preventDefault();
     var name = nameSel.value;
     var code = codeInput.value;
@@ -14163,24 +14329,75 @@ function attachSignInHandlers(){
       render();
       return;
     }
-    if(member.passcode && member.passcode !== code){
-      signinError = "That access code doesn't match. Try again or ask an admin to reset it.";
+    var finish = function(){
+      signinError = "";
+      signinSelectedName = "";
+      session.name = member.name;
+      setLocal("bp_signed_in_name", member.name);
+      // A harvest-only member always lands straight on Harvest Dockets (their
+      // only section) rather than whatever ui.section was left on from before
+      // -- renderSection() would redirect them there anyway, but setting it
+      // here too keeps the sidebar's "active" highlight and the mobile back
+      // bar's title correct from the very first render after signing in.
+      if(!isSectionAllowed(ui.section)) ui.section = fallbackSection();
+      render();
+      refreshPushSubscriptionStatus();
+      secureMigrate();
+    };
+    var badCode = function(msg){
+      signinError = msg || "That access code doesn't match. Try again or ask an admin to reset it.";
       signinFocusCode = true;
       render();
+    };
+    // Old-style data (the one-off server setup hasn't moved the codes yet): the code is still in
+    // the shared data, so check it here exactly as before -- and quietly try the server too, which
+    // also starts the move and gives this phone its sign-in proof.
+    if(member.passcode){
+      if(member.passcode === code){
+        session.name = member.name;
+        finish();
+        secureCall("/api/auth", { action: "signin", name: member.name, code: code }).then(function(r){
+          if(r.ok && r.token){ setSessionToken(r.token, r.exp, r.name); setPrivateHint(r.canPrivate); render(); }
+        });
+        return;
+      }
+      // Doesn't match this phone's copy -- the code may have been changed since (the copy can be a little
+      // behind), so let the server have the final say before refusing.
+      var rr = await secureCall("/api/auth", { action: "signin", name: member.name, code: code });
+      if(rr.ok && rr.token){ session.name = member.name; setSessionToken(rr.token, rr.exp, rr.name); setPrivateHint(rr.canPrivate); finish(); return; }
+      badCode(rr.status === 429 ? rr.error : "");
       return;
     }
-    signinError = "";
-    signinSelectedName = "";
-    session.name = member.name;
-    setLocal("bp_signed_in_name", member.name);
-    // A harvest-only member always lands straight on Harvest Dockets (their
-    // only section) rather than whatever ui.section was left on from before
-    // -- renderSection() would redirect them there anyway, but setting it
-    // here too keeps the sidebar's "active" highlight and the mobile back
-    // bar's title correct from the very first render after signing in.
-    if(!isSectionAllowed(ui.section)) ui.section = fallbackSection();
+    // Nobody with no access code is ever kept waiting on the network: straight in, and the server proof is fetched quietly.
+    if(!codeIsSet(member)){
+      clearSessionToken();
+      finish();
+      secureCall("/api/auth", { action: "signin", name: member.name, code: "" }).then(function(r){
+        if(r.ok && r.token){ setSessionToken(r.token, r.exp, r.name); setPrivateHint(r.canPrivate); render(); }
+        else if(r.badCode){
+          // the server says this person DOES have a code (this phone's copy was out of date) -- ask for it
+          session.name = null; removeLocal("bp_signed_in_name"); clearAllSecureLocal();
+          signinSelectedName = member.name; signinError = "An access code is needed for " + member.name + ". Enter it to sign in."; signinFocusCode = true; render();
+        }
+      });
+      return;
+    }
+    var btn = form.querySelector("button[type=submit]");
+    if(btn){ btn.disabled = true; btn.textContent = "Checking\u2026"; }
+    var r = await secureCall("/api/auth", { action: "signin", name: member.name, code: code });
+    if(r.ok && r.token){
+      session.name = member.name;
+      setSessionToken(r.token, r.exp, r.name);
+      setPrivateHint(r.canPrivate);
+      finish();
+      return;
+    }
+    if(r.badCode || r.status === 401 || r.status === 429){ badCode(r.error); return; }
+    // The server couldn't be asked (no signal, or the one-off setup isn't done): people with a code need a
+    // connection so it can be checked.
+    signinError = r.notConfigured ? "Your access code can't be checked yet -- ask an admin to finish the server setup." : "Can't check your access code without a connection. Try again when you have signal.";
+    signinFocusCode = true;
     render();
-    refreshPushSubscriptionStatus();
   });
 }
 /* Employees changing their own access code (added 2026-10-13, at Maria's
@@ -14201,33 +14418,62 @@ function renderChangeCodePanel(){
     '<p class="row-muted" style="margin:0 0 12px;font-size:12.5px;">Pick something you can remember, at least ' + MIN_CODE_LENGTH + ' characters. An admin can still reset it for you if you forget it.</p>' +
     (ui.changeCodeError ? '<div class="signin-error" style="margin-bottom:10px;">' + esc(ui.changeCodeError) + '</div>' : '') +
     '<form onsubmit="saveMyCode(event)" autocomplete="off">' +
-      (u.passcode ? '<div class="field"><label>Current code</label><input type="password" name="current" autocomplete="off" required /></div>' : '') +
+      (codeIsSet(u) ? '<div class="field"><label>Current code</label><input type="password" name="current" autocomplete="off" required /></div>' : '') +
       '<div class="field"><label>New code</label><input type="password" name="newCode" autocomplete="new-password" required /></div>' +
       '<div class="field"><label>New code again</label><input type="password" name="newCode2" autocomplete="new-password" required /></div>' +
       '<div class="form-actions"><button type="submit" class="btn btn-primary" style="width:auto;">Save new code</button>' +
       '<button type="button" class="btn btn-ghost" onclick="toggleChangeMyCode()">Cancel</button></div>' +
     '</form></div>';
 }
-function saveMyCode(e){
+async function saveMyCode(e){
   e.preventDefault();
   var u = currentUser();
   if(!u) return;
   var f = e.target;
   var fail = function(msg){ ui.changeCodeError = msg; render(); };
-  if(u.passcode && f.current.value !== u.passcode) return fail("Your current code doesn't match.");
+  var current = f.current ? f.current.value : "";
   var a = f.newCode.value, b = f.newCode2.value;
   if(a.trim().length < MIN_CODE_LENGTH) return fail("The new code needs at least " + MIN_CODE_LENGTH + " characters (not counting spaces at the ends).");
   if(a !== b) return fail("The two new codes don't match.");
-  if(a === u.passcode) return fail("That's the same as your current code.");
-  u.passcode = a.trim();
-  ui.changeCodeError = "";
-  ui.openForms.changeMyCode = false;
-  persist();
-  setNotice("ok", "Your access code has been changed. Use the new one next time you sign in.");
+  // (If this phone's copy of the old code is a little behind, the server has the final say below.)
+  if(u.passcode && a.trim() === u.passcode) return fail("That's the same as your current code.");
+  if(current && a.trim() === current.trim()) return fail("That's the same as your current code.");
+  var btn = f.querySelector("button[type=submit]");
+  if(btn){ btn.disabled = true; btn.textContent = "Saving\u2026"; }
+  // a person with no code yet proves who they are with their sign-in proof (fetched quietly)
+  var proof = codeIsSet(u) ? undefined : (getSessionToken() || await obtainTokenSilently() || undefined);
+  var r = await secureCall("/api/auth", { action: "changeOwnCode", name: u.name, current: current, newCode: a.trim(), token: proof });
+  if(r.ok){
+    if(r.token) setSessionToken(r.token, r.exp, u.name);
+    delete u.passcode;
+    u.hasCode = true;
+    ui.changeCodeError = "";
+    ui.openForms.changeMyCode = false;
+    persist();
+    setNotice("ok", "Your access code has been changed. Use the new one next time you sign in.");
+    return;
+  }
+  if(r.network) return fail("Changing your code needs an internet connection. Try again when you have signal.");
+  if(r.needReauth){ clearSessionToken(); return fail("Please sign out and sign in again, then change your code."); }
+  if(r.notConfigured){
+    // The server check isn't set up yet: old behaviour (only possible while codes are still in the shared data).
+    if(codeIsSet(u) && !u.passcode) return fail("Your code can't be changed until the server setup is finished. Ask an admin.");
+    if(u.passcode && current !== u.passcode) return fail("Your current code doesn't match.");
+    u.passcode = a.trim();
+    ui.changeCodeError = "";
+    ui.openForms.changeMyCode = false;
+    persist();
+    setNotice("ok", "Your access code has been changed. Use the new one next time you sign in.");
+    return;
+  }
+  fail(r.error || "That didn't work. Try again.");
 }
 function signOut(){
   session.name = null;
   removeLocal("bp_signed_in_name");
+  clearAllSecureLocal();
+  pvReset();
+  ui.reauth = null;
   ui.section = "dashboard";
   ui.mobileMenuOpen = true;
   // Forget this session's screen history so the next sign-in starts a fresh
@@ -14496,7 +14742,7 @@ function renderShell(){
         '<button type="button" class="signout-btn" onclick="signOut()">Sign out</button>' +
       '</div>' +
     '</nav>' +
-    '<main>' + renderMobileBackBar() + renderOfflineBanner() + renderNotice() + (ui.openForms.changeMyCode ? renderChangeCodePanel() : "") + renderSection() + '</main>' +
+    '<main>' + renderMobileBackBar() + renderOfflineBanner() + renderNotice() + renderReauthCard() + (ui.openForms.changeMyCode ? renderChangeCodePanel() : "") + renderSection() + '</main>' +
   '</div>';
 }
 
@@ -23903,7 +24149,7 @@ function renderTeam(){
           (t.sopsAdmin ? '<span>Full access: Operating Procedures</span>' : '') +
           (t.canViewReceipts ? '<span>Can view receipts</span>' : '') +
           (t.canUseFuel ? '<span>Can use Fuel Storage</span>' : '') +
-          '<span>Code: ' + (t.passcode ? '<code class="access-code">set</code>' : '<em>none</em>') + '</span>' +
+          '<span>Code: ' + (codeIsSet(t) ? '<code class="access-code">set</code>' : '<em>none</em>') + '</span>' +
         '</div></div></div>' +
       '<div style="display:flex;gap:6px;">' +
         '<button type="button" class="btn btn-ghost btn-sm" onclick="ui.editing.staff=\'' + escAttr(t.name) + '\';render();">Edit</button>' +
@@ -24191,7 +24437,9 @@ function renderStaffForm(existing){
     '<h4>' + (existing ? "Edit " + esc(existing.name) : "New staff member") + '</h4>' +
     '<div class="form-grid">' +
       '<div class="field"><label>Name</label><input type="text" name="name" required value="' + escAttr(existing ? existing.name : "") + '" /></div>' +
-      '<div class="field"><label>Access code (optional)</label><input type="text" name="passcode" value="' + escAttr(existing ? existing.passcode : "") + '" placeholder="Leave blank for no code" /></div>' +
+      '<div class="field"><label>' + (existing && codeIsSet(existing) ? 'New access code' : 'Access code (optional)') + '</label><input type="text" name="passcode" value="" autocomplete="off" placeholder="' + (existing && codeIsSet(existing) ? 'Leave blank to keep their current code' : 'Leave blank for no code') + '" />' +
+        (existing && codeIsSet(existing) ? '<label style="display:flex;gap:6px;align-items:center;margin-top:6px;text-transform:none;font-weight:400;font-size:12.5px;"><input type="checkbox" name="removeCode" /> Remove their code (they could then sign in without one)</label>' : '') +
+      '</div>' +
       '<div class="checkbox-row field"><input type="checkbox" name="active" id="active_cb" ' + (!existing || existing.active ? 'checked' : '') + ' /><label for="active_cb" style="text-transform:none;font-weight:400;">Active (can sign in)</label></div>' +
       '<div class="checkbox-row field"><input type="checkbox" name="isAdmin" id="admin_cb" ' + (existing && existing.isAdmin ? 'checked' : '') + ' /><label for="admin_cb" style="text-transform:none;font-weight:400;">Admin (Team page + edit reference content)</label></div>' +
       '<div class="checkbox-row field"><input type="checkbox" name="canAllocate" id="alloc_cb" ' + (existing && existing.canAllocate ? 'checked' : '') + ' /><label for="alloc_cb" style="text-transform:none;font-weight:400;">Can allocate jobs to others</label></div>' +
@@ -24207,18 +24455,85 @@ function renderStaffForm(existing){
     '<button type="button" class="btn btn-ghost" onclick="' + (existing ? "ui.editing.staff=null;render();" : "toggleForm('newStaff')") + '">Cancel</button></div>' +
   '</form></div>';
 }
-function saveStaff(e, origName){
+async function saveStaff(e, origName){
   e.preventDefault();
   var f = e.target;
   var name = f.name.value.trim();
   if(!name) return;
-  var data = { name: name, passcode: f.passcode.value.trim(), active: f.active.checked, isAdmin: f.isAdmin.checked, canAllocate: f.canAllocate.checked, harvestOnly: f.harvestOnly.checked, limitedAccess: !!(f.limitedAccess && f.limitedAccess.checked), canAddParts: f.canAddParts.checked, machineryAdmin: f.machineryAdmin.checked, sopsAdmin: f.sopsAdmin.checked, canViewReceipts: f.canViewReceipts.checked, canUseFuel: !!(f.canUseFuel && f.canUseFuel.checked) };
+  var typed = f.passcode.value.trim();
+  var removeIt = !!(f.removeCode && f.removeCode.checked);
+  if(typed && typed.length < MIN_CODE_LENGTH){ alert("An access code needs at least " + MIN_CODE_LENGTH + " characters."); return; }
+  var data = { name: name, active: f.active.checked, isAdmin: f.isAdmin.checked, canAllocate: f.canAllocate.checked, harvestOnly: f.harvestOnly.checked, limitedAccess: !!(f.limitedAccess && f.limitedAccess.checked), canAddParts: f.canAddParts.checked, machineryAdmin: f.machineryAdmin.checked, sopsAdmin: f.sopsAdmin.checked, canViewReceipts: f.canViewReceipts.checked, canUseFuel: !!(f.canUseFuel && f.canUseFuel.checked) };
+  if(findTeam(name) && name !== origName){ alert("Someone with that name is already on the team."); return; }
+  var t = origName ? findTeam(origName) : null;
+  var renamed = !!(t && origName !== name);
+  // Access codes (and a person's Private code / access-list entry, which follow their name) live on the server,
+  // so setting a code or renaming someone goes through it.
+  var needServer = !!typed || removeIt || renamed;
+  var codeResult = null;
+  if(needServer){
+    var tok = getSessionToken() || await obtainTokenSilently();
+    if(!tok){
+      // Is the server check even set up? If not, codes are still kept the old way and no proof is needed.
+      var probe = await secureCall("/api/auth", { action: "status" });
+      if(probe.notConfigured){ codeResult = { ok: true, legacy: true }; }
+      else if(probe.network){ alert("Setting access codes needs an internet connection. Nothing was saved -- try again when you have signal."); return; }
+      else {
+        askReauth("To set or change access codes, confirm your own access code.", function(){ saveStaffAgain(origName, name, data, typed, removeIt); });
+        return;
+      }
+    } else {
+      codeResult = await sendStaffCode(tok, origName, name, typed, removeIt, renamed);
+      if(codeResult.needReauth){
+        clearSessionToken();
+        askReauth("To set or change access codes, confirm your own access code.", function(){ saveStaffAgain(origName, name, data, typed, removeIt); });
+        return;
+      }
+      if(codeResult.error){ alert(codeResult.error); return; }
+    }
+  } else if(!origName && getSessionToken()){
+    // a new person with no code: clear out any leftover code from someone who used to have this name (best effort)
+    secureCall("/api/auth", { action: "setCode", token: getSessionToken(), name: name, remove: true });
+  }
+  applyStaffSave(origName, name, data, typed, removeIt, codeResult);
+}
+function saveStaffAgain(origName, name, data, typed, removeIt){
+  var t = origName ? findTeam(origName) : null;
+  var renamed = !!(t && origName !== name);
+  var tok = getSessionToken();
+  if(!tok){ alert("Couldn't confirm who you are. Please try saving again."); return; }
+  sendStaffCode(tok, origName, name, typed, removeIt, renamed).then(function(res){
+    if(res.error){ alert(res.error); return; }
+    if(res.needReauth){ clearSessionToken(); alert("Couldn't confirm who you are. Please try saving again."); return; }
+    applyStaffSave(origName, name, data, typed, removeIt, res);
+  });
+}
+// Returns {ok, hasCode, legacy} or {needReauth} or {error}
+async function sendStaffCode(tok, origName, name, typed, removeIt, renamed){
+  var r = await secureCall("/api/auth", { action: "setCode", token: tok, name: name, oldName: renamed ? origName : undefined, code: typed || undefined, remove: removeIt || undefined });
+  if(r.ok){ if(r.token) setSessionToken(r.token, r.exp, r.name || name); return { ok: true, hasCode: !!r.hasCode }; }
+  if(r.needReauth || r.status === 401) return { needReauth: true };
+  if(r.notConfigured) return { ok: true, legacy: true };      // server check not set up yet: old way (code kept in the shared data)
+  if(r.network) return { error: "Setting access codes needs an internet connection. Nothing was saved -- try again when you have signal." };
+  return { error: r.error || "Couldn't save the access code. Nothing was saved." };
+}
+function applyStaffSave(origName, name, data, typed, removeIt, codeResult){
+  if(codeResult && codeResult.legacy){
+    data.passcode = removeIt ? "" : typed;       // old way, only while the server setup isn't done
+  } else if(codeResult && codeResult.ok){
+    data.hasCode = !!codeResult.hasCode;
+  }
   if(origName){
     var t = findTeam(origName);
+    if(!t){ return; }
     var wasActive = t.active;
+    // a code now kept on the server must not linger in the old plain-text field
+    if(codeResult && codeResult.ok && !codeResult.legacy) delete t.passcode;
     Object.assign(t, data);
     if(wasActive && !data.active) dropPushSubscriptionsFor(origName);
-    if(origName === session.name && origName !== name){ session.name = name; setLocal("bp_signed_in_name", name); }
+    if(origName === session.name && origName !== name){
+      session.name = name; setLocal("bp_signed_in_name", name);
+    }
     ui.editing.staff = null;
   } else {
     if(findTeam(name)){ alert("Someone with that name is already on the team."); return; }
@@ -24244,6 +24559,9 @@ function removeStaff(name){
   var idx = state.team.findIndex(function(t){ return t.name === name; });
   if(idx > -1) state.team.splice(idx, 1);
   dropPushSubscriptionsFor(name);
+  // also forget their access code and Private access on the server (best effort -- if this phone has no proof yet it is skipped)
+  var tok = getSessionToken();
+  if(tok) secureCall("/api/auth", { action: "setCode", token: tok, name: name, remove: true, forget: true });
   persist();
 }
 
@@ -24251,26 +24569,321 @@ function removeStaff(name){
    PRIVATE -- a section visible only to a chosen pair of people (plus
    admins, so it can always be found and managed), at Maria's request ("Can
    you create a section in the app that is only for 2 people to look at").
-   She hadn't decided who the two people are or what goes in it yet, so
-   this sets up just the access control (an admin-managed allow-list of up
-   to two team members, in state.settings.privateAccess) plus a private
-   notes log to fill it with a working example, similar in shape to the
-   Dashboard Notes board and the per-bull note log -- swap in something
-   else later once there's a clearer idea of what belongs here.
-   IMPORTANT LIMITATION (told to Maria before building this): this app
-   keeps all of its data in one shared blob every signed-in device
-   downloads (that's what makes offline mode and instant sync work), so
-   this only hides the section in the app's own interface for everyone but
-   the two chosen people (and admins) -- it is not a guarantee the
-   underlying data never reaches another device, the same trust level as
-   every other admin-gated feature in this app.
+   Since 2026-10-19 this is genuinely protected, not just hidden: the notes,
+   the Cropping Summary and the access list are kept in a locked database
+   table and only handed over by the server (api/private.js) to an admin or
+   listed person who has (1) a valid sign-in proof and (2) entered their own
+   separate Private code. Nothing here is saved in the shared app data or in
+   this phone's saved copy -- it is held in memory while the page is open and
+   fetched again next time. (Before that, it sat in the shared data every
+   signed-in device downloaded and was only hidden by the screens.)
+   Private needs a connection to open (it is not available offline).
    ====================================================================== */
+var PV = null;
+function pvReset(){
+  PV = { status: "idle", data: null, base: null, version: 0, error: "", hasCode: null, access: [], withCode: [], isAdminSrv: false,
+         saving: false, dirty: false, unsaved: false, loadedAt: 0, refreshing: false, formError: "", accessError: "", busy: false, showChange: false };
+}
+pvReset();
+function pvTokens(){ return { token: getSessionToken(), ptoken: getPrivateToken() }; }
+function pvBack(){ PV.status = "idle"; render(); }
+
+// Work out where we are: need a proof? need the Private code? then fetch.
+async function pvOpen(){
+  if(PV.status === "loading") return;
+  PV.status = "loading"; PV.error = ""; render();
+  var tok = getSessionToken() || await obtainTokenSilently();
+  if(!tok){
+    // Is the server check even set up (or reachable)? Say so plainly rather than asking for a code that can't be checked.
+    var probe = await secureCall("/api/auth", { action: "status" });
+    if(probe.notConfigured){ PV.status = "needsSetup"; render(); return; }
+    if(probe.network){ PV.status = "offline"; render(); return; }
+    PV.status = "needsSignin"; render();
+    askReauth("To open Private, confirm your access code.", function(){ PV.status = "idle"; render(); });
+    ui.reauth.onCancel = function(){ PV.status = "needsSignin"; render(); };
+    return;
+  }
+  var a = await secureCall("/api/private", { action: "access", token: tok, ptoken: getPrivateToken() });
+  if(!a.ok){ return pvFail(a); }
+  setPrivateHint(!!a.allowed);
+  if(!a.allowed){ PV.status = "denied"; render(); return; }
+  PV.hasCode = !!a.hasCode;
+  if(a.unlocked){ await pvFetch(false); return; }
+  clearPrivateToken();
+  if(!a.hasCode && a.hasStaffCode === false){ PV.status = "needsStaffCode"; render(); return; }
+  PV.status = "locked"; PV.formError = ""; render();
+}
+function pvFail(r){
+  if(r.needReauth || (r.status === 401 && !r.needUnlock && !r.badCode)){ clearSessionToken(); PV.status = "needsSignin"; render(); return; }
+  if(r.needUnlock){ clearPrivateToken(); PV.status = "locked"; PV.formError = ""; render(); return; }
+  if(r.denied){ setPrivateHint(false); PV.status = "denied"; render(); return; }
+  if(r.needStaffCode){ PV.status = "needsStaffCode"; render(); return; }
+  if(r.notConfigured){ PV.status = "needsSetup"; render(); return; }
+  if(r.network){ PV.status = "offline"; render(); return; }
+  PV.status = "error"; PV.error = r.error || "Something went wrong opening Private."; render();
+}
+async function pvFetch(quiet){
+  var t = pvTokens();
+  PV.loadedAt = Date.now();
+  var r = await secureCall("/api/private", { action: "get", token: t.token, ptoken: t.ptoken });
+  if(!r.ok){
+    if(quiet && r.network) return;                  // a failed background refresh just keeps what's on screen
+    return pvFail(r);
+  }
+  // never replace what's on screen while edits are still waiting to be saved -- save them instead (they are
+  // combined with anything newer on the server)
+  if(PV.saving || PV.dirty || PV.unsaved){
+    if(!quiet && PV.data){ PV.status = "ready"; PV.dirty = true; render(); pvSaveLoop(); }
+    return;
+  }
+  PV.data = { privateNotes: Array.isArray(r.notes) ? r.notes : [], privateInfo: (r.info && typeof r.info === "object") ? r.info : { groups: [] } };
+  if(!PV.data.privateInfo.groups) PV.data.privateInfo.groups = [];
+  PV.base = deepClone(PV.data);
+  PV.version = r.version;
+  PV.isAdminSrv = !!r.isAdmin;
+  PV.access = r.access || [];
+  PV.withCode = r.withCode || [];
+  PV.status = "ready";
+  render();
+}
+async function pvUnlock(e){
+  e.preventDefault();
+  if(PV.busy) return;
+  var f = e.target, code = f.pcode.value;
+  var creating = !PV.hasCode;
+  if(creating){
+    if(code.trim().length < PRIVATE_MIN_CODE){ PV.formError = "The Private code needs at least " + PRIVATE_MIN_CODE + " characters."; render(); return; }
+    if(code !== f.pcode2.value){ PV.formError = "The two codes don't match."; render(); return; }
+  }
+  PV.busy = true; PV.formError = ""; render();
+  var tok = getSessionToken();
+  var r = await secureCall("/api/private", { action: "unlock", token: tok, pcode: code, create: creating || undefined });
+  PV.busy = false;
+  if(r.ok && r.needsCreate){ PV.hasCode = false; PV.formError = "No Private code has been set yet -- create one below."; render(); return; }
+  if(r.ok && r.ptoken){
+    setPrivateToken(r.ptoken, r.exp);
+    PV.hasCode = true;
+    if(PV.unsaved && PV.data){ PV.status = "ready"; PV.dirty = true; render(); pvSaveLoop(); return; }
+    await pvFetch(false);
+    return;
+  }
+  if(r.badCode || r.status === 400 || r.status === 409 || r.status === 429){ PV.formError = r.error || "That didn't work."; render(); return; }
+  if(r.needReauth){ return pvFail(r); }
+  if(r.network){ PV.formError = "Couldn't reach the server -- check your connection and try again."; render(); return; }
+  if(r.notConfigured || r.denied){ return pvFail(r); }
+  PV.formError = r.error || "That didn't work."; render();
+}
+function pvLock(){
+  if((PV.unsaved || PV.dirty || PV.saving) && !confirm("Some of your changes in Private haven't been saved yet. Lock anyway and lose them?")) return;
+  clearPrivateToken();
+  PV.status = "locked"; PV.data = null; PV.base = null; PV.unsaved = false; PV.dirty = false; PV.formError = ""; PV.showChange = false;
+  render();
+}
+
+// Saving: the whole notes + summary copy is sent with the version we last saw. If somebody else saved first the
+// server sends its latest and the two are combined (same three-way merge the main app uses), then saved again.
+function persistPrivate(){
+  render();
+  PV.dirty = true;
+  if(!PV.saving) pvSaveLoop();
+}
+async function pvSaveLoop(){
+  if(PV.saving) return;
+  PV.saving = true;
+  try{
+    for(var attempt = 0; attempt < 6 && PV.dirty && PV.data; attempt++){
+      PV.dirty = false;
+      var snapshot = deepClone(PV.data);
+      var t = pvTokens();
+      var r = await secureCall("/api/private", { action: "save", token: t.token, ptoken: t.ptoken, notes: snapshot.privateNotes, info: snapshot.privateInfo, baseVersion: PV.version });
+      if(r.ok && !r.conflict){
+        PV.version = r.version; PV.base = snapshot; PV.unsaved = false;
+      } else if(r.ok && r.conflict){
+        var theirs = { privateNotes: r.notes || [], privateInfo: r.info || { groups: [] } };
+        var mr = mergeStates(PV.base || theirs, PV.data, theirs);
+        PV.data = (mr && mr.merged) ? mr.merged : theirs;
+        if(!PV.data.privateInfo) PV.data.privateInfo = { groups: [] };
+        if(!PV.data.privateNotes) PV.data.privateNotes = [];
+        PV.base = theirs; PV.version = r.version; PV.dirty = true;
+        render();
+      } else {
+        PV.unsaved = true; PV.dirty = false;
+        if(r.needUnlock || r.needReauth || r.status === 401){ if(r.needUnlock) clearPrivateToken(); else clearSessionToken(); PV.status = "locked"; PV.formError = "Please enter your Private code again to save your change."; }
+        else if(r.denied){ PV.status = "denied"; PV.unsaved = false; PV.data = null; }
+        else PV.error = r.network ? "Couldn't reach the server, so your last change isn't saved yet." : (r.error || "Your last change couldn't be saved.");
+        break;
+      }
+    }
+  } finally { PV.saving = false; }
+  render();
+}
+function pvRetrySave(){ PV.error = ""; PV.dirty = true; persistPrivate(); }
+
 function renderPrivate(){
-  var html = pageHead("Private", "Visible only to the two people listed under Access below (plus admins, so it can always be managed).");
+  var sub = "Only admins and the people listed under Access can open this section, and it asks for your own Private code.";
+  var html = pageHead("Private", sub);
+  var st = PV.status;
+  if(st === "idle"){
+    setTimeout(function(){ if(PV.status === "idle" && ui.section === "private" && isSignedIn()) pvOpen(); }, 0);
+    return html + '<div class="card"><p class="row-muted" style="margin:0;">Opening Private&hellip;</p></div>';
+  }
+  if(st === "loading") return html + '<div class="card"><p class="row-muted" style="margin:0;">Opening Private&hellip;</p></div>';
+  if(st === "needsSignin"){
+    return html + '<div class="card"><p style="margin:0 0 10px;">Confirm your access code to open Private.</p>' +
+      '<button type="button" class="btn btn-primary btn-sm" style="width:auto;" onclick="PV.status=\'idle\';render();">Confirm access code</button></div>';
+  }
+  if(st === "needsStaffCode"){
+    return html + '<div class="card"><h3 style="margin:0 0 6px;">Set your access code first</h3>' +
+      '<p class="row-muted" style="margin:0 0 10px;font-size:13px;">To keep Private safe, your own account needs an access code before you can set a Private code. Use <b>Change my access code</b> (bottom of the menu) to set one, then open Private again.</p>' +
+      '<button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="pvBack()">Try again</button></div>';
+  }
+  if(st === "needsSetup"){
+    return html + '<div class="card"><h3 style="margin:0 0 6px;">Private needs a one-off setup</h3>' +
+      '<p class="row-muted" style="margin:0 0 10px;font-size:13px;">The locked database tables for Private haven&rsquo;t been created yet, so Private can&rsquo;t open. Nothing has been lost -- your notes and figures are untouched. An admin needs to follow PRIVATE_SETUP.md (a one-time step in Supabase), then tap Try again.</p>' +
+      '<button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="pvBack()">Try again</button></div>';
+  }
+  if(st === "offline"){
+    return html + '<div class="card"><h3 style="margin:0 0 6px;">Private needs a connection</h3>' +
+      '<p class="row-muted" style="margin:0 0 10px;font-size:13px;">Private is kept on the server, not on this phone, so it can only be opened when you have signal.</p>' +
+      '<button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="pvBack()">Try again</button></div>';
+  }
+  if(st === "denied"){
+    return html + '<div class="card"><p style="margin:0;">You don&rsquo;t have access to Private. An admin can add you under Access.</p></div>';
+  }
+  if(st === "error"){
+    return html + '<div class="card"><p style="margin:0 0 10px;color:var(--danger);font-weight:600;">' + esc(PV.error) + '</p>' +
+      '<button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="pvBack()">Try again</button></div>';
+  }
+  if(st === "locked") return html + renderPrivateUnlockCard();
+
+  // ready
+  if(!PV.data) { PV.status = "idle"; return html; }
+  var now = Date.now();
+  if(!PV.refreshing && !PV.saving && !PV.dirty && !PV.unsaved && now - PV.loadedAt > 30000){
+    PV.refreshing = true;
+    setTimeout(function(){
+      var ae = document.activeElement;
+      var typing = ae && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName);
+      var p = typing ? Promise.resolve() : pvFetch(true);
+      p.then(function(){ PV.refreshing = false; }, function(){ PV.refreshing = false; });
+      if(typing){ PV.loadedAt = Date.now(); PV.refreshing = false; }
+    }, 0);
+  }
+  if(PV.error || PV.unsaved){
+    html += '<div class="banner warn" style="display:flex;justify-content:space-between;gap:12px;align-items:center;"><span>' + esc(PV.error || "Your last change isn't saved yet.") + '</span>' +
+      '<button type="button" class="subtle-btn" onclick="pvRetrySave()">Save now</button></div>';
+  }
+  html += renderPrivateCodeCard();
   if(isAdmin()) html += renderPrivateAccessCard();
   html += renderPrivateInfoCard();
   html += renderPrivateNotesCard();
   return html;
+}
+function renderPrivateUnlockCard(){
+  var creating = !PV.hasCode;
+  return '<div class="card" style="max-width:460px;">' +
+    '<h3 style="margin:0 0 4px;">' + (creating ? "Create your Private code" : "Enter your Private code") + '</h3>' +
+    '<p class="row-muted" style="margin:0 0 12px;font-size:12.5px;">' + (creating
+      ? 'This is a separate code just for Private (at least ' + PRIVATE_MIN_CODE + ' characters), different from your sign-in code. Choose one you can remember -- there is no way to look it up. An admin can reset it if you forget it.'
+      : 'This is your separate Private code, not your sign-in code. This device will remember it for two weeks.') + '</p>' +
+    (PV.formError ? '<div class="signin-error" style="margin-bottom:10px;">' + esc(PV.formError) + '</div>' : '') +
+    '<form onsubmit="pvUnlock(event)" autocomplete="off">' +
+      '<div class="field"><label>' + (creating ? "New Private code" : "Private code") + '</label><input type="password" name="pcode" autocomplete="new-password" required /></div>' +
+      (creating ? '<div class="field"><label>New Private code again</label><input type="password" name="pcode2" autocomplete="new-password" required /></div>' : '') +
+      '<div class="form-actions"><button type="submit" class="btn btn-primary" style="width:auto;"' + (PV.busy ? ' disabled' : '') + '>' + (PV.busy ? "Checking…" : (creating ? "Save and open" : "Open Private")) + '</button></div>' +
+    '</form></div>';
+}
+function renderPrivateCodeCard(){
+  var html = '<div class="card"><div class="card-row"><h3 style="margin:0;">Your Private code</h3><span style="display:flex;gap:6px;">' +
+    '<button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="PV.showChange=!PV.showChange;PV.formError=\'\';render();">' + (PV.showChange ? "Cancel" : "Change code") + '</button>' +
+    '<button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="pvLock()">Lock now</button></span></div>' +
+    '<p class="row-muted" style="margin:4px 0 0;font-size:12.5px;">This device stays unlocked for two weeks. Tap Lock now to close Private straight away (for example on a shared phone).</p>';
+  if(PV.showChange){
+    html += (PV.formError ? '<div class="signin-error" style="margin:10px 0;">' + esc(PV.formError) + '</div>' : '') +
+      '<form class="form-panel" style="margin-top:10px;" onsubmit="pvChangeCode(event)" autocomplete="off">' +
+        '<div class="field"><label>Current Private code</label><input type="password" name="current" autocomplete="off" required /></div>' +
+        '<div class="field"><label>New Private code</label><input type="password" name="newCode" autocomplete="new-password" required /></div>' +
+        '<div class="field"><label>New Private code again</label><input type="password" name="newCode2" autocomplete="new-password" required /></div>' +
+        '<div class="form-actions"><button type="submit" class="btn btn-primary" style="width:auto;">Save new code</button></div>' +
+      '</form>';
+  }
+  return html + '</div>';
+}
+async function pvChangeCode(e){
+  e.preventDefault();
+  var f = e.target;
+  var nv = f.newCode.value;
+  if(nv.trim().length < PRIVATE_MIN_CODE){ PV.formError = "The new Private code needs at least " + PRIVATE_MIN_CODE + " characters."; render(); return; }
+  if(nv !== f.newCode2.value){ PV.formError = "The two new codes don't match."; render(); return; }
+  var r = await secureCall("/api/private", { action: "changeCode", token: getSessionToken(), current: f.current.value, newCode: nv });
+  if(r.ok && r.ptoken){ setPrivateToken(r.ptoken, r.exp); PV.showChange = false; PV.formError = ""; render(); setNotice("ok", "Your Private code has been changed."); return; }
+  if(r.needReauth){ clearSessionToken(); PV.formError = "Please confirm your access code again (close and reopen Private)."; render(); return; }
+  PV.formError = r.network ? "Couldn't reach the server -- try again when you have signal." : (r.error || "That didn't work.");
+  render();
+}
+function renderPrivateAccessCard(){
+  var access = PV.access || [];
+  var everyone = (state.team || []).filter(function(t){ return t.active; }).map(function(t){ return t.name; });
+  var available = everyone.filter(function(n){ return access.indexOf(n) === -1; });
+  var html = '<div class="card"><h3 style="margin-bottom:6px;">Access</h3>' +
+    '<p class="row-muted" style="margin:0 0 12px;font-size:12.5px;">These people can open this section, and so can every admin. Each person sets their own Private code the first time they open it. Up to two people can be added here.</p>';
+  if(PV.accessError){ html += '<div class="signin-error" style="margin-bottom:10px;">' + esc(PV.accessError) + '</div>'; }
+  if(access.length === 0){
+    html += '<div class="empty-state">Nobody has been added yet -- add up to two people below.</div>';
+  } else {
+    html += access.map(function(name, idx){
+      var has = (PV.withCode || []).indexOf(name) > -1;
+      return '<div class="card-row" style="padding:6px 0;">' +
+        '<span style="font-size:13.5px;font-weight:600;">' + esc(name) + ' <span class="row-muted" style="font-weight:400;font-size:12px;">' + (has ? "(has set a Private code)" : "(hasn't set a Private code yet)") + '</span></span>' +
+        '<span style="display:flex;gap:6px;">' +
+        (has && name !== session.name ? '<button type="button" class="btn btn-ghost btn-sm" onclick="pvResetCode(\'' + escAttr(name) + '\')">Reset code</button>' : '') +
+        '<button type="button" class="btn btn-ghost btn-sm" onclick="removePrivateAccessAt(' + idx + ')">Remove</button></span>' +
+      '</div>';
+    }).join("");
+  }
+  if(access.length < 2 && available.length){
+    html += '<form class="form-panel" style="margin-top:10px;" onsubmit="submitAddPrivateAccess(event)">' +
+      '<div class="form-grid"><div class="field span-2"><label>Add person</label><select name="member">' +
+        available.map(function(n){ return '<option value="' + escAttr(n) + '">' + esc(n) + '</option>'; }).join("") +
+      '</select></div></div>' +
+      '<div class="form-actions"><button type="submit" class="btn btn-primary" style="width:auto;">Add</button></div>' +
+    '</form>';
+  } else if(access.length >= 2){
+    html += '<p class="row-muted" style="margin:10px 0 0;font-size:12px;">Two people already have access -- remove one first to add someone else.</p>';
+  }
+  html += '</div>';
+  return html;
+}
+async function pvSetAccess(names){
+  var t = pvTokens();
+  var r = await secureCall("/api/private", { action: "setAccess", token: t.token, ptoken: t.ptoken, names: names });
+  if(r.ok){ PV.access = r.access || names; PV.accessError = ""; await pvFetch(false); return; }
+  if(r.needUnlock || r.needReauth || r.denied || r.notConfigured){ return pvFail(r); }
+  PV.accessError = r.network ? "Couldn't reach the server -- try again when you have signal." : (r.error || "That didn't work.");
+  render();
+}
+function submitAddPrivateAccess(e){
+  e.preventDefault();
+  var name = e.target.member.value;
+  if(!name) return;
+  var cur = (PV.access || []).slice();
+  if(cur.length >= 2 || cur.indexOf(name) > -1) return;
+  cur.push(name);
+  pvSetAccess(cur);
+}
+function removePrivateAccessAt(idx){
+  var cur = (PV.access || []).slice();
+  if(idx < 0 || idx >= cur.length) return;
+  cur.splice(idx, 1);
+  pvSetAccess(cur);
+}
+async function pvResetCode(name){
+  if(!confirm("Reset " + name + "'s Private code? They will be asked to create a new one next time they open Private.")) return;
+  var t = pvTokens();
+  var r = await secureCall("/api/private", { action: "resetCode", token: t.token, ptoken: t.ptoken, name: name });
+  if(r.ok){ await pvFetch(false); setNotice("ok", name + "'s Private code was reset."); return; }
+  if(r.needUnlock || r.needReauth || r.denied || r.notConfigured){ return pvFail(r); }
+  setNotice("warn", r.network ? "Couldn't reach the server -- try again when you have signal." : (r.error || "That didn't work."));
 }
 /* ------------------------------------------------------------------------
    Information card (Private section) -- started as a fixed-shape "cotton &
@@ -24282,11 +24895,11 @@ function renderPrivate(){
    no fixed structure. Anyone with Private access (not just admins) can
    edit it, per Maria's earlier choice for the old summary card, which
    carries over here.
-   Data model: state.privateInfo = { groups: [{id, title, fields: [{id,
+   Data model: PV.data.privateInfo = { groups: [{id, title, fields: [{id,
    label, value}]}], updatedAt, updatedBy }.
    ====================================================================== */
 function renderPrivateInfoCard(){
-  var info = state.privateInfo || { groups: [] };
+  var info = PV.data.privateInfo || { groups: [] };
   var groups = info.groups || [];
   var editing = !!ui.openForms.editPrivateInfo;
   var html = '<div class="card"><div class="card-row"><h3 style="margin:0;">Cropping Summary</h3>' +
@@ -24377,12 +24990,12 @@ function importPrivateInfo(){
     ui.privateImportMsg = "Nothing to import. Each figure needs a heading line (## Cotton) above it and a Label: Value line.";
     render(); return;
   }
-  state.privateInfo = state.privateInfo || { groups: [] };
-  state.privateInfo.groups = state.privateInfo.groups || [];
+  PV.data.privateInfo = PV.data.privateInfo || { groups: [] };
+  PV.data.privateInfo.groups = PV.data.privateInfo.groups || [];
   var norm = function(x){ return String(x || "").trim().toLowerCase(); };
   var plan = { updated: 0, added: 0, same: 0, newHeadings: 0 };
   parsed.groups.forEach(function(g){
-    var ex = state.privateInfo.groups.find(function(x){ return norm(x.title) === norm(g.title); });
+    var ex = PV.data.privateInfo.groups.find(function(x){ return norm(x.title) === norm(g.title); });
     if(!ex){ plan.newHeadings++; plan.added += g.fields.length; return; }
     g.fields.forEach(function(f){
       var ef = (ex.fields || []).find(function(x){ return norm(x.label) === norm(f.label); });
@@ -24395,8 +25008,8 @@ function importPrivateInfo(){
     (plan.newHeadings ? (", " + plan.newHeadings + " new heading" + (plan.newHeadings === 1 ? "" : "s")) : "") + ".";
   if(!confirm("Import into the Cropping Summary?\n\n" + summary)) return;
   parsed.groups.forEach(function(g){
-    var ex = state.privateInfo.groups.find(function(x){ return norm(x.title) === norm(g.title); });
-    if(!ex){ ex = { id: uid("pgrp"), title: g.title, fields: [] }; state.privateInfo.groups.push(ex); }
+    var ex = PV.data.privateInfo.groups.find(function(x){ return norm(x.title) === norm(g.title); });
+    if(!ex){ ex = { id: uid("pgrp"), title: g.title, fields: [] }; PV.data.privateInfo.groups.push(ex); }
     ex.fields = ex.fields || [];
     g.fields.forEach(function(f){
       var ef = ex.fields.find(function(x){ return norm(x.label) === norm(f.label); });
@@ -24407,30 +25020,30 @@ function importPrivateInfo(){
   touchPrivateInfo();
   ui.privateImportText = "";
   ui.privateImportMsg = "Imported: " + summary + (parsed.bad.length ? (" " + parsed.bad.length + " line(s) skipped.") : "");
-  persist();
+  persistPrivate();
 }
 function touchPrivateInfo(){
   var u = currentUser();
-  state.privateInfo.updatedAt = new Date().toISOString();
-  state.privateInfo.updatedBy = u ? u.name : null;
+  PV.data.privateInfo.updatedAt = new Date().toISOString();
+  PV.data.privateInfo.updatedBy = u ? u.name : null;
 }
 function findPrivateInfoGroup(groupId){
-  return byId((state.privateInfo && state.privateInfo.groups) || [], groupId);
+  return byId((PV.data.privateInfo && PV.data.privateInfo.groups) || [], groupId);
 }
 function addPrivateInfoGroup(){
-  state.privateInfo = state.privateInfo || { groups: [] };
-  state.privateInfo.groups = state.privateInfo.groups || [];
-  state.privateInfo.groups.push({ id: uid("pgrp"), title: "New heading", fields: [] });
+  PV.data.privateInfo = PV.data.privateInfo || { groups: [] };
+  PV.data.privateInfo.groups = PV.data.privateInfo.groups || [];
+  PV.data.privateInfo.groups.push({ id: uid("pgrp"), title: "New heading", fields: [] });
   touchPrivateInfo();
-  persist();
+  persistPrivate();
 }
 function confirmRemovePrivateInfoGroup(groupId){
   var g = findPrivateInfoGroup(groupId);
   if(!g) return;
   if(confirm('Remove the "' + g.title + '" heading and everything under it? This cannot be undone.')){
-    removeById(state.privateInfo.groups, groupId);
+    removeById(PV.data.privateInfo.groups, groupId);
     touchPrivateInfo();
-    persist();
+    persistPrivate();
   }
 }
 function updatePrivateInfoGroupTitle(groupId, value){
@@ -24438,7 +25051,7 @@ function updatePrivateInfoGroupTitle(groupId, value){
   if(!g) return;
   g.title = value;
   touchPrivateInfo();
-  persist();
+  persistPrivate();
 }
 function addPrivateInfoField(groupId){
   var g = findPrivateInfoGroup(groupId);
@@ -24446,14 +25059,14 @@ function addPrivateInfoField(groupId){
   g.fields = g.fields || [];
   g.fields.push({ id: uid("pfld"), label: "New field", value: "" });
   touchPrivateInfo();
-  persist();
+  persistPrivate();
 }
 function removePrivateInfoField(groupId, fieldId){
   var g = findPrivateInfoGroup(groupId);
   if(!g) return;
   removeById(g.fields, fieldId);
   touchPrivateInfo();
-  persist();
+  persistPrivate();
 }
 function updatePrivateInfoFieldLabel(groupId, fieldId, value){
   var g = findPrivateInfoGroup(groupId);
@@ -24462,7 +25075,7 @@ function updatePrivateInfoFieldLabel(groupId, fieldId, value){
   if(!f) return;
   f.label = value;
   touchPrivateInfo();
-  persist();
+  persistPrivate();
 }
 function updatePrivateInfoFieldValue(groupId, fieldId, value){
   var g = findPrivateInfoGroup(groupId);
@@ -24471,55 +25084,10 @@ function updatePrivateInfoFieldValue(groupId, fieldId, value){
   if(!f) return;
   f.value = value;
   touchPrivateInfo();
-  persist();
-}
-function renderPrivateAccessCard(){
-  var access = state.settings.privateAccess || [];
-  var everyone = (state.team || []).map(function(t){ return t.name; });
-  var available = everyone.filter(function(n){ return access.indexOf(n) === -1; });
-  var html = '<div class="card"><h3 style="margin-bottom:6px;">Access</h3>' +
-    '<p class="row-muted" style="margin:0 0 12px;font-size:12.5px;">Only these people can see this section (admins can always see and manage it too). Up to two people.</p>';
-  if(access.length === 0){
-    html += '<div class="empty-state">Nobody has access yet -- add up to two people below.</div>';
-  } else {
-    html += access.map(function(name, idx){
-      return '<div class="card-row" style="padding:6px 0;">' +
-        '<span style="font-size:13.5px;font-weight:600;">' + esc(name) + '</span>' +
-        '<button type="button" class="btn btn-ghost btn-sm" onclick="removePrivateAccessAt(' + idx + ')">Remove</button>' +
-      '</div>';
-    }).join("");
-  }
-  if(access.length < 2 && available.length){
-    html += '<form class="form-panel" style="margin-top:10px;" onsubmit="submitAddPrivateAccess(event)">' +
-      '<div class="form-grid"><div class="field span-2"><label>Add person</label><select name="member">' +
-        available.map(function(n){ return '<option value="' + escAttr(n) + '">' + esc(n) + '</option>'; }).join("") +
-      '</select></div></div>' +
-      '<div class="form-actions"><button type="submit" class="btn btn-primary" style="width:auto;">Add</button></div>' +
-    '</form>';
-  } else if(access.length >= 2){
-    html += '<p class="row-muted" style="margin:10px 0 0;font-size:12px;">Two people already have access -- remove one first to add someone else.</p>';
-  }
-  html += '</div>';
-  return html;
-}
-function submitAddPrivateAccess(e){
-  e.preventDefault();
-  var f = e.target;
-  var name = f.member.value;
-  if(!name) return;
-  state.settings.privateAccess = state.settings.privateAccess || [];
-  if(state.settings.privateAccess.length >= 2) return;
-  if(state.settings.privateAccess.indexOf(name) === -1) state.settings.privateAccess.push(name);
-  persist();
-}
-function removePrivateAccessAt(idx){
-  var access = state.settings.privateAccess || [];
-  if(idx < 0 || idx >= access.length) return;
-  access.splice(idx, 1);
-  persist();
+  persistPrivate();
 }
 function renderPrivateNotesCard(){
-  var notes = (state.privateNotes || []).slice().sort(byDateDesc("postedAt"));
+  var notes = (PV.data.privateNotes || []).slice().sort(byDateDesc("postedAt"));
   var u = currentUser();
   var html = '<div class="card"><div class="card-row"><h3 style="margin:0;">Notes</h3>' +
     '<button type="button" class="btn btn-primary btn-sm" style="width:auto;" onclick="toggleForm(\'newPrivateNote\')">' + (ui.openForms.newPrivateNote ? "Cancel" : "+ Add note") + '</button></div>' +
@@ -24556,20 +25124,21 @@ function addPrivateNote(e){
   if(!text){ ui.formErrors.newPrivateNote = "Write something before posting."; render(); return; }
   delete ui.formErrors.newPrivateNote;
   var u = currentUser();
-  state.privateNotes = state.privateNotes || [];
-  state.privateNotes.push({ id: uid("pnote"), text: text, author: u ? u.name : "Unknown", postedAt: new Date().toISOString() });
+  PV.data.privateNotes = PV.data.privateNotes || [];
+  PV.data.privateNotes.push({ id: uid("pnote"), text: text, author: u ? u.name : "Unknown", postedAt: new Date().toISOString() });
   ui.openForms.newPrivateNote = false;
-  persist();
+  persistPrivate();
 }
 function confirmDeletePrivateNote(id){
-  var n = byId(state.privateNotes, id);
+  var n = byId(PV.data.privateNotes, id);
   if(!n) return;
   var preview = n.text.length > 40 ? (n.text.slice(0,40) + "...") : n.text;
   if(confirm('Delete this note ("' + preview + '")? This cannot be undone.')){
-    removeById(state.privateNotes, id);
-    persist();
+    removeById(PV.data.privateNotes, id);
+    persistPrivate();
   }
 }
+
 
 /* ======================================================================
    FORCE REFRESH (sidebar button)
