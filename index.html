@@ -1862,7 +1862,7 @@ const DEFAULT_STATE = {
 // change to this file, same as CACHE_NAME in sw.js -- it gives an instant,
 // no-technical-steps-needed way to confirm whether a given device is
 // actually running the latest deploy, without comparing file contents.
-var APP_BUILD = "2026-10-20.1";
+var APP_BUILD = "2026-10-20.2";
 
 /* ======================================================================
    UTILITIES
@@ -15158,8 +15158,8 @@ function tsOpenMine(offsetCycles){
   ui.tsOpen = sheet.id; ui.tsError = "";
   render();
 }
-function tsOpenSheet(id){ if(!tsCanView(tsFind(id))) return; ui.tsOpen = id; ui.tsError = ""; render(); }
-function tsBack(){ tsFlush(); ui.tsOpen = null; ui.tsError = ""; render(); }
+function tsOpenSheet(id){ if(!tsCanView(tsFind(id))) return; ui.tsOpen = id; ui.tsError = ""; ui.tsCopy = null; render(); }
+function tsBack(){ tsFlush(); ui.tsOpen = null; ui.tsError = ""; ui.tsCopy = null; render(); }
 function saveTsCycleStart(e){
   e.preventDefault();
   if(!isAdmin()) return;
@@ -15291,15 +15291,16 @@ function renderTsSheet(sheet){
     '<div class="field" style="margin-top:12px;"><label>Comments</label><textarea id="ts_comments" rows="2"' + dis + ' onchange="tsSet(\'' + sheet.id + '\',null,\'comments\',this.value)">' + esc(sheet.comments || "") + '</textarea></div>';
   if(sheet.status === "submitted"){
     html += '<p style="margin:12px 0 4px;font-size:13px;"><b>Signed:</b> ' + esc(sheet.submittedBy || sheet.person) + ' — submitted ' + (sheet.submittedAt ? fmtDateTime(sheet.submittedAt) : "") + '</p>' +
-      '<div style="margin-bottom:8px;">' + tsEmailLine(sheet) + '</div>';
+      '<div style="margin-bottom:8px;">' + tsEmailLine(sheet) + '</div>' + tsCopyPanel(sheet);
   }
   html += '<div class="form-actions" style="margin-top:12px;">' +
     (editable ? '<button type="button" class="btn btn-primary" style="width:auto;" onclick="tsSubmit(\'' + sheet.id + '\')">Submit time sheet</button>' : '') +
+    (sheet.status === "submitted" && !(ui.tsCopy && ui.tsCopy.id === sheet.id) ? '<button type="button" class="btn btn-ghost" style="width:auto;" onclick="tsOpenCopy(\'' + sheet.id + '\')">Email me a copy</button>' : '') +
     '<button type="button" class="btn btn-ghost" style="width:auto;" onclick="tsPrint(\'' + sheet.id + '\')">Print</button>' +
     (isAdmin() && sheet.status === "submitted" ? '<button type="button" class="btn btn-ghost" style="width:auto;" onclick="tsReopen(\'' + sheet.id + '\')">Reopen for editing</button>' : '') +
     (isAdmin() ? '<button type="button" class="btn btn-danger" style="width:auto;" onclick="tsDelete(\'' + sheet.id + '\')">Delete</button>' : '') +
   '</div>' +
-  (editable ? '<p class="row-muted" style="margin:8px 0 0;font-size:12px;">Changes save automatically. Submitting counts as your signature, locks the sheet, and emails it.</p>' : '') +
+  (editable ? '<p class="row-muted" style="margin:8px 0 0;font-size:12px;">Changes save automatically. Submitting counts as your signature, locks the sheet, and emails it. Once it is submitted you can also email yourself a copy.</p>' : '') +
   '</div>';
   return html;
 }
@@ -15321,6 +15322,7 @@ function tsSubmit(id){
   sheet.emailError = "";
   persist();
   tsSendEmail(sheet.id);
+  tsOpenCopy(sheet.id);   // offers "Email a copy to ..." straight away (they can cancel it)
 }
 function tsReopen(id){
   var sheet = tsFind(id);
@@ -15338,24 +15340,86 @@ function tsDelete(id){
   ui.tsOpen = null;
   persist();
 }
+// What the email function needs to lay out a submitted sheet (shared by the office email and "Email me a copy").
+function tsEmailPayload(s){
+  var dates = [];
+  for(var i = 0; i < 14; i++) dates.push(tsAddDays(s.startDate, i));
+  return {
+    no: tsPad(s.no), person: s.person, range: tsRangeLabel(s.startDate),
+    resubmitted: (s.submitCount || 1) > 1,
+    submittedAt: s.submittedAt, submittedBy: s.submittedBy,
+    rows: s.rows.map(function(r, i){ return { day: TS_DAY_LABELS[i], date: tsDM(dates[i]), start: r.start, finish: r.finish, smoko: r.smoko, lunch: r.lunch, nett: tsNettText(r), location: r.location }; }),
+    totalNett: tilFmtHours(tsTotal(s)), paidHours: s.paidHours, comments: s.comments
+  };
+}
+/* "Email me a copy" (added 2026-10-20): on a submitted sheet the employee can send a copy to
+   their own address. The address is typed once and remembered on that phone only (not kept in
+   the shared data). The server checks who is asking and that the sheet is theirs. */
+function tsCopyKey(){ return "bp_ts_copy_email:" + ((session && session.name) || ""); }
+function tsOpenCopy(id){
+  ui.tsCopy = { id: id, email: getLocal(tsCopyKey()) || "", busy: false, msg: "", ok: false };
+  render();
+}
+function tsCloseCopy(){ ui.tsCopy = null; render(); }
+function tsCopyInput(v){ if(ui.tsCopy) ui.tsCopy.email = v; }
+async function tsSendCopy(id){
+  var c = ui.tsCopy, sheet = tsFind(id), me = currentUser();
+  if(!c || c.id !== id || c.busy || !sheet || !me || !tsCanView(sheet) || sheet.status !== "submitted") return;
+  var to = String(c.email || "").trim();
+  if(!/^[^\s@<>",;:()\[\]\\]+@[^\s@<>",;:()\[\]\\]+\.[^\s@<>",;:()\[\]\\]{2,}$/.test(to)){ c.msg = "Type your email address (like name@example.com)."; c.ok = false; render(); return; }
+  if(isOffline || (typeof navigator !== "undefined" && "onLine" in navigator && !navigator.onLine)){ c.msg = "You're offline. Try again once you have signal."; c.ok = false; render(); return; }
+  c.busy = true; c.msg = ""; c.ok = false; render();
+  // the sheet has to have reached the team's record first (it is saved a moment after Submit)
+  for(var w = 0; w < 20 && savesInFlight > 0; w++) await new Promise(function(r){ setTimeout(r, 500); });
+  var tok = getSessionToken() || await obtainTokenSilently();
+  if(!tok){
+    c.busy = false; render();
+    askReauth("Please confirm your access code so the app knows it's you before emailing the time sheet.", function(){ tsSendCopy(id); });
+    return;
+  }
+  var payload = tsEmailPayload(sheet);
+  payload.copyTo = to; payload.token = tok;
+  var r = await secureCall("/api/send-timesheet", payload, 25000);
+  if(!ui.tsCopy || ui.tsCopy.id !== id) return;
+  c = ui.tsCopy; c.busy = false;
+  if(r.ok){
+    setLocal(tsCopyKey(), to);
+    c.ok = true; c.msg = "A copy has been sent to " + to + ". If it doesn't turn up soon, check your junk folder.";
+  } else if(r.needReauth || (r.status === 401 && !r.badCode)){
+    clearSessionToken(); c.msg = ""; render();
+    askReauth("Please confirm your access code so the app knows it's you before emailing the time sheet.", function(){ tsSendCopy(id); });
+    return;
+  } else if(r.notConfigured){
+    c.msg = "Emailing a copy isn't switched on yet. Ask Maria to upload the latest api/send-timesheet.js and api/_secure.js files.";
+  } else if(r.network){
+    c.msg = "Couldn't reach the server. Check your signal and try again.";
+  } else {
+    c.msg = r.error || "That didn't work. Please try again.";
+  }
+  render();
+}
+function tsCopyPanel(sheet){
+  var c = ui.tsCopy;
+  if(!c || c.id !== sheet.id) return "";
+  return '<div style="margin:10px 0 4px;padding:12px;border:1px solid var(--border, #d0d7de);border-radius:8px;max-width:460px;">' +
+    '<label style="display:block;font-size:13px;font-weight:600;margin-bottom:6px;" for="ts_copy_email">Email a copy of this time sheet to</label>' +
+    '<input type="email" id="ts_copy_email" autocomplete="email" inputmode="email" placeholder="your email address" value="' + escAttr(c.email || "") + '" style="width:100%;box-sizing:border-box;" oninput="tsCopyInput(this.value)"' + (c.busy ? ' disabled' : '') + ' />' +
+    (c.msg ? '<p style="margin:8px 0 0;font-size:12.5px;' + (c.ok ? 'color:var(--success, #1a7f37);' : 'color:var(--danger);') + '">' + esc(c.msg) + '</p>' : '') +
+    '<div class="form-actions" style="margin-top:10px;">' +
+      '<button type="button" class="btn btn-primary" style="width:auto;" onclick="tsSendCopy(\'' + sheet.id + '\')"' + (c.busy ? ' disabled' : '') + '>' + (c.busy ? "Sending\u2026" : (c.ok ? "Send again" : "Send copy")) + '</button>' +
+      '<button type="button" class="btn btn-ghost" style="width:auto;" onclick="tsCloseCopy()">' + (c.ok ? "Done" : "Cancel") + '</button>' +
+    '</div></div>';
+}
 async function tsSendEmail(id){
   var s = tsFind(id);
   if(!s) return;
   s.emailStatus = "pending"; s.emailError = "";
   render();
   try{
-    var dates = [];
-    for(var i = 0; i < 14; i++) dates.push(tsAddDays(s.startDate, i));
     var resp = await fetch("/api/send-timesheet", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        no: tsPad(s.no), person: s.person, range: tsRangeLabel(s.startDate),
-        resubmitted: (s.submitCount || 1) > 1,
-        submittedAt: s.submittedAt, submittedBy: s.submittedBy,
-        rows: s.rows.map(function(r, i){ return { day: TS_DAY_LABELS[i], date: tsDM(dates[i]), start: r.start, finish: r.finish, smoko: r.smoko, lunch: r.lunch, nett: tsNettText(r), location: r.location }; }),
-        totalNett: tilFmtHours(tsTotal(s)), paidHours: s.paidHours, comments: s.comments
-      })
+      body: JSON.stringify(tsEmailPayload(s))
     });
     var data = {};
     try{ data = await resp.json(); }catch(parseErr){}
