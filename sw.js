@@ -476,7 +476,8 @@
 // v108 (2026-10-16, later): Silo Storage silos scale to fit narrow phones instead of stacking -- index.html changed.
 // v134 (2026-10-20): the app now shows a "new version ready -- Update now" bar when this file changes -- index.html changed.
 // v135 (2026-10-20, later): "Email me a copy" button on submitted time sheets -- index.html changed.
-var CACHE_NAME = "bullamon-plains-shell-v135";
+// v136 (2026-10-20, later): parts catalogue PDFs on each machine's Parts tab -- index.html changed.
+var CACHE_NAME = "bullamon-plains-shell-v136";
 
 var SHELL_ASSETS = [
   "./",
