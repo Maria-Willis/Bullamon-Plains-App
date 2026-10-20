@@ -491,7 +491,8 @@
 // v148 (2026-10-20, later): time sheet clear button is a dash; the grey explanation lines under the hours are gone -- index.html changed.
 // v149 (2026-10-20, later): time sheet "Hours you want to be paid for" is bold and its box sits in the same column as the nett and annual hours -- index.html changed.
 // v150 (2026-10-20, later): "Time in lieu from this sheet" shows just +4.5 / -4.5 -- index.html changed.
-var CACHE_NAME = "bullamon-plains-shell-v150";
+// v151 (2026-10-20, later): Service Schedule tab: Due at next service now sits under Schedule & history -- index.html changed.
+var CACHE_NAME = "bullamon-plains-shell-v151";
 
 var SHELL_ASSETS = [
   "./",
