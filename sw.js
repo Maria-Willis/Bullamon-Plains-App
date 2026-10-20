@@ -463,6 +463,7 @@
 // v130 (2026-10-19, later): machinery page shows the status of the daily automatic John Deere hours update -- index.html changed.
 // v131 (2026-10-19, later): a save that clashes with someone else's newer save is now combined with it instead of being thrown away (dashboard notes vanishing), and open apps catch up with the team's latest copy when brought to the front / every minute -- index.html changed.
 // v132 (2026-10-19, later): time sheet heading (screen, print and email) now reads "Bullamon Plains Pastoral Company" -- index.html changed.
+// v133 (2026-10-19, later): access codes are now checked by the server and kept scrambled (not in the shared data); the Private section moved to a locked server table with its own Private code -- index.html changed.
 // v117 (2026-10-16, later): Cooks Dam silos 1-4 in one line; silo circles show only crop, where from and tonnes -- index.html changed.
 // v116 (2026-10-16, later): the latest entry's description shows inside each silo circle -- index.html changed.
 // v115 (2026-10-16, later): silo entries can be edited by anyone and show their description; Jobs form says Job / Job details first -- index.html changed.
@@ -473,7 +474,7 @@
 // v110 (2026-10-16, later): Harvest dockets delivered to a silo now add their tonnes to that silo -- index.html changed.
 // v109 (2026-10-16, later): Silo Storage shows shed symbols (Chemical, Machinery) to the right of the Airstrip silos, reached by scrolling right -- index.html changed.
 // v108 (2026-10-16, later): Silo Storage silos scale to fit narrow phones instead of stacking -- index.html changed.
-var CACHE_NAME = "bullamon-plains-shell-v132";
+var CACHE_NAME = "bullamon-plains-shell-v133";
 
 var SHELL_ASSETS = [
   "./",
