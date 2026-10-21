@@ -1870,7 +1870,7 @@ const DEFAULT_STATE = {
 // change to this file, same as CACHE_NAME in sw.js -- it gives an instant,
 // no-technical-steps-needed way to confirm whether a given device is
 // actually running the latest deploy, without comparing file contents.
-var APP_BUILD = "2026-10-20.18";
+var APP_BUILD = "2026-10-21.1";
 
 /* ======================================================================
    UTILITIES
@@ -2326,6 +2326,8 @@ var ui = {
   machineryIssueSelected: null, // issue id while that issue's own detail/action-timeline screen is open, or null
   machinePartsQuery: "",
   sdsQuery: "",
+  sdsFilter: "",       // "", "none", "old", "names": which status the Safety Data Sheets list is narrowed to
+  sdsShowUnverified: {},   // chemical id -> true while an admin has chosen to look at a hidden unverified summary
   sdsSelected: null,   // id of the chemical currently open in its own SDS detail view, or null for the searchable list
   bullsQuery: "",
   openForms: {},   // formKey -> true when an add/edit panel is expanded
@@ -13723,6 +13725,23 @@ async function boot(){
       migrated = true;
     }
   }
+  // one-time (2026-10-20, Maria): product names are meant to be exactly what is printed on the label/SDS. A trailing
+  // description in brackets (e.g. "Prosaro (fungicide - wheat)") is moved out of the name into "Also known as / used for";
+  // names that are really just the active ingredient (e.g. "Glyphosate 540") are flagged "Name to check". Nothing is
+  // renamed beyond removing that bracket, and the bracket text is kept in the new field.
+  if(!state.settings.sdsNamesV1){
+    if(state.chemicals && Array.isArray(state.chemicals.sds)){
+      state.chemicals.sds.forEach(function(c){
+        if(!c || typeof c.productName !== "string") return;
+        var m = /^(.*\S)\s*\(([^()]*)\)\s*$/.exec(c.productName.trim());
+        if(m && m[1].trim().length >= 2){ c.alsoKnownAs = c.alsoKnownAs || m[2].trim(); c.productName = m[1].trim(); }
+        var first = (c.productName.toLowerCase().match(/^[a-z][a-z-]{4,}/) || [""])[0], ac = String(c.activeConstituent || "").toLowerCase();
+        if(first && ac.indexOf(first) === 0 && !c.nameCheckedAt) c.nameNeedsCheck = true;
+      });
+      state.settings.sdsNamesV1 = true;
+      migrated = true;
+    }
+  }
   // one-time (2026-10-20, Maria): time in lieu entries made by a time sheet only carry the fortnight's dates as the note.
   if(!state.settings.tilNotesV1){
     if(state.timeInLieu && Array.isArray(state.timeInLieu.entries)){
@@ -14597,6 +14616,7 @@ var ICONS = {
   "zap": '<path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/>',
   "bar-chart": '<path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/>',
   "folder": '<path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>',
+  "share": '<circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" x2="15.42" y1="13.51" y2="17.49"/><line x1="15.41" x2="8.59" y1="6.51" y2="10.49"/>',
   "pencil": '<path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/>',
   "check-circle": '<circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/>',
   "list": '<path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>',
@@ -14651,7 +14671,7 @@ var ICON_KEYWORDS = {
   "tree":"forest pine", "flame":"fire burn", "compass":"direction navigate", "map-pin":"location place", "flag":"marker", "factory":"industry plant shed",
   "pill":"medicine vet drug", "megaphone":"announce notice", "mail":"email letter", "dollar":"money cost price", "cart":"shop buy order", "package":"box parcel stock",
   "star":"favourite important", "heart":"health love", "fuel":"diesel petrol bowser", "zap":"power electric lightning", "bar-chart":"stats report chart graph",
-  "folder":"files documents", "pencil":"edit write", "check-circle":"done complete ok", "list":"menu items", "image":"photo picture", "paw-print":"animal pet dog",
+  "folder":"files documents", "pencil":"edit write", "share":"send link invite", "check-circle":"done complete ok", "list":"menu items", "image":"photo picture", "paw-print":"animal pet dog",
   "bug":"pest insect biosecurity", "gauge":"meter dial speed hours", "thermometer":"temperature heat", "wind":"weather windy", "umbrella":"rain weather", "moon":"night",
   "cloud":"weather sky", "leaf":"plant green crop", "scale":"weigh weight balance", "hammer":"tool build repair", "ruler":"measure", "trash":"delete bin rubbish",
   "download":"save export", "search":"find look", "info":"information help", "help":"question", "eye":"view see", "bookmark":"save mark", "globe":"world web internet",
@@ -14781,6 +14801,7 @@ function renderShell(){
       '<div class="nav-list">' + navHtml + '</div>' +
       '<div class="sidebar-spacer"></div>' +
       (u.isAdmin ? '<button type="button" class="menu-edit-btn" onclick="editMenuIcons()">' + iconSvg("pencil") + ' Edit menu icons</button>' : '') +
+      (u.isAdmin ? '<button type="button" class="menu-edit-btn" id="shareAppBtn" onclick="shareApp()">' + iconSvg("share") + ' Share this app</button>' : '') +
       '<div class="whoami">' +
         '<div class="whoami-name">' + esc(u.name) + (u.isAdmin ? ' &middot; Admin' : '') + '</div>' +
         '<div class="whoami-role">' + (writeChecked && !writable ? "View only" : "Signed in") + '</div>' +
@@ -17792,6 +17813,9 @@ function deleteJob(id){
 /* ======================================================================
    MACHINERY
    ====================================================================== */
+// A machine (or one of its parts) is only listed as due once it is within this many hours of the deadline
+// (Maria, 2026-10-20: "don't list the machine as due for service until it is 25 hours before the deadline").
+var MACHINE_DUE_WINDOW_HRS = 25;
 function machineDueForService(m){
   return machineServiceStatus(m).due || machinePartsDue(m).length > 0;
 }
@@ -17831,11 +17855,11 @@ function partScheduleStatus(m, p){
   var manual = (p.nextDueHours != null && p.nextDueHours !== "" && !isNaN(Number(p.nextDueHours))) ? Number(p.nextDueHours) : null;
   var due = manual != null ? manual : (last ? last.hours + every : cur + every);
   var remaining = due - cur;
-  var tone = remaining <= every * 0.1 ? "pill-high" : remaining <= every * 0.25 ? "pill-medium" : "pill-todo";
+  var tone = remaining <= 0 ? "pill-high" : remaining <= MACHINE_DUE_WINDOW_HRS ? "pill-medium" : "pill-todo";
   return {
     every: every, last: last, manual: manual != null, due: due, remaining: remaining, tone: tone,
-    isDue: remaining <= every * 0.25, overdue: remaining <= 0,
-    label: remaining < 0 ? "Overdue by " + fmtNum(-remaining, "hrs") : remaining === 0 ? "Due now" : (remaining <= every * 0.25 ? "Due in " + fmtNum(remaining, "hrs") : "OK · " + fmtNum(remaining, "hrs") + " to go")
+    isDue: remaining <= MACHINE_DUE_WINDOW_HRS, overdue: remaining <= 0,
+    label: remaining < 0 ? "Overdue by " + fmtNum(-remaining, "hrs") : remaining === 0 ? "Due now" : (remaining <= MACHINE_DUE_WINDOW_HRS ? "Due in " + fmtNum(remaining, "hrs") : "OK · " + fmtNum(remaining, "hrs") + " to go")
   };
 }
 function machinePartsDue(m){
@@ -17854,9 +17878,9 @@ function machinePartsDue(m){
 // next milestone of the maintenance schedule when one is set, otherwise the "Next service due (hours)" typed into Edit machine
 // (m.nextServiceHours). A machine that still only has an old date
 // (m.nextServiceDue, from before this change) keeps working off that date
-// until its hours are entered. "Due" means within a quarter of the service
-// interval (250 hrs if none is set) -- the same amber threshold the pills
-// already used for the schedule.
+// until its hours are entered. "Due" means within 25 hours of the service
+// (MACHINE_DUE_WINDOW_HRS, Maria 2026-10-20; it used to be a quarter of the
+// service interval); amber inside that window, red once it is overdue.
 function machineServiceStatus(m){
   var cur = m.currentReading || 0;
   var targetHours = null;
@@ -17869,12 +17893,12 @@ function machineServiceStatus(m){
   } else if(manual != null){ targetHours = manual; source = "manual"; }
   if(targetHours != null){
     var remaining = targetHours - cur;
-    var win = m.serviceIntervalHours || 250;
+    var win = m.serviceIntervalHours || 250;   // only used for the progress bar now
     var base = "Service due at " + fmtNum(targetHours, "hrs");
     return {
       kind: "hours", source: source, target: targetHours, remaining: remaining,
-      tone: remaining <= win * 0.1 ? "pill-high" : remaining <= win * 0.25 ? "pill-medium" : "pill-todo",
-      due: remaining <= win * 0.25, ok: remaining > win * 0.25,
+      tone: remaining <= 0 ? "pill-high" : remaining <= MACHINE_DUE_WINDOW_HRS ? "pill-medium" : "pill-todo",
+      due: remaining <= MACHINE_DUE_WINDOW_HRS, ok: remaining > MACHINE_DUE_WINDOW_HRS,
       label: base,
       labelLong: base + (remaining > 0 ? "" : " (" + fmtNum(-remaining, "hrs") + " overdue)"),
       progressPct: Math.max(0, Math.min(100, 100 * (1 - remaining / win)))
@@ -19363,6 +19387,30 @@ function selectSeverityPill(btn, value){
   if(hidden) hidden.value = value;
   var warn = form.querySelector(".banner.warn");
   if(warn) warn.style.display = value === "Unsafe" ? "block" : "none";
+}
+// "Share this app" (admins only, Maria 2026-10-20): sends the app's address through the phone's own share sheet
+// (messages, email, WhatsApp...). Where a device has no share sheet (most desktops) it copies the address instead.
+// Sharing only passes on the web address: a person still has to be on the Team list to get in.
+function appShareUrl(){
+  return location.origin + location.pathname.replace(/index\.html$/i, "");
+}
+async function shareApp(){
+  if(!isAdmin()) return;
+  var url = appShareUrl();
+  var text = "Open the Bullamon Plains app, pick your name and sign in. On your phone you can add it to your home screen from the browser's share/menu button.";
+  try{
+    if(navigator.share){ await navigator.share({ title: "Bullamon Plains app", text: text, url: url }); return; }
+  }catch(err){
+    if(err && err.name === "AbortError") return;   // they closed the share sheet
+  }
+  try{
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      await navigator.clipboard.writeText(url);
+      setNotice("ok", "The app's address is copied: " + url + " . Paste it into a message to share it.");
+      return;
+    }
+  }catch(err){ /* fall through */ }
+  window.prompt("Copy the app's address and send it to the person:", url);
 }
 function copyPartNumber(btn, text){
   if(!navigator.clipboard || !navigator.clipboard.writeText) return;
@@ -21871,6 +21919,44 @@ function renderSds(){
 function sdsNeedsDetails(c){
   return !c.hazardClass && !c.signalWord && !c.firstAid;
 }
+/* MANUFACTURER'S SDS ON FILE (2026-10-20, at Maria's request after raising the liability worry: the details in this
+   section are a researched/typed SUMMARY, not the Safety Data Sheet). Each chemical can now hold the manufacturer's own
+   SDS as an unaltered PDF (c.sdsDoc = {name, url, storagePath, size, issueDate, addedBy, addedAt}) with the issue date
+   printed on it. Manufacturers must review an SDS at least every 5 years, so one whose issue date is more than 5 years
+   old is flagged, and one within 6 months of that is flagged as renewal due. The PDF lives in the "machinery-photos"
+   storage bucket under sds/ (same pattern as the parts catalogues). Admins upload, replace and remove. */
+var SDS_REVIEW_YEARS = 5;
+function sdsReviewDue(c){
+  var d = c && c.sdsDoc && c.sdsDoc.issueDate;
+  if(!d || !/^\d{4}-\d{2}-\d{2}$/.test(d)) return null;
+  var x = new Date(d + "T00:00:00Z"); x.setUTCFullYear(x.getUTCFullYear() + SDS_REVIEW_YEARS);
+  return x.toISOString().slice(0, 10);
+}
+function sdsStatus(c){
+  if(!c || !c.sdsDoc || !c.sdsDoc.url) return { key: "none", label: "No SDS on file", tone: "bad" };
+  var due = sdsReviewDue(c);
+  if(!due) return { key: "nodate", label: "SDS on file \u2013 issue date needed", tone: "warn" };
+  var today = todayISO();
+  if(due < today) return { key: "old", label: "SDS over " + SDS_REVIEW_YEARS + " years old", tone: "bad" };
+  var soon = new Date(today + "T00:00:00Z"); soon.setUTCMonth(soon.getUTCMonth() + 6);
+  if(due <= soon.toISOString().slice(0, 10)) return { key: "soon", label: "SDS renewal due " + fmtDate(due), tone: "warn" };
+  return { key: "ok", label: "SDS on file", tone: "ok" };
+}
+function sdsStatusPill(st){
+  if(st.tone === "bad") return '<span class="pill" style="background:#fee2e2;color:#991b1b;white-space:normal;text-align:left;">' + iconSvg("alert-triangle") + ' ' + esc(st.label) + '</span>';
+  if(st.tone === "warn") return '<span class="pill pill-medium" style="white-space:normal;text-align:left;">' + esc(st.label) + '</span>';
+  return '<span class="pill pill-done" style="white-space:normal;text-align:left;">' + esc(st.label) + '</span>';
+}
+// The product name is meant to be exactly what is printed on the label / SDS. Names that are really just the active
+// ingredient (e.g. "Glyphosate 540") are flagged until an admin checks them against the container.
+function sdsNameNeedsCheck(c){ return !!(c && c.nameNeedsCheck && !c.nameCheckedAt); }
+function sdsHideUnverified(c){ return !!(state.settings && state.settings.sdsHideUnverified) && !(c && c.sdsDoc && c.sdsDoc.url); }
+function sdsSetHideUnverified(on){
+  if(!isAdmin()) return;
+  state.settings.sdsHideUnverified = !!on;
+  persist();
+}
+function sdsSetFilter(k){ ui.sdsFilter = ui.sdsFilter === k ? "" : k; render(); }
 function renderSdsList(){
   var html = pageHead("Safety Data Sheets", "Product safety information for every chemical kept on farm.");
 
@@ -21887,12 +21973,23 @@ function renderSdsList(){
   var sdsList = sdsAll;
   if(sdsQ) sdsList = sdsList.filter(function(c){
     return (
-      (c.productName||"") + " " + (c.activeConstituent||"") + " " + (c.hazardClass||"") + " " +
+      (c.productName||"") + " " + (c.alsoKnownAs||"") + " " + (c.activeConstituent||"") + " " + (c.hazardClass||"") + " " +
       (c.signalWord||"") + " " + (c.withholdingPeriod||"") + " " +
       (c.chemicalType||"")
     ).toLowerCase().indexOf(sdsQ) > -1;
   });
   var sdsNeedingReview = sdsAll.filter(sdsNeedsDetails).length;
+  // counts for the status summary, and the filter chosen from it (applied on top of the search box)
+  var cNone = 0, cOld = 0, cOk = 0, cNames = 0, cNamesDone = 0;
+  sdsAll.forEach(function(c){
+    var k = sdsStatus(c).key;
+    if(k === "none") cNone++; else if(k === "ok") cOk++; else cOld++;
+    if(sdsNameNeedsCheck(c)) cNames++;
+    if(c.nameCheckedAt) cNamesDone++;
+  });
+  if(ui.sdsFilter === "none") sdsList = sdsList.filter(function(c){ return sdsStatus(c).key === "none"; });
+  else if(ui.sdsFilter === "old") sdsList = sdsList.filter(function(c){ var k = sdsStatus(c).key; return k === "old" || k === "soon" || k === "nodate"; });
+  else if(ui.sdsFilter === "names") sdsList = sdsList.filter(sdsNameNeedsCheck);
 
   // "Call Poisons Info" at the very top of this page too, at Maria's
   // request ("Also put it on the main Safety Data Sheet page") -- same
@@ -21917,6 +22014,17 @@ function renderSdsList(){
 
   html += '<div class="card"><div class="card-row"><h3 style="margin:0;">Safety data sheets</h3>' +
     (isAdmin() ? '<button type="button" class="btn btn-primary btn-sm" style="width:auto;" onclick="toggleForm(\'newSds\')">' + (ui.openForms.newSds ? "Cancel" : "+ Add SDS") + '</button>' : '') + '</div>' +
+    '<div style="margin-top:10px;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--surface-2);">' +
+      '<div style="font-weight:700;font-size:14px;">' + cOk + ' of ' + sdsAll.length + ' have the manufacturer\u2019s SDS on file</div>' +
+      '<div class="row-muted" style="font-size:12.5px;margin-top:2px;">The details shown in this app are a summary only, not the Safety Data Sheet. The manufacturer\u2019s own SDS (PDF) is the document to rely on.</div>' +
+      '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;">' +
+        '<button type="button" class="filter-pill' + (ui.sdsFilter === "none" ? ' active' : '') + '" onclick="sdsSetFilter(\'none\')">Need an SDS (' + cNone + ')</button>' +
+        '<button type="button" class="filter-pill' + (ui.sdsFilter === "old" ? ' active' : '') + '" onclick="sdsSetFilter(\'old\')">Old or renewal due (' + cOld + ')</button>' +
+        '<button type="button" class="filter-pill' + (ui.sdsFilter === "names" ? ' active' : '') + '" onclick="sdsSetFilter(\'names\')">Names to check (' + cNames + ')</button>' +
+      '</div>' +
+      '<div class="row-muted" style="font-size:12px;margin-top:6px;">Names confirmed against the label or SDS: ' + cNamesDone + ' of ' + sdsAll.length + '.</div>' +
+      (isAdmin() ? '<label style="display:flex;gap:8px;align-items:flex-start;margin-top:10px;font-size:12.5px;cursor:pointer;"><input type="checkbox" style="margin-top:2px;flex:none;"' + (state.settings.sdsHideUnverified ? ' checked' : '') + ' onchange="sdsSetHideUnverified(this.checked)" /><span><b>Hide the summary text for chemicals with no SDS on file.</b> Staff then see \u201cno SDS on file \u2013 get the SDS\u201d instead of first aid, PPE, storage and spray details we could not check against the manufacturer\u2019s own document. Leave this off until the SDSs are uploaded.</span></label>' : '') +
+    '</div>' +
     (sdsNeedingReview > 0 ? '<p class="row-muted" style="margin:6px 0 0;font-size:12.5px;color:#991b1b;">' + iconSvg("alert-triangle") + ' ' + sdsNeedingReview + ' of ' + sdsAll.length + ' chemicals still need their full safety details (hazard class, first aid) added from the real SDS.</p>' : '') +
     '<p class="row-muted" style="margin:6px 0 0;font-size:12px;">Tap a chemical to see its full safety information.</p>' +
     '<div class="toolbar" style="margin:10px 0 0;">' +
@@ -21934,6 +22042,9 @@ function renderSdsList(){
       '</div>' +
       (c.activeConstituent || c.hazardClass ? '<p class="row-muted" style="margin:0;font-size:12.5px;">' + esc(c.activeConstituent) + (c.activeConstituent && c.hazardClass ? ' &middot; ' : '') + esc(c.hazardClass) + '</p>' : '') +
       (c.chemicalType ? '<p class="row-muted" style="margin:2px 0 0;font-size:12.5px;">' + esc(c.chemicalType) + '</p>' : '') +
+      (c.alsoKnownAs ? '<p class="row-muted" style="margin:2px 0 0;font-size:12px;">' + esc(c.alsoKnownAs) + '</p>' : '') +
+      '<div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;">' + sdsStatusPill(sdsStatus(c)) +
+        (sdsNameNeedsCheck(c) ? '<span class="pill pill-medium" style="white-space:normal;text-align:left;">Name to check</span>' : '') + '</div>' +
     '</div>';
   }).join("") + '</div>';
   html += '</div>';
@@ -22145,6 +22256,9 @@ function renderSdsDetail(c){
   if(categoryParts.length) html += '<p class="row-muted" style="margin:0 0 4px;font-size:11.5px;font-weight:700;letter-spacing:.06em;">' + esc(categoryParts.join(" · ")) + '</p>';
   html += '<h3 style="margin:0 0 2px;font-size:20px;">' + esc(c.productName) + '</h3>';
   if(c.manufacturer) html += '<p class="row-muted" style="margin:0;font-size:12.5px;">' + esc(c.manufacturer) + '</p>';
+  if(c.alsoKnownAs) html += '<p class="row-muted" style="margin:2px 0 0;font-size:12.5px;">Also known as / used for: ' + esc(c.alsoKnownAs) + '</p>';
+  if(sdsNameNeedsCheck(c)) html += '<p style="margin:8px 0 0;font-size:12.5px;"><span class="pill pill-medium" style="white-space:normal;">Name to check</span> This name may only be the active ingredient. Check the container or SDS for the exact product name.</p>';
+  else if(c.nameCheckedAt) html += '<p class="row-muted" style="margin:6px 0 0;font-size:11.5px;">Name checked against the label/SDS' + (c.nameCheckedBy ? ' by ' + esc(c.nameCheckedBy) : '') + ' on ' + fmtDate(String(c.nameCheckedAt).slice(0, 10)) + '.</p>';
   if(isAdmin()){
     html += '<div style="display:flex;gap:8px;margin-top:12px;">' +
       '<button type="button" class="btn btn-ghost btn-sm" onclick="ui.editing.sds=\'' + c.id + '\';render();">Edit</button>' +
@@ -22152,6 +22266,9 @@ function renderSdsDetail(c){
     '</div>';
   }
   html += '</div>';
+
+  html += renderSdsDocCard(c);
+  var hideSummary = sdsHideUnverified(c) && !ui.sdsShowUnverified[c.id];
 
   // "Find the current SDS" -- added 2026-09-29 at Maria's request, after a
   // conversation about WHS compliance: the law requires workers have access
@@ -22192,9 +22309,10 @@ function renderSdsDetail(c){
   // (Poisons Information Centre, and 000 for a transport incident) are the
   // same for every chemical in Australia, so they're fixed here rather than
   // fields to fill in per product.
+  html += '<div class="banner warn" style="margin:0 0 12px;"><span><strong>Summary only &ndash; not the Safety Data Sheet.</strong> What is below was put together from labels and other sources and may be out of date or wrong. In an emergency use the manufacturer&rsquo;s SDS and call Poisons Info 13 11 26 or 000.</span></div>';
   html += '<div class="card" style="background:var(--danger-contrast);border:1px solid #f3c6bd;">' +
     '<h3 style="margin:0 0 8px;color:var(--danger);font-size:15px;">+ First aid</h3>' +
-    '<p style="margin:0 0 14px;font-size:13px;white-space:pre-wrap;">' + (c.firstAid ? esc(c.firstAid) : "First aid details haven’t been added for this product yet — check the product label or contact the supplier.") + '</p>' +
+    '<p style="margin:0 0 14px;font-size:13px;white-space:pre-wrap;">' + (hideSummary ? "First aid details are not shown because there is no manufacturer SDS on file for this product. Open the product label or the SDS, or call Poisons Info now." : (c.firstAid ? esc(c.firstAid) : "First aid details haven’t been added for this product yet — check the product label or contact the supplier.")) + '</p>' +
     '<a class="btn btn-danger" style="display:block;text-align:center;text-decoration:none;margin-bottom:8px;" href="tel:131126">Call Poisons Info 13 11 26</a>' +
     '<a class="btn btn-ghost" style="display:block;text-align:center;text-decoration:none;border:1px solid var(--danger);color:var(--danger);" href="tel:000">Transport emergency 000</a>' +
   '</div>';
@@ -22207,6 +22325,12 @@ function renderSdsDetail(c){
   var identityRows = sdsInfoRow("Active", c.activeConstituent) + sdsInfoRow("APVMA No.", c.apvmaNo) + sdsInfoRow("Formulation", c.formulation) + sdsInfoRow("Poison schedule", c.poisonSchedule || c.hazardClass) + sdsInfoRow("Signal word", c.signalWord) + sdsInfoRow("Dangerous Goods", c.dangerousGoods) + sdsInfoRow("Registered for", c.registeredFor);
   if(identityRows) html += '<div class="card"><h3 style="margin:0 0 4px;font-size:15px;">Product identity</h3>' + identityRows + '</div>';
 
+  if(hideSummary){
+    html += '<div class="card"><h3 style="margin:0 0 6px;font-size:15px;">Summary hidden</h3><p style="margin:0;font-size:13px;">PPE, storage, spray conditions, withholding periods and hazard statements are hidden for this product until its manufacturer&rsquo;s SDS is on file. Use the product label or ask the supplier for the SDS.</p>' +
+      (isAdmin() ? '<button type="button" class="btn btn-ghost btn-sm" style="margin-top:10px;" onclick="ui.sdsShowUnverified[\'' + c.id + '\']=true;render();">Show the unverified summary (admins only)</button>' : '') + '</div>';
+    return html;
+  }
+  if(ui.sdsShowUnverified[c.id] && sdsHideUnverified(c)) html += '<div class="banner warn" style="margin:0 0 12px;"><span>Unverified summary &ndash; no manufacturer SDS on file. <a href="#" onclick="ui.sdsShowUnverified[\'' + c.id + '\']=false;render();return false;">Hide it again</a></span></div>';
   if(c.ppePoints && c.ppePoints.length) html += '<div class="card"><h3 style="margin:0 0 8px;font-size:15px;">PPE and re-entry</h3>' + sdsBulletList(c.ppePoints) + '</div>';
 
   if(storagePoints.length) html += '<div class="card"><h3 style="margin:0 0 8px;font-size:15px;">Storage</h3>' + sdsBulletList(storagePoints) + '</div>';
@@ -22256,10 +22380,88 @@ function renderSdsDetail(c){
   return html;
 }
 
+function renderSdsDocCard(c){
+  var st = sdsStatus(c), d = c.sdsDoc, key = "sdsDoc_" + c.id, admin = isAdmin();
+  var html = '<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">' +
+    '<h3 style="margin:0;font-size:15px;">Manufacturer&rsquo;s SDS</h3>' + sdsStatusPill(st) + '</div>';
+  if(d && d.url){
+    var due = sdsReviewDue(c);
+    html += '<a class="btn btn-primary" style="display:block;text-align:center;text-decoration:none;margin-top:10px;" href="' + escAttr(d.url) + '" target="_blank" rel="noopener" onclick="return openStoredFile(\'' + escAttr(d.url) + '\')">' + iconSvg("file-text") + ' Open the SDS (PDF)</a>' +
+      '<div class="row-muted" style="font-size:12.5px;margin-top:8px;line-height:1.6;">' +
+        (d.name ? esc(d.name) + '<br/>' : '') +
+        (d.issueDate ? 'Issue date on the SDS: <b>' + fmtDate(d.issueDate) + '</b><br/>' : 'Issue date not recorded<br/>') +
+        (due ? 'Manufacturer review due by: <b>' + fmtDate(due) + '</b> (every ' + SDS_REVIEW_YEARS + ' years)<br/>' : '') +
+        'Added ' + (d.addedAt ? fmtDate(String(d.addedAt).slice(0, 10)) : '') + (d.addedBy ? ' by ' + esc(d.addedBy) : '') + (d.size ? ' &middot; ' + fmtFileSize(d.size) : '') +
+      '</div>';
+  } else {
+    html += '<p style="margin:10px 0 0;font-size:13px;">There is no manufacturer SDS on file for this product. Use &ldquo;Find the current SDS&rdquo; below or ask the supplier, then upload the PDF unaltered.</p>';
+  }
+  if(admin){
+    html += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;"><button type="button" class="btn btn-ghost btn-sm" onclick="toggleForm(\'' + key + '\')">' + (ui.openForms[key] ? "Cancel" : (d && d.url ? "Replace the SDS" : "+ Upload the SDS")) + '</button>' +
+      (d && d.url ? '<button type="button" class="btn btn-danger btn-sm" onclick="removeSdsDoc(\'' + c.id + '\')">Remove</button>' : '') + '</div>';
+    if(ui.openForms[key]){
+      html += '<form class="form-panel" style="margin-top:10px;" onsubmit="addSdsDoc(event,\'' + c.id + '\')"><div class="form-grid">' +
+        '<div class="field"><label>SDS file (PDF)</label><input type="file" name="pdf" accept="application/pdf,.pdf" required /></div>' +
+        '<div class="field"><label>Issue date printed on the SDS</label><input type="date" name="issueDate" required /></div>' +
+      '</div>' +
+      (ui.formErrors[key] ? '<div class="signin-error" style="margin-bottom:8px;">' + esc(ui.formErrors[key]) + '</div>' : '') +
+      '<div class="form-actions"><button type="submit" class="btn btn-primary" style="width:auto;">Upload</button><button type="button" class="btn btn-ghost" onclick="toggleForm(\'' + key + '\')">Cancel</button></div>' +
+      '<p class="row-muted" style="margin:8px 0 0;font-size:12px;">Upload the manufacturer&rsquo;s own SDS exactly as supplied. Do not edit or re-type it. Needs a connection; the limit is 50 MB.</p></form>';
+    }
+  }
+  return html + '</div>';
+}
+async function addSdsDoc(e, id){
+  e.preventDefault();
+  var f = e.target, key = "sdsDoc_" + id;
+  var c = byId(state.chemicals.sds || [], id);
+  var file = f.pdf.files && f.pdf.files[0];
+  if(!c || !file || !isAdmin()) return;
+  var issue = f.issueDate.value;
+  var fail = function(msg){ ui.formErrors[key] = msg; render(); };
+  if(!/\.pdf$/i.test(file.name || "") && file.type !== "application/pdf") return fail("That doesn't look like a PDF file.");
+  if(!issue) return fail("Enter the issue date printed on the SDS.");
+  if(issue > todayISO()) return fail("That issue date is in the future. Check the date on the SDS.");
+  if(file.size > PARTS_PDF_MAX_BYTES) return fail("That file is " + fmtFileSize(file.size) + ", over the 50 MB limit.");
+  if(!supabaseClient || isOffline) return fail("Can't upload a PDF without a connection. Try again once you have signal.");
+  var btn = f.querySelector('button[type="submit"]');
+  if(btn){ btn.disabled = true; btn.textContent = "Uploading\u2026"; }
+  try{
+    var path = "sds/" + uid("sds") + ".pdf";
+    var up = await supabaseClient.storage.from("machinery-photos").upload(path, file, { cacheControl: "3600", upsert: false, contentType: "application/pdf" });
+    if(up.error) throw up.error;
+    var pub = supabaseClient.storage.from("machinery-photos").getPublicUrl(path);
+    var old = c.sdsDoc;
+    c.sdsDoc = { name: (file.name || "SDS").replace(/\.pdf$/i, ""), url: pub.data.publicUrl, storagePath: path, size: file.size, issueDate: issue, addedBy: currentUser().name, addedAt: new Date().toISOString() };
+    delete ui.formErrors[key];
+    ui.openForms[key] = false;
+    if(old && old.storagePath && supabaseClient){
+      supabaseClient.storage.from("machinery-photos").remove([old.storagePath]).catch(function(err){ console.error("[Bullamon Plains] couldn't delete the replaced SDS file (left in storage):", err); });
+    }
+    persist();
+  }catch(err){
+    console.error("[Bullamon Plains] SDS upload failed:", err);
+    fail("Couldn't upload that SDS (" + (err && err.message ? err.message : "unknown error") + "). If you're offline or have a weak signal, try again once you're back in range.");
+  }
+}
+function removeSdsDoc(id){
+  var c = byId(state.chemicals.sds || [], id);
+  if(!c || !c.sdsDoc || !isAdmin()) return;
+  if(!confirm("Remove the SDS for \"" + c.productName + "\"? This deletes the uploaded file and the chemical goes back to 'No SDS on file'.")) return;
+  var d = c.sdsDoc;
+  if(d.storagePath && supabaseClient){
+    supabaseClient.storage.from("machinery-photos").remove([d.storagePath]).catch(function(err){ console.error("[Bullamon Plains] couldn't delete the stored SDS file (left in storage):", err); });
+  }
+  delete c.sdsDoc;
+  persist();
+}
+
 function renderSdsForm(existing){
   return '<div class="form-panel"><form onsubmit="saveSds(event,' + (existing ? "'" + existing.id + "'" : "null") + ')">' +
     '<div class="form-grid">' +
-      '<div class="field"><label>Product name</label><input type="text" name="productName" required value="' + escAttr(existing?existing.productName:"") + '" /></div>' +
+      '<div class="field span-2"><label>Product name (exactly as printed on the label / SDS)</label><input type="text" name="productName" required value="' + escAttr(existing?existing.productName:"") + '" /></div>' +
+      '<div class="field span-2"><label>Also known as / used for (optional)</label><input type="text" name="alsoKnownAs" placeholder="e.g. fungicide for wheat. Anything that is not part of the product name." value="' + escAttr(existing?existing.alsoKnownAs:"") + '" /></div>' +
+      '<div class="checkbox-row field span-2"><input type="checkbox" name="nameChecked" id="nameChecked_cb"' + (existing && existing.nameCheckedAt ? ' checked' : '') + ' /><label for="nameChecked_cb" style="text-transform:none;font-weight:400;">I have checked this name against the product label or SDS</label></div>' +
       '<div class="field"><label>Manufacturer</label><input type="text" name="manufacturer" placeholder="e.g. TITAN AG Pty Ltd · Newport NSW" value="' + escAttr(existing?existing.manufacturer:"") + '" /></div>' +
       '<div class="field"><label>Chemical type</label><input type="text" name="chemicalType" placeholder="Herbicide, Insecticide, Fungicide…" value="' + escAttr(existing?existing.chemicalType:"") + '" /></div>' +
       '<div class="field"><label>Group number</label><input type="text" name="groupNumber" placeholder="e.g. 28" value="' + escAttr(existing?existing.groupNumber:"") + '" /></div>' +
@@ -22320,6 +22522,7 @@ function saveSds(e, id){
   var f = e.target;
   var data = {
     productName: f.productName.value.trim(),
+    alsoKnownAs: f.alsoKnownAs.value.trim(),
     manufacturer: f.manufacturer.value.trim(),
     activeConstituent: f.activeConstituent.value.trim(),
     chemicalType: f.chemicalType.value.trim(),
@@ -22363,6 +22566,14 @@ function saveSds(e, id){
   // the same backward-compatibility reason.
   data.withholdingPeriod = data.withholdingHarvest.length ? data.withholdingHarvest[0].value : "";
   if(!data.productName) return;
+  // name check: ticking records who and when; unticking clears it; changing the name after it was checked clears it
+  var prev = id ? byId(state.chemicals.sds, id) : null;
+  if(f.nameChecked && f.nameChecked.checked && !(prev && prev.nameCheckedAt && prev.productName === data.productName)){
+    data.nameCheckedAt = new Date().toISOString(); data.nameCheckedBy = currentUser() ? currentUser().name : "";
+  } else if(f.nameChecked && f.nameChecked.checked){
+    data.nameCheckedAt = prev.nameCheckedAt; data.nameCheckedBy = prev.nameCheckedBy;
+  } else { data.nameCheckedAt = ""; data.nameCheckedBy = ""; }
+  if(data.nameCheckedAt) data.nameNeedsCheck = false;
   if(id){ Object.assign(byId(state.chemicals.sds, id), data); ui.editing.sds = null; }
   else { state.chemicals.sds.push(Object.assign({ id: uid("c") }, data)); ui.openForms.newSds = false; }
   persist();
