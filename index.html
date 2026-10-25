@@ -1877,7 +1877,7 @@ const DEFAULT_STATE = {
 // change to this file, same as CACHE_NAME in sw.js -- it gives an instant,
 // no-technical-steps-needed way to confirm whether a given device is
 // actually running the latest deploy, without comparing file contents.
-var APP_BUILD = "2026-10-26.3";
+var APP_BUILD = "2026-10-27.1";
 
 /* ======================================================================
    UTILITIES
@@ -13761,6 +13761,13 @@ async function boot(){
     state.settings.livestockSeedV1 = true;
     migrated = true;
   }
+  // one-time (2026-10-25, Maria): Cedarvale paddock outlines exported from AgriWebb, for the Livestock map. Matched to the
+  // existing Cedarvale paddocks by name; never creates paddocks or overwrites an outline someone already imported.
+  if(!state.settings.livestockCedarvaleMapV1){
+    if(state.livestock){ lsApplyBoundaries("Cedarvale", lsFeaturesFromMap(LS_CEDARVALE_MAP), { onlyMissing: true, noCreate: true }); }
+    state.settings.livestockCedarvaleMapV1 = true;
+    migrated = true;
+  }
   // heifer mobs turn into cows on 1 July of the year in their name
   if(state.livestock && lsRollOver()){ migrated = true; }
   // one-time (2026-10-24, Maria): "remove the current records" -- the existing visitor sign-in records are cleared once. New
@@ -17988,9 +17995,7 @@ function lsSaveMove(e){
   e.preventDefault(); var f = e.target, m = lsPickMob(f); if(!m) return;
   var dest = lsPaddock(lsVal(f, "paddock")); if(!dest) return lsFormError("Choose a paddock.");
   if(dest.id === m.paddockId) return lsFormError("That mob is already in " + dest.name + ".");
-  var from = lsPaddock(m.paddockId), date = lsVal(f, "date") || lsLocalToday();
-  m.paddockId = dest.id;
-  lsLog(m, "move", "Moved from " + (from ? from.name + " (" + from.farm + ")" : "no paddock") + " to " + dest.name + " (" + dest.farm + ").", { date: date });
+  lsMoveMob(m, dest, lsVal(f, "date") || lsLocalToday());
   lsFinish();
 }
 function lsSaveCalves(e){
@@ -18176,6 +18181,355 @@ function lsDeletePaddock(id){
 }
 
 /* ---------- the page ---------- */
+/* ----------------------------------------------------------------------
+   LIVESTOCK MAP (Maria, 2026-10-25: "recreate the maps and pick up a mob while looking at the map and drop them in
+   another paddock or farm"). Paddock outlines (paddock.poly = list of rings of [lng,lat], imported from AgriWebb's
+   GeoJSON or a KML file) are drawn as an SVG map with the farm's mobs shown on their paddocks. TAP a mob to pick it
+   up, switch farm if needed, TAP a paddock to drop it there (recorded exactly like the Move form). Tapping instead of
+   dragging because dragging is unreliable on a phone and this also works across farms. Satellite imagery (Esri World
+   Imagery tiles) sits underneath when there is a signal; with none the outlines and mobs still draw, so it works offline.
+   Cedarvale's outlines come from the file Maria exported from AgriWebb (applied once, livestockCedarvaleMapV1).
+   ---------------------------------------------------------------------- */
+var LS_CEDARVALE_MAP = {"Lagoon":{"u":"Grazing","h":111,"r":[[[148.061636,-26.925089],[148.061846,-26.928583],[148.059249,-26.928794],[148.058144,-26.926355],[148.051698,-26.911343],[148.05179,-26.910132],[148.054662,-26.909657],[148.061636,-26.925089]]]},"Front Langtons Cultivation":{"u":"Cropping","h":56,"r":[[[148.092773,-26.948702],[148.095099,-26.944019],[148.095025,-26.940122],[148.088521,-26.939401],[148.087591,-26.944997],[148.0892,-26.946646],[148.092773,-26.948702]]]},"South Cultivation":{"u":"Cropping","h":45.7,"r":[[[148.072806,-26.937375],[148.084736,-26.938982],[148.085037,-26.935673],[148.071563,-26.934045],[148.072806,-26.937375]]]},"Shed":{"u":"Grazing","h":202,"r":[[[148.068969,-26.923747],[148.085548,-26.923201],[148.084109,-26.918412],[148.083948,-26.913514],[148.081416,-26.912031],[148.07146,-26.909209],[148.067564,-26.908728],[148.0662,-26.918004],[148.068969,-26.923747]]]},"Front Langtons":{"u":"Grazing","h":388,"r":[[[148.073006,-26.937933],[148.07718,-26.945154],[148.08953,-26.959697],[148.091043,-26.960634],[148.097276,-26.962728],[148.098328,-26.956531],[148.092773,-26.948702],[148.0892,-26.946646],[148.08759,-26.945001],[148.088534,-26.939403],[148.072788,-26.937413],[148.073006,-26.937933]]]},"Langtons":{"u":"Grazing","h":772,"r":[[[148.097277,-26.972947],[148.115859,-26.97495],[148.12055,-26.942772],[148.095057,-26.940125],[148.095099,-26.943996],[148.092795,-26.948658],[148.098328,-26.956531],[148.097282,-26.96269],[148.097277,-26.972947]]]},"House":{"u":"Grazing","h":33,"r":[[[148.066194,-26.918048],[148.068969,-26.923747],[148.068046,-26.923786],[148.066254,-26.925632],[148.06162,-26.925087],[148.059559,-26.920496],[148.066194,-26.918048]]]},"North Cultivation":{"u":"Cropping","h":21,"r":[[[148.074,-26.931449],[148.073171,-26.930259],[148.077205,-26.928824],[148.080767,-26.929073],[148.080932,-26.932324],[148.074,-26.931449]]]},"Burr":{"u":"Grazing","h":195,"r":[[[148.067632,-26.908264],[148.06619,-26.918075],[148.059538,-26.920504],[148.054655,-26.909642],[148.062827,-26.907985],[148.064839,-26.908],[148.067632,-26.908264]]]},"Bore":{"u":"Grazing","h":195,"r":[[[148.084736,-26.938982],[148.095037,-26.940123],[148.09508,-26.939491],[148.089161,-26.93842],[148.089566,-26.937321],[148.085542,-26.923181],[148.068055,-26.923786],[148.066256,-26.92563],[148.06964,-26.929148],[148.070881,-26.93236],[148.073992,-26.931448],[148.073171,-26.930259],[148.077205,-26.928824],[148.080751,-26.929072],[148.080931,-26.932308],[148.083846,-26.934024],[148.085037,-26.935673],[148.084736,-26.938982]]]},"Topaz Cultivation":{"u":"Grazing","h":26,"r":[[[148.050226,-26.905374],[148.050687,-26.904876],[148.050985,-26.904258],[148.050859,-26.903058],[148.051084,-26.902896],[148.051846,-26.902924],[148.053252,-26.903824],[148.053638,-26.904629],[148.053946,-26.906086],[148.053896,-26.906739],[148.054024,-26.907259],[148.055034,-26.907334],[148.055927,-26.909425],[148.051787,-26.910133],[148.051358,-26.909727],[148.050226,-26.905374]]]},"Woolthorpe":{"u":"Grazing","h":551,"r":[[[148.097276,-26.962728],[148.097277,-26.972947],[148.089123,-26.972144],[148.089939,-26.966368],[148.079792,-26.964882],[148.071155,-26.96886],[148.070984,-26.962931],[148.069224,-26.957461],[148.062916,-26.952909],[148.061497,-26.948276],[148.071713,-26.942016],[148.073646,-26.93904],[148.077071,-26.944965],[148.089517,-26.959681],[148.091148,-26.960669],[148.097276,-26.962728]]]},"Frontage":{"u":"Grazing","h":141,"r":[[[148.059176,-26.928774],[148.060037,-26.930983],[148.061497,-26.948276],[148.071829,-26.941945],[148.07362,-26.939018],[148.073014,-26.937959],[148.072826,-26.937464],[148.071576,-26.934089],[148.070892,-26.932393],[148.07025,-26.930774],[148.069656,-26.929146],[148.066254,-26.925632],[148.061694,-26.925096],[148.061775,-26.928584],[148.059176,-26.928774]]]},"Topaz":{"u":"Grazing","h":237,"r":[[[148.060346,-26.889341],[148.049819,-26.888151],[148.048188,-26.89814],[148.050226,-26.905374],[148.050687,-26.904876],[148.050988,-26.904283],[148.050891,-26.903499],[148.050859,-26.903058],[148.051084,-26.902896],[148.051846,-26.902924],[148.053252,-26.903824],[148.053638,-26.904627],[148.053949,-26.906053],[148.053895,-26.906751],[148.054024,-26.907259],[148.055043,-26.907335],[148.055934,-26.90944],[148.062868,-26.908009],[148.061462,-26.907191],[148.060346,-26.889341]]]},"Cedarvale South":{"u":"Grazing","h":597.1,"r":[[[148.085485,-26.922993],[148.093179,-26.922744],[148.115512,-26.9264],[148.117814,-26.927776],[148.118917,-26.92941],[148.122503,-26.929496],[148.12055,-26.942772],[148.095089,-26.940128],[148.095078,-26.939519],[148.089216,-26.93843],[148.089564,-26.937315],[148.085485,-26.922993]]]},"Cedarvale North":{"u":"Grazing","h":601.1,"r":[[[148.06756,-26.908753],[148.067639,-26.908265],[148.083145,-26.909828],[148.087662,-26.909033],[148.090007,-26.909071],[148.09234,-26.909511],[148.096355,-26.911311],[148.114729,-26.913415],[148.12005,-26.913339],[148.124556,-26.914353],[148.122524,-26.929496],[148.118898,-26.92941],[148.117825,-26.927783],[148.115551,-26.926406],[148.0933,-26.922742],[148.085476,-26.922895],[148.085548,-26.923201],[148.084109,-26.918412],[148.083949,-26.913538],[148.081432,-26.91204],[148.071542,-26.909232],[148.06756,-26.908753]]]},"Middle Cultivation":{"u":"Cropping","h":37.1,"r":[[[148.070914,-26.932373],[148.073965,-26.931445],[148.080938,-26.932325],[148.083835,-26.934008],[148.085037,-26.935673],[148.071575,-26.934042],[148.070914,-26.932373]]]},"Cox’s":{"u":"Grazing","h":701.8,"r":[[[148.060346,-26.889341],[148.061463,-26.907214],[148.062868,-26.908009],[148.065003,-26.907999],[148.083221,-26.909836],[148.087662,-26.909033],[148.090023,-26.909071],[148.09234,-26.909511],[148.094915,-26.910659],[148.096331,-26.911309],[148.100709,-26.911768],[148.103541,-26.894279],[148.060346,-26.889341]]]}};
+var LS_MAP_S = 10000000;
+var LS_TILE_URL = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
+function lsNorm(s){ return String(s || "").replace(/[‘’ʼ]/g, "'").replace(/\s+/g, " ").trim().toLowerCase(); }
+function lsProj(lng, lat){
+  var s = Math.sin(lat * Math.PI / 180);
+  return [((lng + 180) / 360) * LS_MAP_S, (0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI)) * LS_MAP_S];
+}
+function lsRingsOfGeometry(g){
+  if(!g || !g.coordinates) return [];
+  if(g.type === "Polygon") return g.coordinates[0] ? [g.coordinates[0]] : [];
+  if(g.type === "MultiPolygon") return g.coordinates.map(function(p){ return p[0]; }).filter(Boolean);
+  return [];
+}
+// GeoJSON (what AgriWebb exports) or KML -> [{title, rings, landUse, ha}]
+function lsParseBoundaries(text){
+  var t = String(text || "").replace(/^﻿/, "").trim(), feats = [];
+  if(t.charAt(0) === "{"){
+    var j = JSON.parse(t);
+    var list = j.type === "FeatureCollection" ? (j.features || []) : (j.type === "Feature" ? [j] : []);
+    list.forEach(function(f){
+      var p = f.properties || {}, title = p.title || p.name || p.Name || "", rings = lsRingsOfGeometry(f.geometry);
+      if(title && rings.length) feats.push({ title: String(title), rings: rings.map(function(r){ return r.map(function(c){ return [+c[0], +c[1]]; }); }),
+        landUse: p.pastureState || "", ha: p.area_hectares != null ? Math.round(p.area_hectares * 10) / 10 : null });
+    });
+  } else {
+    var doc = new DOMParser().parseFromString(t, "application/xml");
+    if(doc.getElementsByTagName("parsererror").length) throw new Error("that isn't a KML or GeoJSON file");
+    var pms = doc.getElementsByTagName("Placemark");
+    Array.prototype.forEach.call(pms, function(pm){
+      var nm = pm.getElementsByTagName("name")[0], title = nm ? nm.textContent.trim() : "", rings = [];
+      Array.prototype.forEach.call(pm.getElementsByTagName("Polygon"), function(poly){
+        var ob = poly.getElementsByTagName("outerBoundaryIs")[0], co = ob && ob.getElementsByTagName("coordinates")[0];
+        if(!co) return;
+        var ring = co.textContent.trim().split(/\s+/).map(function(s){ var a = s.split(","); return [parseFloat(a[0]), parseFloat(a[1])]; })
+          .filter(function(c){ return !isNaN(c[0]) && !isNaN(c[1]); });
+        if(ring.length > 2) rings.push(ring);
+      });
+      if(title && rings.length) feats.push({ title: title, rings: rings, landUse: "", ha: null });
+    });
+  }
+  return feats;
+}
+function lsFeaturesFromMap(obj){
+  return Object.keys(obj).map(function(k){ return { title: k, rings: obj[k].r, landUse: obj[k].u, ha: obj[k].h }; });
+}
+// Attaches outlines to the farm's paddocks by name (curly/straight apostrophes and capitals ignored); unknown names become new paddocks.
+function lsApplyBoundaries(farm, feats, opts){
+  opts = opts || {};
+  var L = lsData(), res = { matched: 0, created: [], skipped: 0 };
+  feats.forEach(function(f){
+    var pad = L.paddocks.filter(function(p){ return p.farm === farm && lsNorm(p.name) === lsNorm(f.title); })[0];
+    if(!pad){
+      if(opts.noCreate){ res.skipped++; return; }
+      pad = { id: uid("lsp"), farm: farm, name: f.title }; L.paddocks.push(pad); res.created.push(f.title);
+    } else res.matched++;
+    if(opts.onlyMissing && pad.poly) return;
+    pad.poly = f.rings; if(f.landUse) pad.landUse = f.landUse; if(f.ha != null) pad.ha = f.ha;
+  });
+  return res;
+}
+function lsImportBoundaries(e){
+  e.preventDefault();
+  if(!isAdmin()) return;
+  var f = e.target, farm = lsVal(f, "farm"), file = f.elements.file && f.elements.file.files[0];
+  if(!file){ ui.lsMapMsg = "Choose a file first."; render(); return; }
+  var rd = new FileReader();
+  rd.onload = function(){
+    try{
+      var feats = lsParseBoundaries(String(rd.result));
+      if(!feats.length) throw new Error("no paddock outlines found in it");
+      var res = lsApplyBoundaries(farm, feats);
+      delete ui.lsBox; // refit the maps
+      ui.lsMapMsg = farm + ": " + res.matched + " paddock outlines matched" + (res.created.length ? ", " + res.created.length + " new paddocks added (" + res.created.join(", ") + ")" : "") + ".";
+      persist();
+    }catch(err){ ui.lsMapMsg = "Couldn't read that file: " + err.message + "."; render(); }
+  };
+  rd.readAsText(file);
+}
+
+/* ---------- picking up and dropping ---------- */
+function lsMoveMob(m, dest, date){
+  var from = lsPaddock(m.paddockId);
+  m.paddockId = dest.id;
+  lsLog(m, "move", "Moved from " + (from ? from.name + " (" + from.farm + ")" : "no paddock") + " to " + dest.name + " (" + dest.farm + ").", { date: date || lsLocalToday() });
+}
+function lsPickUp(id){
+  ui.lsCarry = ui.lsCarry === id ? null : id;
+  if(ui.lsCarry){
+    ui.lsShowMap = true;
+    var m = lsMobById(id), f = m ? lsMobFarm(m) : "";
+    if(f && (ui.lsFarm || "All") !== "All") ui.lsFarm = f; // show the map of the farm the mob is on
+  }
+  render();
+  if(ui.lsCarry) setTimeout(function(){
+    var el = document.getElementById("ls-map") || document.getElementById("ls-form"); if(!el || !el.getBoundingClientRect) return;
+    var t = el.getBoundingClientRect().top; if((t < 0 || t > window.innerHeight * 0.6) && el.scrollIntoView) el.scrollIntoView({ block: "start", behavior: "smooth" });
+  }, 60);
+}
+function lsCancelCarry(){ ui.lsCarry = null; render(); }
+function lsDrop(padId){
+  var m = ui.lsCarry ? lsMobById(ui.lsCarry) : null, dest = lsPaddock(padId);
+  if(!m || m.status === "closed" || !dest){ ui.lsCarry = null; render(); return; }
+  if(dest.id === m.paddockId){ ui.lsCarry = null; ui.lsPadSel = padId; render(); return; }
+  if(!confirm("Move " + m.name + " (" + m.head + " head) to " + dest.name + " (" + dest.farm + ")?")) return;
+  lsMoveMob(m, dest);
+  ui.lsCarry = null; ui.lsPadSel = padId;
+  persist();
+}
+function lsPadTap(padId){
+  if(ui.lsCarry) return lsDrop(padId);
+  ui.lsPadSel = ui.lsPadSel === padId ? null : padId; render();
+}
+function lsToggleMap(){ ui.lsShowMap = !ui.lsShowMap; render(); }
+function lsToggleSat(){ ui.lsSat = ui.lsSat === false; render(); }
+
+/* ---------- drawing ---------- */
+var LS_PJ = {}; // projected rings cache (kept out of `state`, which is saved)
+function lsProjRings(p){
+  var c = LS_PJ[p.id];
+  if(!c || c.src !== p.poly){ c = { src: p.poly, rings: p.poly.map(function(r){ return r.map(function(q){ return lsProj(q[0], q[1]); }); }) }; LS_PJ[p.id] = c; }
+  return c.rings;
+}
+function lsCentroid(rings){
+  var best = rings[0], ba = 0;
+  rings.forEach(function(r){ var a = Math.abs(lsRingArea(r)); if(a > ba){ ba = a; best = r; } });
+  var a = 0, cx = 0, cy = 0;
+  for(var i = 0, n = best.length; i < n; i++){
+    var p = best[i], q = best[(i + 1) % n], f = p[0] * q[1] - q[0] * p[1];
+    a += f; cx += (p[0] + q[0]) * f; cy += (p[1] + q[1]) * f;
+  }
+  if(Math.abs(a) < 1e-9){ var sx = 0, sy = 0; best.forEach(function(p){ sx += p[0]; sy += p[1]; }); return [sx / best.length, sy / best.length]; }
+  return [cx / (3 * a), cy / (3 * a)];
+}
+function lsRingArea(r){ var a = 0; for(var i = 0, n = r.length; i < n; i++){ var p = r[i], q = r[(i + 1) % n]; a += p[0] * q[1] - q[0] * p[1]; } return a / 2; }
+// Where to put a paddock's label and mobs: the spot inside its own outline that is furthest from its edges and not
+// inside any other paddock (outlines can overlap, e.g. a cultivation inside a big paddock), so labels stay readable.
+var LS_LABEL = {};
+function lsInRing(x, y, r){
+  var inside = false;
+  for(var i = 0, j = r.length - 1; i < r.length; j = i++){
+    var xi = r[i][0], yi = r[i][1], xj = r[j][0], yj = r[j][1];
+    if(((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi)) inside = !inside;
+  }
+  return inside;
+}
+function lsEdgeDist(x, y, r){
+  var best = 1e18;
+  for(var i = 0, j = r.length - 1; i < r.length; j = i++){
+    var ax = r[j][0], ay = r[j][1], bx = r[i][0], by = r[i][1], dx = bx - ax, dy = by - ay, l = dx * dx + dy * dy, t = l ? Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / l)) : 0;
+    var px = ax + t * dx, py = ay + t * dy, d = Math.hypot(x - px, y - py); if(d < best) best = d;
+  }
+  return best;
+}
+function lsLabelPoint(p, allPads){
+  var key = allPads.length, c = LS_LABEL[p.id];
+  if(c && c.src === p.poly && c.n === key) return c.pt;
+  var rings = lsProjRings(p), others = allPads.filter(function(o){ return o.id !== p.id; }).map(function(o){ return lsProjRings(o); });
+  var minx = 1e18, miny = 1e18, maxx = -1e18, maxy = -1e18;
+  rings.forEach(function(r){ r.forEach(function(q){ minx = Math.min(minx, q[0]); maxx = Math.max(maxx, q[0]); miny = Math.min(miny, q[1]); maxy = Math.max(maxy, q[1]); }); });
+  var best = null, bs = -1, N = 16;
+  for(var a = 1; a < N; a++) for(var b = 1; b < N; b++){
+    var x = minx + (maxx - minx) * a / N, y = miny + (maxy - miny) * b / N;
+    var own = rings.filter(function(r){ return lsInRing(x, y, r); })[0]; if(!own) continue;
+    var covered = others.some(function(rs){ return rs.some(function(r){ return lsInRing(x, y, r); }); });
+    var sc = lsEdgeDist(x, y, own) * (covered ? 0.15 : 1);
+    if(sc > bs){ bs = sc; best = [x, y]; }
+  }
+  var pt = best || lsCentroid(rings);
+  LS_LABEL[p.id] = { src: p.poly, n: key, pt: pt };
+  return pt;
+}
+function lsFitBox(pads, W, H){
+  var minx = 1e18, miny = 1e18, maxx = -1e18, maxy = -1e18;
+  pads.forEach(function(p){ lsProjRings(p).forEach(function(r){ r.forEach(function(q){ minx = Math.min(minx, q[0]); maxx = Math.max(maxx, q[0]); miny = Math.min(miny, q[1]); maxy = Math.max(maxy, q[1]); }); }); });
+  var w = (maxx - minx) * 1.1 || 1000, h = (maxy - miny) * 1.1 || 1000, cx = (minx + maxx) / 2, cy = (miny + maxy) / 2, asp = W / H;
+  if(w / h < asp) w = h * asp; else h = w / asp;
+  return { x: cx - w / 2, y: cy - h / 2, w: w, h: h };
+}
+function lsMapFarm(farm){
+  var L = lsData();
+  if(farm !== "All") return farm;
+  return L.farms.filter(function(f){ return L.paddocks.some(function(p){ return p.farm === f && p.poly; }); })[0] || L.farms[0] || "";
+}
+function lsTilesSvg(box, W){
+  var upx = box.w / W, z = Math.round(Math.log(LS_MAP_S / (upx * 256)) / Math.LN2);
+  z = Math.max(3, Math.min(18, z));
+  var out = [], tries = 0;
+  while(tries++ < 6){
+    var n = Math.pow(2, z), ts = LS_MAP_S / n;
+    var x0 = Math.max(0, Math.floor(box.x / ts)), x1 = Math.min(n - 1, Math.floor((box.x + box.w) / ts));
+    var y0 = Math.max(0, Math.floor(box.y / ts)), y1 = Math.min(n - 1, Math.floor((box.y + box.h) / ts));
+    if((x1 - x0 + 1) * (y1 - y0 + 1) > 40 && z > 3){ z--; continue; }
+    for(var ty = y0; ty <= y1; ty++) for(var tx = x0; tx <= x1; tx++){
+      out.push('<image href="' + LS_TILE_URL.replace("{z}", z).replace("{y}", ty).replace("{x}", tx) + '" x="' + (tx * ts) + '" y="' + (ty * ts) + '" width="' + (ts * 1.003) + '" height="' + (ts * 1.003) + '" preserveAspectRatio="none" onerror="this.style.display=\'none\'" />');
+    }
+    break;
+  }
+  return out.join("");
+}
+function lsMapDraw(){
+  var el = document.getElementById("ls-map"); if(!el) return;
+  var farm = el.getAttribute("data-farm"), L = lsData();
+  var pads = L.paddocks.filter(function(p){ return p.farm === farm && p.poly && p.poly.length; });
+  if(!pads.length){ el.innerHTML = ""; return; }
+  var W = el.clientWidth || 360, H = el.clientHeight || 420;
+  ui.lsBox = ui.lsBox || {};
+  var box = ui.lsBox[farm];
+  if(!box){ box = ui.lsBox[farm] = lsFitBox(pads, W, H); }
+  if(Math.abs(box.w / box.h - W / H) > 0.02){ var cx = box.x + box.w / 2, cy = box.y + box.h / 2; box.h = box.w * H / W; box.x = cx - box.w / 2; box.y = cy - box.h / 2; }
+  var u = box.w / W, active = lsActiveMobs(), carry = ui.lsCarry, carried = carry ? lsMobById(carry) : null;
+  var svg = '<svg id="ls-svg" xmlns="http://www.w3.org/2000/svg" width="100%" height="100%" viewBox="' + box.x + ' ' + box.y + ' ' + box.w + ' ' + box.h + '" style="display:block;touch-action:none;user-select:none;-webkit-user-select:none;">';
+  if(ui.lsSat !== false) svg += '<g id="ls-tiles">' + lsTilesSvg(box, W) + '</g>';
+  var polys = "", labels = "", chips = "";
+  pads.forEach(function(p){
+    var rings = lsProjRings(p), cropping = /crop/i.test(p.landUse || "");
+    var isSel = ui.lsPadSel === p.id, isHere = carried && carried.paddockId === p.id;
+    polys += rings.map(function(r){
+      return '<polygon data-pad="' + p.id + '" points="' + r.map(function(q){ return q[0].toFixed(1) + "," + q[1].toFixed(1); }).join(" ") + '" fill="' + (cropping ? "#65bb38" : "#efcb19") + '" fill-opacity="' + (carried && !isHere ? "0.42" : "0.28") + '" stroke="' + (isSel ? "#ff7a00" : "#ffffff") + '" stroke-width="' + (u * (isSel ? 3.2 : 1.4)) + '" stroke-linejoin="round" style="cursor:pointer;" />';
+    }).join("");
+    var c = lsLabelPoint(p, pads), here = active.filter(function(m){ return m.paddockId === p.id; });
+    var fs = u * 12.5, y = c[1];
+    var bx0 = 1e18, bx1 = -1e18; rings.forEach(function(r){ r.forEach(function(q){ if(q[0] < bx0) bx0 = q[0]; if(q[0] > bx1) bx1 = q[0]; }); });
+    // small paddocks only show their name once zoomed in enough for it to fit (their mobs always show)
+    if((bx1 - bx0) / u >= p.name.length * 6.4 || isSel || here.length)
+    labels += '<text x="' + c[0].toFixed(1) + '" y="' + y.toFixed(1) + '" text-anchor="middle" font-size="' + fs + '" font-weight="700" fill="#fff" stroke="#000" stroke-opacity=".75" stroke-width="' + (u * 2.6) + '" paint-order="stroke" pointer-events="none" font-family="sans-serif">' + esc(p.name) + '</text>';
+    here.forEach(function(m, i){
+      var txt = m.name + "  " + m.head + (m.calvesAtFoot ? " +" + m.calvesAtFoot : ""), tw = Math.max(40, txt.length * 6.6) * u + u * 14, th = u * 19;
+      var yy = y + u * 5 + i * (th + u * 3), isC = carry === m.id;
+      chips += '<g data-mob="' + m.id + '" style="cursor:pointer;"><rect x="' + (c[0] - tw / 2).toFixed(1) + '" y="' + yy.toFixed(1) + '" width="' + tw.toFixed(1) + '" height="' + th + '" rx="' + (u * 9) + '" fill="' + (isC ? "#ff7a00" : "#0b2f4f") + '" fill-opacity=".93" stroke="#fff" stroke-width="' + (u * (isC ? 2.4 : 1)) + '" />' +
+        '<text x="' + c[0].toFixed(1) + '" y="' + (yy + th * 0.69).toFixed(1) + '" text-anchor="middle" font-size="' + (u * 12) + '" font-weight="700" fill="#fff" pointer-events="none" font-family="sans-serif">' + esc(txt) + '</text></g>';
+    });
+  });
+  svg += polys + labels + chips + '</svg>';
+  el.innerHTML = svg;
+  lsMapBind(el, farm);
+}
+function lsMapSetBox(farm, box){
+  ui.lsBox[farm] = box;
+  var s = document.getElementById("ls-svg"); if(s) s.setAttribute("viewBox", box.x + " " + box.y + " " + box.w + " " + box.h);
+}
+var lsMapTimer = null;
+function lsMapRefreshSoon(){ clearTimeout(lsMapTimer); lsMapTimer = setTimeout(lsMapDraw, 160); }
+function lsZoomMap(f){
+  var el = document.getElementById("ls-map"); if(!el) return;
+  var farm = el.getAttribute("data-farm"), b = ui.lsBox && ui.lsBox[farm]; if(!b) return;
+  var cx = b.x + b.w / 2, cy = b.y + b.h / 2, w = b.w / f, h = b.h / f;
+  lsMapSetBox(farm, { x: cx - w / 2, y: cy - h / 2, w: w, h: h }); lsMapDraw();
+}
+function lsFitMap(){ var el = document.getElementById("ls-map"); if(!el) return; delete ui.lsBox[el.getAttribute("data-farm")]; lsMapDraw(); }
+function lsMapBind(el, farm){
+  var svg = document.getElementById("ls-svg"); if(!svg) return;
+  var pts = {}, moved = false, startBox = null, startPt = null, pinch = null;
+  var toUnits = function(cx, cy){ var r = svg.getBoundingClientRect(), b = ui.lsBox[farm]; return [b.x + (cx - r.left) / r.width * b.w, b.y + (cy - r.top) / r.height * b.h]; };
+  var zoomAt = function(cx, cy, f){
+    var b = ui.lsBox[farm], p = toUnits(cx, cy), w = b.w / f, h = b.h / f;
+    lsMapSetBox(farm, { x: p[0] - (p[0] - b.x) / f, y: p[1] - (p[1] - b.y) / f, w: w, h: h });
+  };
+  svg.addEventListener("wheel", function(e){ e.preventDefault(); zoomAt(e.clientX, e.clientY, e.deltaY < 0 ? 1.25 : 0.8); lsMapRefreshSoon(); }, { passive: false });
+  svg.addEventListener("pointerdown", function(e){
+    pts[e.pointerId] = { x: e.clientX, y: e.clientY };
+    if(Object.keys(pts).length === 1){ moved = false; startPt = { x: e.clientX, y: e.clientY }; startBox = Object.assign({}, ui.lsBox[farm]); pinch = null; }
+    else if(Object.keys(pts).length === 2){
+      var k = Object.keys(pts), a = pts[k[0]], b2 = pts[k[1]];
+      pinch = { d: Math.hypot(a.x - b2.x, a.y - b2.y), box: Object.assign({}, ui.lsBox[farm]) }; moved = true;
+    }
+  });
+  svg.addEventListener("pointermove", function(e){
+    if(!pts[e.pointerId]) return;
+    pts[e.pointerId] = { x: e.clientX, y: e.clientY };
+    var keys = Object.keys(pts);
+    if(keys.length === 1 && startPt){
+      var dx = e.clientX - startPt.x, dy = e.clientY - startPt.y;
+      if(!moved && Math.hypot(dx, dy) > 6){ moved = true; try{ svg.setPointerCapture(e.pointerId); }catch(_){} }
+      if(moved){
+        var r = svg.getBoundingClientRect();
+        lsMapSetBox(farm, { x: startBox.x - dx / r.width * startBox.w, y: startBox.y - dy / r.height * startBox.h, w: startBox.w, h: startBox.h });
+      }
+    } else if(keys.length === 2 && pinch){
+      var a = pts[keys[0]], b3 = pts[keys[1]], d = Math.hypot(a.x - b3.x, a.y - b3.y), f = d / pinch.d;
+      if(f > 0.05 && isFinite(f)){
+        var r2 = svg.getBoundingClientRect(), cx = (a.x + b3.x) / 2, cy = (a.y + b3.y) / 2, ob = pinch.box;
+        var px = ob.x + (cx - r2.left) / r2.width * ob.w, py = ob.y + (cy - r2.top) / r2.height * ob.h;
+        lsMapSetBox(farm, { x: px - (px - ob.x) / f, y: py - (py - ob.y) / f, w: ob.w / f, h: ob.h / f });
+      }
+    }
+  });
+  var up = function(e){
+    var had = !!pts[e.pointerId]; delete pts[e.pointerId];
+    if(Object.keys(pts).length < 2) pinch = null;
+    if(!had) return;
+    if(!moved && Object.keys(pts).length === 0){
+      var t = e.target && e.target.closest ? e.target : null;
+      var mobEl = t && t.closest("[data-mob]"), padEl = t && t.closest("[data-pad]");
+      if(mobEl) lsPickUp(mobEl.getAttribute("data-mob"));
+      else if(padEl) lsPadTap(padEl.getAttribute("data-pad"));
+      return;
+    }
+    if(Object.keys(pts).length === 0){ startPt = null; lsMapRefreshSoon(); }
+  };
+  svg.addEventListener("pointerup", up);
+  svg.addEventListener("pointercancel", function(e){ delete pts[e.pointerId]; pinch = null; startPt = null; });
+}
+
+/* ---------- the map card ---------- */
+function lsPadHeadCount(padId){ return lsActiveMobs().filter(function(m){ return m.paddockId === padId; }).reduce(function(a, m){ return a + m.head; }, 0); }
+function renderLsCarryBanner(){
+  var m = ui.lsCarry ? lsMobById(ui.lsCarry) : null;
+  if(!m || m.status === "closed"){ ui.lsCarry = null; return ""; }
+  return '<div class="card" style="border:3px solid #ff7a00;background:#fff7ec;"><div class="card-row"><div style="font-weight:800;font-size:15.5px;">Carrying ' + esc(m.name) + ' (' + m.head + ' head)<div style="font-weight:600;font-size:13px;" class="row-muted">Tap a paddock to drop it there, on any farm. Use the farm tabs to change farm.</div></div>' +
+    '<button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="lsCancelCarry()">Cancel</button></div></div>';
+}
+function renderLsMapCard(farmTab){
+  var L = lsData(), farm = lsMapFarm(farmTab), pads = L.paddocks.filter(function(p){ return p.farm === farm; });
+  var mapped = pads.filter(function(p){ return p.poly && p.poly.length; }), unmapped = pads.filter(function(p){ return !(p.poly && p.poly.length); });
+  var html = '<div class="card"><div class="card-row"><h3 style="margin:0;">Map: ' + esc(farm) + '</h3><div style="display:flex;gap:6px;">' +
+    (mapped.length ? '<button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="lsZoomMap(1.5)" aria-label="Zoom in">+</button><button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="lsZoomMap(0.667)" aria-label="Zoom out">&minus;</button><button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="lsFitMap()">Fit</button>' +
+      '<button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="lsToggleSat()">' + (ui.lsSat === false ? 'Satellite' : 'No satellite') + '</button>' : '') + '</div></div>';
+  if(farmTab === "All" && mapped.length) html += '<p class="row-muted" style="font-size:12.5px;margin:6px 0 0;">Showing ' + esc(farm) + '. Pick another farm above to see its map.</p>';
+  if(mapped.length){
+    html += '<div id="ls-map" data-farm="' + escAttr(farm) + '" style="position:relative;width:100%;height:min(68vh,540px);margin-top:8px;background:#dfe7dc;border:1px solid var(--border);overflow:hidden;touch-action:none;"></div>' +
+      '<div class="row-muted" style="font-size:11px;margin-top:3px;">' + (ui.lsSat === false ? '' : 'Imagery &copy; Esri, Maxar, Earthstar Geographics (needs a signal). ') + 'Pinch or scroll to zoom, drag to move. Tap a mob to pick it up, then tap a paddock.</div>';
+    setTimeout(lsMapDraw, 0);
+  } else {
+    html += '<p class="row-muted" style="font-size:13px;margin:8px 0;">' + (farm ? 'No paddock outlines for ' + esc(farm) + ' yet.' : 'No farms yet.') + ' Tap a paddock below instead.</p>';
+  }
+  if(unmapped.length){
+    html += '<div style="margin-top:8px;"><div class="row-muted" style="font-size:12.5px;margin-bottom:4px;">' + (mapped.length ? 'Paddocks without an outline:' : 'Paddocks:') + '</div><div style="display:flex;flex-wrap:wrap;gap:6px;">' +
+      unmapped.slice().sort(function(a, b){ return a.name.localeCompare(b.name); }).map(function(p){ var n = lsPadHeadCount(p.id);
+        return '<button type="button" class="ls-pad" style="cursor:pointer;background:' + (ui.lsPadSel === p.id ? '#ffe9c9' : 'var(--surface)') + ';" onclick="lsPadTap(\'' + p.id + '\')">' + esc(p.name) + (n ? ' <strong>' + n + '</strong>' : '') + '</button>'; }).join("") + '</div></div>';
+  }
+  var sel = ui.lsPadSel ? lsPaddock(ui.lsPadSel) : null;
+  if(sel && sel.farm === farm){
+    var here = lsSortMobs(lsActiveMobs().filter(function(m){ return m.paddockId === sel.id; }));
+    html += '<div style="margin-top:10px;padding-top:8px;border-top:1px solid var(--divider);"><div class="card-row"><strong>' + esc(sel.name) + '</strong><span class="row-muted" style="font-size:13px;">' + (sel.ha ? sel.ha + ' ha &middot; ' : '') + lsPadHeadCount(sel.id) + ' head</span></div>' +
+      (here.length ? here.map(function(m){ return '<div class="card-row" style="padding:6px 0;"><span>' + esc(m.name) + ' <span class="row-muted">' + m.head + ' head</span></span><button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="lsPickUp(\'' + m.id + '\')">' + (ui.lsCarry === m.id ? 'Put down' : 'Pick up') + '</button></div>'; }).join("") : '<div class="row-muted" style="padding:6px 0;">No mobs here.</div>') + '</div>';
+  }
+  return html + '</div>';
+}
+
 function lsFlag(m){
   if(lsClass(m) !== "Steers" || !m.weight) return "";
   if(m.weight >= LS_STEER_TARGET) return '<span class="pill pill-high">Ready to sell, ' + m.weight + ' kg</span>';
@@ -18199,7 +18553,7 @@ function lsMobCard(m, showFarm){
       (m.toSell ? '<span class="pill pill-open">To sell</span>' : '') + '</div>' +
     (bits.length ? '<div class="row-muted" style="font-size:13px;">' + bits.join(' &middot; ') + '</div>' : '') +
     (m.note ? '<div style="font-size:13.5px;margin-top:4px;">' + esc(m.note) + '</div>' : '') +
-    '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;">' + btn("Move", "move") + btn("Sell / death", "sell") + btn("Weight", "weight") + btn("Split", "split") + btn("Rename", "rename") +
+    '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;">' + '<button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="lsPickUp(\'' + m.id + '\')">Pick up</button>' + btn("Move", "move") + btn("Sell / death", "sell") + btn("Weight", "weight") + btn("Split", "split") + btn("Rename", "rename") +
       (isAdmin() ? '<button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="lsDeleteMob(\'' + m.id + '\')">Delete</button>' : '') + '</div>' +
   '</div>';
 }
@@ -18218,6 +18572,9 @@ function renderLivestock(){
       '<span class="job-area-name">' + (f === "All" ? "All farms" : esc(f)) + '</span><span class="job-area-count">' + headSum(list) + ' head</span></button>';
   }).join("") + '</div>';
 
+  html += renderLsCarryBanner();
+  html += '<div class="card"><div class="card-row"><h3 style="margin:0;">Paddock map</h3><button type="button" class="btn ' + (ui.lsShowMap ? 'btn-ghost' : 'btn-primary') + ' btn-sm" style="width:auto;" onclick="lsToggleMap()">' + (ui.lsShowMap ? 'Hide map' : 'Show map') + '</button></div></div>';
+  if(ui.lsShowMap) html += renderLsMapCard(farm);
   html += '<div class="card"><h3 style="margin:0 0 8px;">Record something</h3><div class="ls-actions">' + LS_FORMS.map(function(x){
     return '<button type="button" class="btn ' + (ui.openForms.lsForm === x.key ? 'btn-primary' : 'btn-ghost') + '" onclick="lsOpenForm(\'' + x.key + '\')">' + esc(x.label) + '</button>';
   }).join("") + '</div>' + renderLsForm() + '</div>';
@@ -18236,6 +18593,13 @@ function renderLivestock(){
       '<div class="form-grid"><div class="field"><label>Farm</label><select name="farm">' + L.farms.map(function(f){ return '<option' + (f === farm ? ' selected' : '') + '>' + esc(f) + '</option>'; }).join("") + '</select></div>' +
       '<div class="field"><label>New paddock name</label><input type="text" name="pname" maxlength="60" required /></div></div>' +
       '<div class="form-actions" style="margin-top:8px;"><button type="submit" class="btn btn-primary" style="width:auto;">Add paddock</button></div></form>';
+    if(isAdmin()){
+      html += '<form class="form-panel" style="margin:8px 0;" onsubmit="lsImportBoundaries(event)"><div style="font-weight:700;margin-bottom:6px;">Paddock outlines for the map</div>' +
+        (ui.lsMapMsg ? '<p style="font-weight:700;margin:0 0 8px;">' + esc(ui.lsMapMsg) + '</p>' : '') +
+        '<div class="form-grid"><div class="field"><label>Farm</label><select name="farm">' + L.farms.map(function(f){ return '<option' + (f === farm ? ' selected' : '') + '>' + esc(f) + '</option>'; }).join("") + '</select></div>' +
+        '<div class="field"><label>File exported from AgriWebb (.json) or a .kml file</label><input type="file" name="file" accept=".json,.geojson,.kml,.txt,application/json" required /></div></div>' +
+        '<div class="form-actions" style="margin-top:8px;"><button type="submit" class="btn btn-primary" style="width:auto;">Import outlines</button></div></form>';
+    }
     html += L.farms.filter(function(f){ return farm === "All" || f === farm; }).map(function(f){
       var ps = pads.filter(function(p){ return p.farm === f; }).sort(function(a, b){ return a.name.localeCompare(b.name); });
       return '<div style="padding:8px 0;border-top:1px solid var(--divider);"><strong>' + esc(f) + '</strong> <span class="row-muted">(' + ps.length + ')</span><div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;">' +
