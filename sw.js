@@ -515,7 +515,8 @@
 // v172 (2026-10-26): new Livestock menu item (replacement for AgriWebb: all five farms, mobs, calves at foot, wean/brand, joining, preg test, moves, sales) -- index.html changed.
 // v173 (2026-10-26): Livestock section limited to admins for now -- index.html changed.
 // v174 (2026-10-26): Livestock head counts now combine correctly when two people change the same mob while out of range; seed ids made fixed so two phones can't double the mobs -- index.html changed.
-var CACHE_NAME = "bullamon-plains-shell-v174";
+// v175 (2026-10-27): Livestock paddock map (pick up a mob, drop it on a paddock on any farm); Cedarvale outlines from AgriWebb; boundary import -- index.html changed.
+var CACHE_NAME = "bullamon-plains-shell-v175";
 
 var SHELL_ASSETS = [
   "./",
