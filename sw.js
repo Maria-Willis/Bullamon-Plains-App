@@ -522,7 +522,8 @@
 // v179 (2026-10-27, later): Livestock: Age a mob (move it up a class, year goes in the name) and Age/Rename buttons on every mob; choosing a mob in the Age/Rename form fills it in -- index.html changed.
 // v180 (2026-10-27, later): Livestock: Age hidden on cows/bulls/ewes/wethers; ageing a Calves mob splits it into steers and heifers (heifer mob named J + last digit of the join year, e.g. J6) -- index.html changed.
 // v181 (2026-10-27, later): Livestock: heifer mobs named J6, J7 etc. no longer have the year in front -- index.html changed.
-var CACHE_NAME = "bullamon-plains-shell-v181";
+// v182 (2026-10-27, later): Time Sheets: new sheets get 30 minutes of paid break a day however it is taken (only smoko + lunch over 30 comes off); sheets already submitted keep their old hours -- index.html changed.
+var CACHE_NAME = "bullamon-plains-shell-v182";
 
 var SHELL_ASSETS = [
   "./",
