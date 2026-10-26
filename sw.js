@@ -517,7 +517,8 @@
 // v174 (2026-10-26): Livestock head counts now combine correctly when two people change the same mob while out of range; seed ids made fixed so two phones can't double the mobs -- index.html changed.
 // v175 (2026-10-27): Livestock paddock map (pick up a mob, drop it on a paddock on any farm); Cedarvale outlines from AgriWebb; boundary import -- index.html changed.
 // v176 (2026-10-27, later): Time Sheets: admin Mark paid / Undo paid, paid sheets move to a folder per fortnight; new hours report (one or several employees, custom dates, Print, CSV) -- index.html changed.
-var CACHE_NAME = "bullamon-plains-shell-v176";
+// v177 (2026-10-27, later): Livestock: map shows a paddock name only when it fits comfortably; Add new mob (any property, can type a new paddock); mob cards open with Add calves etc. and the form inside the card; add several paddocks at once, copy from Harvest, add a property; West Ginnibri added -- index.html changed.
+var CACHE_NAME = "bullamon-plains-shell-v177";
 
 var SHELL_ASSETS = [
   "./",
