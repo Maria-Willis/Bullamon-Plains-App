@@ -1882,7 +1882,7 @@ const DEFAULT_STATE = {
 // change to this file, same as CACHE_NAME in sw.js -- it gives an instant,
 // no-technical-steps-needed way to confirm whether a given device is
 // actually running the latest deploy, without comparing file contents.
-var APP_BUILD = "2026-10-27.4";
+var APP_BUILD = "2026-10-27.5";
 
 /* ======================================================================
    UTILITIES
@@ -17968,8 +17968,11 @@ var LS_FORMS = [
   { key: "merge", label: "Merge mobs" },
   { key: "recount", label: "Recount" },
   { key: "weight", label: "Weight" },
+  { key: "age", label: "Age a mob" },
   { key: "rename", label: "Change name or tag" }
 ];
+// What a class normally becomes next when a mob is aged one step (Maria, 2026-10-27); anything not listed stays as chosen.
+var LS_NEXT_CLASS = { "Calves": "Steers", "Heifer weaners": "Heifers", "Steer weaners": "Steers", "Heifers": "Cows", "Lambs": "Ewe weaners", "Ewe weaners": "Maiden ewes", "Maiden ewes": "Ewes" };
 var LS_SEED = {"farms": ["Bullamon Plains", "Box Plains", "Cedarvale", "Fenton", "Nullera"], "paddocks": {"Cedarvale": ["Bore", "Burr", "Cedarvale North", "Cedarvale South", "Cox's", "Front Langtons", "Front Langtons Cultivation", "Frontage", "House", "Lagoon", "Langtons", "Middle Cultivation", "North Cultivation", "Shed", "South Cultivation", "Topaz", "Topaz Cultivation", "Woolthorpe"], "Fenton": ["Back North", "Back South", "Barwon", "Black Soil", "Brigalow", "Browns Paddock", "Buffel", "Bull", "Coolibah Cultivation", "Coolibah Laneway", "Coolibah South Cultivation", "G1", "G2", "G3", "G4", "G5", "Glenwood River", "Gundabloui", "Iron Bark", "Kellys", "Kurrajong", "Lot 105", "Major", "Mitchell", "North Weir", "North Yards", "Oats Paddock", "Paddock 1", "Paddock 2", "Paddock 3", "Pit", "Quadtrak", "Ridge", "Rum Jungle", "Silo", "South Weir", "South Yard", "Triangle", "Triangle Cultivation", "White Tank"], "Nullera": ["Airstrip", "Blue Gate", "Dry Drain", "Grazing", "Melon Hole", "Railway", "Shed 1", "Shed 2", "Shed 3", "Sheep Yard", "Silo", "Tank", "Wards Foley"], "Bullamon Plains": [], "Box Plains": []}, "mobs": [{"farm": "Cedarvale", "name": "J 0's", "species": "Cattle", "breed": "Angus", "ageClass": "Cows", "colour": "Purple", "head": 115, "paddock": "Cedarvale North", "weight": 500, "weighed": "2026-02-20", "note": "Born 2019 (bred)"}, {"farm": "Cedarvale", "name": "J3's", "species": "Cattle", "breed": "Angus", "ageClass": "Cows", "colour": "Blue", "head": 110, "paddock": "Bore", "weight": 480, "weighed": "2026-02-20", "note": "Transferred in Jul 2022"}, {"farm": "Cedarvale", "name": "J5 White Tag", "species": "Cattle", "breed": "Angus", "ageClass": "Cows", "colour": "White", "head": 221, "paddock": "Langtons", "weight": 370, "weighed": "2026-05-07", "note": "Replacement heifers (White J5 heifers). Transferred in Jul 2024"}, {"farm": "Cedarvale", "name": "Sale nanny", "species": "Sheep", "breed": "Damara", "ageClass": "Ewes", "colour": "Mixed", "head": 300, "paddock": "Langtons", "weight": 10, "weighed": "2025-01-31", "note": "Cull nannys"}, {"farm": "Fenton", "name": "Angus Calves (J4 calf's)", "species": "Cattle", "breed": "Angus", "ageClass": "Heifer weaners", "colour": "", "head": 146, "paddock": "Silo", "weight": 80, "weighed": "2025-09-26", "note": "J4 calf's. Born Jun 2025"}, {"farm": "Fenton", "name": "Angus Calves (J1/J2 calf's)", "species": "Cattle", "breed": "Angus", "ageClass": "Calves", "colour": "", "head": 174, "paddock": "Silo", "weight": 80, "weighed": "2025-09-26", "note": "J1/J2 calf's. Born Jun 2025"}, {"farm": "Fenton", "name": "Angus Calves 2026", "species": "Cattle", "breed": "Angus", "ageClass": "Calves", "colour": "", "head": 176, "paddock": "Triangle", "weight": 100, "weighed": "2026-10-07", "note": "Born Jul 2026"}, {"farm": "Fenton", "name": "Blue Tag Dorper Ewe Weaners (Black Soil)", "species": "Sheep", "breed": "Dorper", "ageClass": "Ewe weaners", "colour": "Blue", "head": 50, "paddock": "Black Soil", "weight": 35, "weighed": "2023-12-01", "note": "Weaner ewes blue tags. Born May 2023"}, {"farm": "Fenton", "name": "Blue Tag Dorper Ewe Weaners (Brigalow)", "species": "Sheep", "breed": "Dorper", "ageClass": "Ewe weaners", "colour": "Blue", "head": 417, "paddock": "Brigalow", "weight": 35, "weighed": "2023-12-01", "note": "Weaner ewes blue tags. Born May 2023"}, {"farm": "Fenton", "name": "Blue Tag Dorper Ewe Weaners (Ridge)", "species": "Sheep", "breed": "Dorper", "ageClass": "Ewe weaners", "colour": "Blue", "head": 527, "paddock": "Ridge", "weight": 35, "weighed": "2023-12-01", "note": "Weaner ewes blue tags. Born May 2023"}, {"farm": "Fenton", "name": "Dorper Ewe Weaners (black tag)", "species": "Sheep", "breed": "Dorper", "ageClass": "Ewe weaners", "colour": "Black", "head": 801, "paddock": "Browns Paddock", "weight": 35, "weighed": "2025-04-29", "note": "Black tag dorper ewes. Born May 2024"}, {"farm": "Fenton", "name": "Dorper Ewes", "species": "Sheep", "breed": "Dorper", "ageClass": "Ewes", "colour": "Yellow", "head": 27, "paddock": "Black Soil", "weight": 60, "weighed": "2025-04-29", "note": "Mixed ages ewes, yellow and red tag. Born 2021"}, {"farm": "Fenton", "name": "J1 and 60 J2's", "species": "Cattle", "breed": "Angus", "ageClass": "Cows", "colour": "Orange", "head": 182, "paddock": "Triangle", "weight": 550, "weighed": "2026-03-05", "note": "J1 & J2's PTIC. Born Jul 2020"}, {"farm": "Fenton", "name": "White Tag Dorper Maiden Ewes", "species": "Sheep", "breed": "Dorper", "ageClass": "Maiden ewes", "colour": "White", "head": 550, "paddock": "White Tank", "weight": 42, "weighed": "2026-06-29", "note": "2025 drop ewes"}]};
 
 function lsLocalToday(){ var d = new Date(); return d.getFullYear() + "-" + ("0" + (d.getMonth() + 1)).slice(-2) + "-" + ("0" + d.getDate()).slice(-2); }
@@ -18244,6 +18247,13 @@ function lsOpenForm(key, mobId){
   if(!same) setTimeout(function(){ var el = document.getElementById("ls-form"); if(el && el.scrollIntoView) el.scrollIntoView({ block: "start", behavior: "smooth" }); }, 30);
 }
 function lsCloseForm(){ delete ui.formErrors.lsForm; ui.openForms.lsForm = null; ui.lsMobId = null; ui.lsNewFarm = null; render(); }
+// Choosing a mob in the Age / Change name form fills the form in for that mob (it moves into that mob's own card)
+function lsPickForForm(id){
+  ui.lsMobId = id || null;
+  if(id) ui.lsOpenMob = id;
+  render();
+  var f2 = document.getElementById("ls-form"); if(f2 && f2.scrollIntoView) f2.scrollIntoView({ block: "start", behavior: "smooth" });
+}
 function lsToggleMob(id){ ui.lsOpenMob = ui.lsOpenMob === id ? null : id; if(ui.lsOpenMob !== id && ui.lsMobId === id){ ui.openForms.lsForm = null; ui.lsMobId = null; } render(); }
 
 /* ---------- field builders ---------- */
@@ -18357,10 +18367,19 @@ function renderLsForm(){
     lsField("Mob", lsMobSelect("mob", active, sel)) + lsNumField("n", "Head count now", 'min="0" required') + lsDateField("date") + lsNoteField(), "Save count");
   if(k === "weight") return lsFormWrap("Weight", "lsSaveWeight",
     lsField("Mob", lsMobSelect("mob", active, sel)) + lsNumField("kg", "Average weight per head (kg)", 'min="1" step="0.1" required') + lsDateField("date", "Date weighed"), "Save weight");
+  if(k === "age"){
+    var am = sel ? lsMobById(sel) : null, cur = am ? lsClass(am) : "", nxt = am ? (LS_NEXT_CLASS[cur] || cur) : "";
+    return lsFormWrap("Age a mob (change its class)", "lsSaveAge",
+      lsField("Mob", lsMobSelect("mob", active, sel).replace('<select name="mob"', '<select name="mob" onchange="lsPickForForm(this.value)"'), "span-2") +
+      (am ? '<p class="row-muted" style="margin:0;grid-column:1/-1;">' + esc(am.name) + ' is now: <strong>' + esc(cur || "no class") + '</strong>.</p>' : '') +
+      lsField("Move up to", lsClassSelect("klass", nxt)) +
+      lsField("Year they become cows (heifers and cows; goes in front of the name)", '<input type="number" name="year" min="2000" max="2100" step="1" inputmode="numeric" value="' + (am && am.cohortYear ? am.cohortYear : lsNextJulyYear(today)) + '" />') +
+      lsDateField("date"), "Age mob");
+  }
   if(k === "rename") {
     var m = sel ? lsMobById(sel) : null;
     return lsFormWrap("Change name or tag", "lsSaveRename",
-      lsField("Mob", lsMobSelect("mob", active, sel), "span-2") +
+      lsField("Mob", lsMobSelect("mob", active, sel).replace('<select name="mob"', '<select name="mob" onchange="lsPickForForm(this.value)"'), "span-2") +
       lsNameFields(m && m.cohortYear ? m.cohortYear : "", m ? (m.nameWords || m.name) : "", "Year they become cows (blank for none)") +
       lsField("Class", lsClassSelect("klass", m ? m.ageClass : "")) + lsField("Tag colour", '<input type="text" name="colour" maxlength="30" value="' + escAttr(m ? m.colour : "") + '" />') +
       lsField("Note", '<input type="text" name="mobnote" maxlength="300" value="' + escAttr(m ? m.note : "") + '" />', "span-2"), "Save");
@@ -18561,6 +18580,18 @@ function lsSaveWeight(e){
   var date = lsVal(f, "date") || lsLocalToday();
   m.weight = kg; m.weighed = date;
   lsLog(m, "weight", "Weighed: average " + kg + " kg per head.", { date: date });
+  lsFinish();
+}
+function lsSaveAge(e){
+  e.preventDefault(); var f = e.target, m = lsPickMob(f); if(!m) return;
+  var klass = lsVal(f, "klass"), year = lsInt(f, "year"), date = lsVal(f, "date") || lsLocalToday();
+  if(!klass) return lsFormError("Choose the class.");
+  var breeder = klass === "Heifers" || klass === "Cows", cur = lsClass(m), oldName = m.name;
+  var yearChange = breeder && year && year !== m.cohortYear;
+  if(klass === cur && !yearChange) return lsFormError(m.name + " is already " + klass + ". Choose a different class.");
+  m.ageClass = klass;
+  if(breeder && year){ m.nameWords = m.nameWords || m.name; m.cohortYear = year; m.name = lsBuildName(year, m.nameWords); }
+  lsLog(m, "age", (klass !== cur ? "Aged from " + cur + " to " + klass + "." : "Year changed to " + year + ".") + (m.name !== oldName ? " Renamed from " + oldName + " to " + m.name + "." : ""), { date: date });
   lsFinish();
 }
 function lsSaveRename(e){
@@ -19032,9 +19063,9 @@ function lsMobCard(m, showFarm){
   var plain = function(label, fn){ return '<button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="' + fn + '">' + label + '</button>'; };
   var buttons = open
     ? (breeder ? btn("Add calves", "calves") : '') + (breeder && (m.calvesAtFoot || 0) > 0 ? btn("Wean and brand", "wean") : '') + (breeder ? btn("Pregnancy test", "preg") + btn("Joining", "join") : '') +
-      btn("Move", "move") + plain("Pick up", "lsPickUp(\'" + m.id + "\')") + btn("Weight", "weight") + btn("Recount", "recount") + btn("Split", "split") + btn("Rename", "rename") + btn("Sell / death", "sell") +
+      btn("Move", "move") + plain("Pick up", "lsPickUp(\'" + m.id + "\')") + btn("Weight", "weight") + btn("Recount", "recount") + btn("Split", "split") + btn("Age", "age") + btn("Rename", "rename") + btn("Sell / death", "sell") +
       (isAdmin() ? plain("Delete", "lsDeleteMob(\'" + m.id + "\')") : '') + plain("Close", "lsToggleMob(\'" + m.id + "\')")
-    : plain("Open", "lsToggleMob(\'" + m.id + "\')") + (breeder ? btn("Add calves", "calves") : '') + btn("Move", "move") + plain("Pick up", "lsPickUp(\'" + m.id + "\')");
+    : plain("Open", "lsToggleMob(\'" + m.id + "\')") + (breeder ? btn("Add calves", "calves") : '') + btn("Move", "move") + plain("Pick up", "lsPickUp(\'" + m.id + "\')") + btn("Age", "age") + btn("Rename", "rename");
   return '<div class="ls-mob" id="ls-mob-' + m.id + '"' + (open ? ' data-open="1"' : '') + '>' +
     '<div class="card-row" style="cursor:pointer;" onclick="lsToggleMob(\'' + m.id + '\')"><h4 style="margin:0;font-size:17px;">' + esc(m.name) + '</h4><span style="font-size:22px;font-weight:800;white-space:nowrap;">' + m.head + ' <span style="font-size:13px;font-weight:600;" class="row-muted">head</span></span></div>' +
     '<div class="row-muted" style="font-size:13.5px;margin:2px 0 6px;">' + esc(meta) + (m.colour ? ' &middot; ' + esc(m.colour) + ' tag' : '') + '</div>' +
