@@ -520,7 +520,9 @@
 // v177 (2026-10-27, later): Livestock: map shows a paddock name only when it fits comfortably; Add new mob (any property, can type a new paddock); mob cards open with Add calves etc. and the form inside the card; add several paddocks at once, copy from Harvest, add a property; West Ginnibri added -- index.html changed.
 // v178 (2026-10-27, later): Livestock: Undo and Edit on records (cancel a pregnancy test, calves, move, sale, new mob etc. and put the mob back as it was); old pregnancy tests, calves, moves and recounts can be cancelled too -- index.html changed.
 // v179 (2026-10-27, later): Livestock: Age a mob (move it up a class, year goes in the name) and Age/Rename buttons on every mob; choosing a mob in the Age/Rename form fills it in -- index.html changed.
-var CACHE_NAME = "bullamon-plains-shell-v179";
+// v180 (2026-10-27, later): Livestock: Age hidden on cows/bulls/ewes/wethers; ageing a Calves mob splits it into steers and heifers (heifer mob named J + last digit of the join year, e.g. J6) -- index.html changed.
+// v181 (2026-10-27, later): Livestock: heifer mobs named J6, J7 etc. no longer have the year in front -- index.html changed.
+var CACHE_NAME = "bullamon-plains-shell-v181";
 
 var SHELL_ASSETS = [
   "./",
