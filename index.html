@@ -1882,7 +1882,7 @@ const DEFAULT_STATE = {
 // change to this file, same as CACHE_NAME in sw.js -- it gives an instant,
 // no-technical-steps-needed way to confirm whether a given device is
 // actually running the latest deploy, without comparing file contents.
-var APP_BUILD = "2026-10-27.2";
+var APP_BUILD = "2026-10-27.3";
 
 /* ======================================================================
    UTILITIES
@@ -13773,6 +13773,12 @@ async function boot(){
     state.settings.livestockCedarvaleMapV1 = true;
     migrated = true;
   }
+  // one-time (2026-10-27, Maria): new property West Ginnibri in Livestock
+  if(!state.settings.livestockWestGinnibriV1){
+    if(state.livestock && Array.isArray(state.livestock.farms) && state.livestock.farms.indexOf("West Ginnibri") < 0) state.livestock.farms.push("West Ginnibri");
+    state.settings.livestockWestGinnibriV1 = true;
+    migrated = true;
+  }
   // heifer mobs turn into cows on 1 July of the year in their name
   if(state.livestock && lsRollOver()){ migrated = true; }
   // one-time (2026-10-24, Maria): "remove the current records" -- the existing visitor sign-in records are cleared once. New
@@ -17950,6 +17956,7 @@ var LS_STEER_TARGET = 450, LS_STEER_NEAR = 420, LS_JOIN_DAYS = 70, LS_LOG_PAGE =
 var LS_CLASSES_CATTLE = ["Calves", "Steers", "Heifers", "Cows", "Bulls", "Other cattle"];
 var LS_CLASSES_SHEEP = ["Lambs", "Ewe weaners", "Ewes", "Maiden ewes", "Wethers", "Rams", "Other sheep"];
 var LS_FORMS = [
+  { key: "newmob", label: "Add new mob" },
   { key: "move", label: "Move a mob" },
   { key: "calves", label: "Add calves to cows" },
   { key: "wean", label: "Wean and brand" },
@@ -18065,19 +18072,22 @@ function lsFormError(msg){
   });
   if(f2 && f2.scrollIntoView) f2.scrollIntoView({ block: "start" });
 }
-function lsFinish(){ delete ui.formErrors.lsForm; ui.openForms.lsForm = null; ui.lsMobId = null; persist(); }
+function lsFinish(){ delete ui.formErrors.lsForm; ui.openForms.lsForm = null; ui.lsMobId = null; ui.lsNewFarm = null; persist(); }
 function lsVal(f, n){ var el = f.elements[n]; return el ? String(el.value || "").trim() : ""; }
 function lsInt(f, n){ var v = lsVal(f, n); if(v === "") return null; var x = parseInt(v, 10); return isNaN(x) ? null : x; }
 function lsNum(f, n){ var v = lsVal(f, n); if(v === "") return null; var x = parseFloat(v); return isNaN(x) ? null : x; }
 function lsOpenForm(key, mobId){
-  var same = ui.openForms.lsForm === key && !mobId;
+  var same = ui.openForms.lsForm === key && (ui.lsMobId || null) === (mobId || null);
   ui.openForms.lsForm = same ? null : key;
-  ui.lsMobId = mobId || null;
+  ui.lsMobId = same ? null : (mobId || null);
+  if(mobId && !same) ui.lsOpenMob = mobId;     // the mob's card stays open while its form is used
+  ui.lsNewFarm = null;
   delete ui.formErrors.lsForm;
   render();
   if(!same) setTimeout(function(){ var el = document.getElementById("ls-form"); if(el && el.scrollIntoView) el.scrollIntoView({ block: "start", behavior: "smooth" }); }, 30);
 }
-function lsCloseForm(){ delete ui.formErrors.lsForm; ui.openForms.lsForm = null; ui.lsMobId = null; render(); }
+function lsCloseForm(){ delete ui.formErrors.lsForm; ui.openForms.lsForm = null; ui.lsMobId = null; ui.lsNewFarm = null; render(); }
+function lsToggleMob(id){ ui.lsOpenMob = ui.lsOpenMob === id ? null : id; if(ui.lsOpenMob !== id && ui.lsMobId === id){ ui.openForms.lsForm = null; ui.lsMobId = null; } render(); }
 
 /* ---------- field builders ---------- */
 function lsField(label, inner, cls){ return '<div class="field' + (cls ? ' ' + cls : '') + '"><label>' + label + '</label>' + inner + '</div>'; }
@@ -18157,6 +18167,18 @@ function renderLsForm(){
     lsField("Mob", lsMobSelect("mob", active, sel), "span-2") +
     lsField("What happened", '<select name="kind"><option>Sold</option><option>Transferred off (not a sale)</option><option>Died or lost</option></select>') +
     lsNumField("n", "How many (blank = the whole mob)", 'min="1"') + lsDateField("date") + lsNoteField("Buyer, price or note (optional)"), "Save");
+  if(k === "newmob"){
+    var L2 = lsData(), nf = ui.lsNewFarm || (ui.lsFarm && ui.lsFarm !== "All" && L2.farms.indexOf(ui.lsFarm) > -1 ? ui.lsFarm : (L2.farms[0] || ""));
+    return lsFormWrap("Add a new mob (bought in or transferred on)", "lsSaveNewMob",
+      lsNameFields(lsNextJulyYear(today), "", "Year they become cows (cows and heifers only)") +
+      lsNumField("n", "How many head", 'min="1" required') + lsDateField("date", "Date they arrived") +
+      lsField("Species", '<select name="species"><option>Cattle</option><option>Sheep</option></select>') + lsField("Class", lsClassSelect("klass", "Cows")) +
+      lsField("Breed", '<input type="text" name="breed" maxlength="40" />') + lsField("Tag colour", '<input type="text" name="colour" maxlength="30" />') +
+      lsField("Property", '<select name="farm" onchange="lsNewMobFarm(this)">' + L2.farms.map(function(f){ return '<option' + (f === nf ? ' selected' : '') + '>' + esc(f) + '</option>'; }).join("") + '</select>') +
+      lsField("Paddock", '<select name="paddock">' + lsFarmPaddockOptions(nf) + '</select>') +
+      lsField("Or type a new paddock name (it is added to the property)", '<input type="text" name="pname" maxlength="60" />', "span-2") +
+      lsNoteField("Seller, price or note (optional)"), "Add mob");
+  }
   if(k === "buy") return lsFormWrap("Buy / transfer on", "lsSaveBuy",
     lsField("Add to an existing mob (or leave blank for a new mob)", lsMobSelect("mob", active, sel).replace(' required', '').replace('Choose a mob…', 'New mob'), "span-2") +
     lsNumField("n", "How many", 'min="1" required') + lsDateField("date") +
@@ -18286,6 +18308,37 @@ function lsSaveSell(e){
   lsCloseIfEmpty(m, kind, date);
   lsFinish();
 }
+function lsFarmPaddockOptions(farm){
+  var ps = lsData().paddocks.filter(function(p){ return p.farm === farm; }).sort(function(a, b){ return a.name.localeCompare(b.name); });
+  return '<option value="">' + (ps.length ? 'Choose a paddock…' : 'No paddocks yet - type a new one below') + '</option>' +
+    ps.map(function(p){ return '<option value="' + p.id + '">' + esc(p.name) + '</option>'; }).join("");
+}
+function lsNewMobFarm(sel){
+  ui.lsNewFarm = sel.value;
+  var pd = sel.form && sel.form.elements.paddock; if(pd) pd.innerHTML = lsFarmPaddockOptions(sel.value);
+}
+function lsSaveNewMob(e){
+  e.preventDefault(); var f = e.target, n = lsInt(f, "n"), date = lsVal(f, "date") || lsLocalToday(), note = lsVal(f, "note");
+  if(!n || n < 1) return lsFormError("Enter how many head.");
+  var klass = lsVal(f, "klass"), year = lsInt(f, "year"), words = lsVal(f, "words");
+  if(!words) return lsFormError("Give the new mob a name.");
+  var breeder = klass === "Heifers" || klass === "Cows";
+  if(breeder && !year) return lsFormError("Enter the year these become cows.");
+  var L = lsData(), farm = lsVal(f, "farm"), pad = lsPaddock(lsVal(f, "paddock")), pname = lsVal(f, "pname");
+  if(!pad){
+    if(!pname) return lsFormError("Choose a paddock, or type a name for a new one.");
+    if(!farm) return lsFormError("Choose the property.");
+    pad = L.paddocks.filter(function(p){ return p.farm === farm && p.name.toLowerCase() === pname.toLowerCase(); })[0];
+    if(!pad){ pad = { id: uid("lsp"), farm: farm, name: pname }; L.paddocks.push(pad); }
+  }
+  var full = lsBuildName(breeder ? year : null, words);
+  if(lsActiveMobs().some(function(m){ return m.name.toLowerCase() === full.toLowerCase(); })) return lsFormError("There is already a mob called " + full + ". Choose a different name, or use Buy / transfer on to add head to it.");
+  var nm = lsNewMob({ name: full, nameWords: words, cohortYear: breeder ? year : null, species: lsVal(f, "species"), breed: lsVal(f, "breed"),
+    ageClass: klass, colour: lsVal(f, "colour"), head: n, paddockId: pad.id, note: note });
+  lsLog(nm, "buy", "New mob added: " + n + " head into " + pad.name + " (" + pad.farm + ")." + (note ? " " + note : ""), { date: date, farm: pad.farm });
+  ui.lsOpenMob = nm.id;
+  lsFinish();
+}
 function lsSaveBuy(e){
   e.preventDefault(); var f = e.target, n = lsInt(f, "n"), date = lsVal(f, "date") || lsLocalToday(), note = lsVal(f, "note");
   if(!n || n < 1) return lsFormError("Enter how many.");
@@ -18381,12 +18434,40 @@ function lsReopenMob(id){
   persist();
 }
 function lsAddPaddock(e){
-  e.preventDefault(); var f = e.target, farm = lsVal(f, "farm"), name = lsVal(f, "pname");
-  if(!farm || !name) return;
-  var L = lsData();
-  if(L.paddocks.some(function(p){ return p.farm === farm && p.name.toLowerCase() === name.toLowerCase(); })){ ui.formErrors.lsPaddock = name + " is already on " + farm + "."; render(); return; }
-  L.paddocks.push({ id: uid("lsp"), farm: farm, name: name });
-  delete ui.formErrors.lsPaddock; persist();
+  e.preventDefault(); var f = e.target, farm = lsVal(f, "farm"), names = String(f.elements.pname ? f.elements.pname.value : "").split(/\r?\n|;/).map(function(x){ return x.trim(); }).filter(Boolean);
+  if(!farm || !names.length) return;
+  var L = lsData(), added = 0, dupes = [];
+  names.forEach(function(name){
+    if(L.paddocks.some(function(p){ return p.farm === farm && p.name.toLowerCase() === name.toLowerCase(); })){ dupes.push(name); return; }
+    L.paddocks.push({ id: uid("lsp"), farm: farm, name: name.slice(0, 60) }); added++;
+  });
+  if(!added && dupes.length){ ui.formErrors.lsPaddock = dupes.join(", ") + (dupes.length === 1 ? " is" : " are") + " already on " + farm + "."; render(); return; }
+  delete ui.formErrors.lsPaddock; ui.lsShowPaddocks = true; persist();
+}
+// Harvest keeps its own paddock list (tagged by property name, e.g. "Bullamon"); offered as a one-tap copy so Maria doesn't retype them
+function lsHarvestNames(farm){
+  var L = lsData(), nf = lsNorm(farm), have = L.paddocks.filter(function(p){ return p.farm === farm; }).map(function(p){ return lsNorm(p.name); });
+  var out = [];
+  ((state.harvest && state.harvest.paddocks) || []).forEach(function(h){
+    var np = lsNorm(h.property); if(!np || !(np === nf || nf.indexOf(np + " ") === 0)) return;
+    var nm = String(h.name || "").trim(); if(!nm) return;
+    if(have.indexOf(lsNorm(nm)) > -1 || out.some(function(o){ return lsNorm(o) === lsNorm(nm); })) return;
+    out.push(nm);
+  });
+  return out;
+}
+function lsCopyHarvest(farm){
+  if(!isAdmin()) return;
+  var names = lsHarvestNames(farm); if(!names.length) return;
+  names.forEach(function(n){ lsData().paddocks.push({ id: uid("lsp"), farm: farm, name: n }); });
+  persist();
+}
+function lsAddFarm(e){
+  e.preventDefault(); if(!isAdmin()) return;
+  var name = lsVal(e.target, "fname"), L = lsData();
+  if(!name) return;
+  if(L.farms.some(function(x){ return lsNorm(x) === lsNorm(name); })){ ui.formErrors.lsFarm = name + " is already there."; render(); return; }
+  L.farms.push(name); delete ui.formErrors.lsFarm; ui.lsFarm = name; persist();
 }
 function lsDeletePaddock(id){
   if(!isAdmin()) return;
@@ -18578,6 +18659,28 @@ function lsLabelPoint(p, allPads){
   LS_LABEL[p.id] = { src: p.poly, n: key, pt: pt };
   return pt;
 }
+// Looks for a spot where a rectangle w x h (map units, already padded for comfort) sits wholly inside the paddock; null if none.
+function lsRectIn(rings, x, y, w, h){
+  for(var i = 0; i <= 4; i++) for(var j = 0; j <= 2; j++){
+    var px = x - w / 2 + w * i / 4, py = y - h / 2 + h * j / 2;
+    if(!rings.some(function(r){ return lsInRing(px, py, r); })) return false;
+  }
+  return true;
+}
+function lsNameSpot(p, rings, c, w, h){
+  var minx = 1e18, miny = 1e18, maxx = -1e18, maxy = -1e18;
+  rings.forEach(function(r){ r.forEach(function(q){ if(q[0] < minx) minx = q[0]; if(q[0] > maxx) maxx = q[0]; if(q[1] < miny) miny = q[1]; if(q[1] > maxy) maxy = q[1]; }); });
+  if(maxx - minx < w || maxy - miny < h) return null;                 // too small on screen to even try
+  if(lsRectIn(rings, c[0], c[1], w, h)) return c;
+  var best = null, bs = -1, N = 10;
+  for(var a = 1; a < N; a++) for(var b = 1; b < N; b++){
+    var x = minx + (maxx - minx) * a / N, y = miny + (maxy - miny) * b / N;
+    if(!lsRectIn(rings, x, y, w, h)) continue;
+    var own = rings.filter(function(r){ return lsInRing(x, y, r); })[0], sc = own ? lsEdgeDist(x, y, own) : 0;
+    if(sc > bs){ bs = sc; best = [x, y]; }
+  }
+  return best;
+}
 function lsFitBox(pads, W, H){
   var minx = 1e18, miny = 1e18, maxx = -1e18, maxy = -1e18;
   pads.forEach(function(p){ lsProjRings(p).forEach(function(r){ r.forEach(function(q){ minx = Math.min(minx, q[0]); maxx = Math.max(maxx, q[0]); miny = Math.min(miny, q[1]); maxy = Math.max(maxy, q[1]); }); }); });
@@ -18628,9 +18731,10 @@ function lsMapDraw(){
     }).join("");
     var c = lsLabelPoint(p, pads), here = active.filter(function(m){ return m.paddockId === p.id; });
     var fs = u * 12.5, y = c[1];
-    var bx0 = 1e18, bx1 = -1e18; rings.forEach(function(r){ r.forEach(function(q){ if(q[0] < bx0) bx0 = q[0]; if(q[0] > bx1) bx1 = q[0]; }); });
-    // small paddocks only show their name once zoomed in enough for it to fit (their mobs always show)
-    if((bx1 - bx0) / u >= p.name.length * 6.4 || isSel || here.length)
+    // a paddock's name only shows once zoomed in far enough for the whole name to fit comfortably inside the paddock (mobs always show)
+    var spot = lsNameSpot(p, rings, c, (p.name.length * 7.6 + 18) * u, 24 * u);
+    if(spot){ c = spot; y = c[1]; }
+    if(spot)
     labels += '<text x="' + c[0].toFixed(1) + '" y="' + y.toFixed(1) + '" text-anchor="middle" font-size="' + fs + '" font-weight="700" fill="#fff" stroke="#000" stroke-opacity=".75" stroke-width="' + (u * 2.6) + '" paint-order="stroke" pointer-events="none" font-family="sans-serif">' + esc(p.name) + '</text>';
     here.forEach(function(m, i){
       var txt = m.name + "  " + m.head + (m.calvesAtFoot ? " +" + m.calvesAtFoot : ""), tw = Math.max(40, txt.length * 6.6) * u + u * 14, th = u * 19;
@@ -18753,15 +18857,21 @@ function lsFlag(m){
   return "";
 }
 function lsMobCard(m, showFarm){
-  var cls = lsClass(m), bits = [];
+  var cls = lsClass(m), bits = [], open = ui.lsOpenMob === m.id, breeder = lsIsBreeder(m);
   var meta = [m.species, m.breed, cls].filter(Boolean).join(" / ");
   var pads = esc(lsPaddockLabel(m)) + (showFarm && lsMobFarm(m) ? ' <span class="row-muted">(' + esc(lsMobFarm(m)) + ')</span>' : '');
   if(m.weight) bits.push('Last weight ' + m.weight + ' kg (' + fmtDate(m.weighed) + ')');
   if(m.joining) bits.push('Joined ' + fmtDate(m.joining.start) + ' to ' + fmtDate(m.joining.end) + (m.joining.bulls && m.joining.bulls.length ? ' with ' + esc(m.joining.bulls.map(function(b){ return b.label; }).join(", ")) : ''));
   if(m.pregTest) bits.push('Preg test ' + fmtDate(m.pregTest.date) + ': ' + m.pregTest.inCalf + ' in calf, ' + m.pregTest.notInCalf + ' not');
-  var btn = function(label, key){ return '<button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="lsOpenForm(\'' + key + '\',\'' + m.id + '\')">' + label + '</button>'; };
-  return '<div class="ls-mob">' +
-    '<div class="card-row"><h4 style="margin:0;font-size:17px;">' + esc(m.name) + '</h4><span style="font-size:22px;font-weight:800;white-space:nowrap;">' + m.head + ' <span style="font-size:13px;font-weight:600;" class="row-muted">head</span></span></div>' +
+  var btn = function(label, key, primary){ return '<button type="button" class="btn ' + (primary || (ui.lsMobId === m.id && ui.openForms.lsForm === key) ? 'btn-primary' : 'btn-ghost') + ' btn-sm" style="width:auto;" onclick="lsOpenForm(\'' + key + '\',\'' + m.id + '\')">' + label + '</button>'; };
+  var plain = function(label, fn){ return '<button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="' + fn + '">' + label + '</button>'; };
+  var buttons = open
+    ? (breeder ? btn("Add calves", "calves") : '') + (breeder && (m.calvesAtFoot || 0) > 0 ? btn("Wean and brand", "wean") : '') + (breeder ? btn("Pregnancy test", "preg") + btn("Joining", "join") : '') +
+      btn("Move", "move") + plain("Pick up", "lsPickUp(\'" + m.id + "\')") + btn("Weight", "weight") + btn("Recount", "recount") + btn("Split", "split") + btn("Rename", "rename") + btn("Sell / death", "sell") +
+      (isAdmin() ? plain("Delete", "lsDeleteMob(\'" + m.id + "\')") : '') + plain("Close", "lsToggleMob(\'" + m.id + "\')")
+    : plain("Open", "lsToggleMob(\'" + m.id + "\')") + (breeder ? btn("Add calves", "calves") : '') + btn("Move", "move") + plain("Pick up", "lsPickUp(\'" + m.id + "\')");
+  return '<div class="ls-mob" id="ls-mob-' + m.id + '"' + (open ? ' data-open="1"' : '') + '>' +
+    '<div class="card-row" style="cursor:pointer;" onclick="lsToggleMob(\'' + m.id + '\')"><h4 style="margin:0;font-size:17px;">' + esc(m.name) + '</h4><span style="font-size:22px;font-weight:800;white-space:nowrap;">' + m.head + ' <span style="font-size:13px;font-weight:600;" class="row-muted">head</span></span></div>' +
     '<div class="row-muted" style="font-size:13.5px;margin:2px 0 6px;">' + esc(meta) + (m.colour ? ' &middot; ' + esc(m.colour) + ' tag' : '') + '</div>' +
     '<div style="font-size:14.5px;font-weight:700;">In ' + pads + '</div>' +
     '<div style="margin:6px 0;display:flex;gap:6px;flex-wrap:wrap;">' +
@@ -18769,8 +18879,8 @@ function lsMobCard(m, showFarm){
       (m.toSell ? '<span class="pill pill-open">To sell</span>' : '') + '</div>' +
     (bits.length ? '<div class="row-muted" style="font-size:13px;">' + bits.join(' &middot; ') + '</div>' : '') +
     (m.note ? '<div style="font-size:13.5px;margin-top:4px;">' + esc(m.note) + '</div>' : '') +
-    '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;">' + '<button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="lsPickUp(\'' + m.id + '\')">Pick up</button>' + btn("Move", "move") + btn("Sell / death", "sell") + btn("Weight", "weight") + btn("Split", "split") + btn("Rename", "rename") +
-      (isAdmin() ? '<button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="lsDeleteMob(\'' + m.id + '\')">Delete</button>' : '') + '</div>' +
+    '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;">' + buttons + '</div>' +
+    (ui.lsMobId === m.id && ui.openForms.lsForm ? renderLsForm() : '') +
   '</div>';
 }
 function renderLivestock(){
@@ -18780,7 +18890,7 @@ function renderLivestock(){
   var shown = lsSortMobs(active.filter(inFarm));
   var headSum = function(list, sp){ return list.filter(function(m){ return !sp || m.species === sp; }).reduce(function(a, m){ return a + m.head; }, 0); };
   var foot = shown.reduce(function(a, m){ return a + (m.calvesAtFoot || 0); }, 0);
-  var html = pageHead("Livestock", "All five farms in one place. Mobs only; bulls stay in the Bulls section.");
+  var html = pageHead("Livestock", "All your properties in one place. Mobs only; bulls stay in the Bulls section.");
 
   html += '<div class="ls-farm-tabs" role="tablist" aria-label="Farms">' + ["All"].concat(L.farms).map(function(f){
     var list = f === "All" ? active : active.filter(function(m){ return lsMobFarm(m) === f; });
@@ -18791,24 +18901,33 @@ function renderLivestock(){
   html += renderLsCarryBanner();
   html += '<div class="card"><div class="card-row"><h3 style="margin:0;">Paddock map</h3><button type="button" class="btn ' + (ui.lsShowMap ? 'btn-ghost' : 'btn-primary') + ' btn-sm" style="width:auto;" onclick="lsToggleMap()">' + (ui.lsShowMap ? 'Hide map' : 'Show map') + '</button></div></div>';
   if(ui.lsShowMap) html += renderLsMapCard(farm);
+  var inlineForm = !!(ui.lsMobId && ui.openForms.lsForm && shown.some(function(m){ return m.id === ui.lsMobId; }));
   html += '<div class="card"><h3 style="margin:0 0 8px;">Record something</h3><div class="ls-actions">' + LS_FORMS.map(function(x){
-    return '<button type="button" class="btn ' + (ui.openForms.lsForm === x.key ? 'btn-primary' : 'btn-ghost') + '" onclick="lsOpenForm(\'' + x.key + '\')">' + esc(x.label) + '</button>';
-  }).join("") + '</div>' + renderLsForm() + '</div>';
+    return '<button type="button" class="btn ' + (ui.openForms.lsForm === x.key && !inlineForm ? 'btn-primary' : 'btn-ghost') + '" onclick="lsOpenForm(\'' + x.key + '\')">' + esc(x.label) + '</button>';
+  }).join("") + '</div>' + (inlineForm ? '' : renderLsForm()) + '</div>';
 
-  html += '<div class="card"><div class="card-row"><h3 style="margin:0;">Mobs' + (farm !== "All" ? ' on ' + esc(farm) : '') + '</h3><span class="row-muted" style="font-size:13px;">' +
-    shown.length + ' mobs &middot; ' + headSum(shown, "Cattle") + ' cattle &middot; ' + headSum(shown, "Sheep") + ' sheep' + (foot ? ' &middot; ' + foot + ' calves at foot' : '') + '</span></div>';
-  html += shown.length ? shown.map(function(m){ return lsMobCard(m, farm === "All"); }).join("") : '<div class="empty-state">No mobs here yet. Use "Buy / transfer on" to add one.</div>';
+  html += '<div class="card"><div class="card-row"><h3 style="margin:0;">Mobs' + (farm !== "All" ? ' on ' + esc(farm) : '') + '</h3><button type="button" class="btn btn-primary btn-sm" style="width:auto;" onclick="lsOpenForm(\'newmob\')">+ Add new mob</button></div>' +
+    '<div class="row-muted" style="font-size:13px;margin:2px 0 6px;">' + shown.length + ' mobs &middot; ' + headSum(shown, "Cattle") + ' cattle &middot; ' + headSum(shown, "Sheep") + ' sheep' + (foot ? ' &middot; ' + foot + ' calves at foot' : '') + '. Tap a mob to open it.</div>';
+  html += shown.length ? shown.map(function(m){ return lsMobCard(m, farm === "All"); }).join("") : '<div class="empty-state">No mobs here yet. Tap "+ Add new mob" to add one.</div>';
   html += '</div>';
 
   // paddocks
   var pads = L.paddocks.filter(function(p){ return farm === "All" || p.farm === farm; });
-  var perr = ui.formErrors.lsPaddock;
-  html += '<div class="card"><div class="card-row"><h3 style="margin:0;">Paddocks (' + pads.length + ')</h3><button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="ui.lsShowPaddocks=!ui.lsShowPaddocks;render();">' + (ui.lsShowPaddocks ? 'Hide' : 'Show') + '</button></div>';
-  if(ui.lsShowPaddocks){
+  var perr = ui.formErrors.lsPaddock, showPads = ui.lsShowPaddocks || (farm !== "All" && pads.length === 0);
+  html += '<div class="card"><div class="card-row"><h3 style="margin:0;">Paddocks (' + pads.length + ')</h3><button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="ui.lsShowPaddocks=' + (showPads ? 'false' : 'true') + ';render();">' + (showPads ? 'Hide' : 'Show') + '</button></div>';
+  if(showPads){
+    if(farm !== "All" && pads.length === 0) html += '<p style="margin:8px 0;font-weight:700;">No paddocks have been added for ' + esc(farm) + ' yet. Add them below (one per line).</p>';
     html += '<form class="form-panel" style="margin:8px 0;" onsubmit="lsAddPaddock(event)">' + (perr ? '<p style="color:var(--danger);font-weight:700;margin:0 0 8px;">' + esc(perr) + '</p>' : '') +
-      '<div class="form-grid"><div class="field"><label>Farm</label><select name="farm">' + L.farms.map(function(f){ return '<option' + (f === farm ? ' selected' : '') + '>' + esc(f) + '</option>'; }).join("") + '</select></div>' +
-      '<div class="field"><label>New paddock name</label><input type="text" name="pname" maxlength="60" required /></div></div>' +
-      '<div class="form-actions" style="margin-top:8px;"><button type="submit" class="btn btn-primary" style="width:auto;">Add paddock</button></div></form>';
+      '<div class="form-grid"><div class="field"><label>Property</label><select name="farm">' + L.farms.map(function(f){ return '<option' + (f === farm ? ' selected' : '') + '>' + esc(f) + '</option>'; }).join("") + '</select></div>' +
+      '<div class="field"><label>New paddock name(s), one per line</label><textarea name="pname" rows="3" maxlength="2000" required></textarea></div></div>' +
+      '<div class="form-actions" style="margin-top:8px;"><button type="submit" class="btn btn-primary" style="width:auto;">Add paddocks</button></div></form>';
+    if(isAdmin()){
+      var ferr = ui.formErrors.lsFarm;
+      html += '<form class="form-panel" style="margin:8px 0;" onsubmit="lsAddFarm(event)"><div style="font-weight:700;margin-bottom:6px;">Add a property</div>' +
+        (ferr ? '<p style="color:var(--danger);font-weight:700;margin:0 0 8px;">' + esc(ferr) + '</p>' : '') +
+        '<div class="form-grid"><div class="field"><label>Property name</label><input type="text" name="fname" maxlength="60" required /></div></div>' +
+        '<div class="form-actions" style="margin-top:8px;"><button type="submit" class="btn btn-primary" style="width:auto;">Add property</button></div></form>';
+    }
     if(isAdmin()){
       html += '<form class="form-panel" style="margin:8px 0;" onsubmit="lsImportBoundaries(event)"><div style="font-weight:700;margin-bottom:6px;">Paddock outlines for the map</div>' +
         (ui.lsMapMsg ? '<p style="font-weight:700;margin:0 0 8px;">' + esc(ui.lsMapMsg) + '</p>' : '') +
@@ -18818,7 +18937,9 @@ function renderLivestock(){
     }
     html += L.farms.filter(function(f){ return farm === "All" || f === farm; }).map(function(f){
       var ps = pads.filter(function(p){ return p.farm === f; }).sort(function(a, b){ return a.name.localeCompare(b.name); });
-      return '<div style="padding:8px 0;border-top:1px solid var(--divider);"><strong>' + esc(f) + '</strong> <span class="row-muted">(' + ps.length + ')</span><div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;">' +
+      var hv = isAdmin() ? lsHarvestNames(f) : [];
+      return '<div style="padding:8px 0;border-top:1px solid var(--divider);"><strong>' + esc(f) + '</strong> <span class="row-muted">(' + ps.length + ')</span>' +
+        (hv.length ? ' <button type="button" class="btn btn-ghost btn-sm" style="width:auto;margin-left:6px;" onclick="lsCopyHarvest(\'' + escAttr(f).replace(/\\/g, "") + '\')">Copy ' + hv.length + ' paddock' + (hv.length === 1 ? '' : 's') + ' from Harvest</button>' : '') + '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;">' +
         (ps.length ? ps.map(function(p){ var n = active.filter(function(m){ return m.paddockId === p.id; }).reduce(function(a, m){ return a + m.head; }, 0);
           return '<span class="ls-pad">' + esc(p.name) + (n ? ' <strong>' + n + '</strong>' : '') + (isAdmin() && !n ? ' <a href="#" title="Delete this paddock" onclick="lsDeletePaddock(\'' + p.id + '\');return false;" style="text-decoration:none;">&times;</a>' : '') + '</span>'; }).join("") : '<span class="row-muted">No paddocks yet.</span>') + '</div></div>';
     }).join("");
