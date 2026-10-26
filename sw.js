@@ -518,7 +518,8 @@
 // v175 (2026-10-27): Livestock paddock map (pick up a mob, drop it on a paddock on any farm); Cedarvale outlines from AgriWebb; boundary import -- index.html changed.
 // v176 (2026-10-27, later): Time Sheets: admin Mark paid / Undo paid, paid sheets move to a folder per fortnight; new hours report (one or several employees, custom dates, Print, CSV) -- index.html changed.
 // v177 (2026-10-27, later): Livestock: map shows a paddock name only when it fits comfortably; Add new mob (any property, can type a new paddock); mob cards open with Add calves etc. and the form inside the card; add several paddocks at once, copy from Harvest, add a property; West Ginnibri added -- index.html changed.
-var CACHE_NAME = "bullamon-plains-shell-v177";
+// v178 (2026-10-27, later): Livestock: Undo and Edit on records (cancel a pregnancy test, calves, move, sale, new mob etc. and put the mob back as it was); old pregnancy tests, calves, moves and recounts can be cancelled too -- index.html changed.
+var CACHE_NAME = "bullamon-plains-shell-v178";
 
 var SHELL_ASSETS = [
   "./",
