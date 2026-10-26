@@ -1882,7 +1882,7 @@ const DEFAULT_STATE = {
 // change to this file, same as CACHE_NAME in sw.js -- it gives an instant,
 // no-technical-steps-needed way to confirm whether a given device is
 // actually running the latest deploy, without comparing file contents.
-var APP_BUILD = "2026-10-27.5";
+var APP_BUILD = "2026-10-27.7";
 
 /* ======================================================================
    UTILITIES
@@ -17972,6 +17972,15 @@ var LS_FORMS = [
   { key: "rename", label: "Change name or tag" }
 ];
 // What a class normally becomes next when a mob is aged one step (Maria, 2026-10-27); anything not listed stays as chosen.
+function lsAgeHidden(m){ return ["Cows", "Bulls", "Ewes", "Wethers"].indexOf(lsClass(m)) > -1; }   // final classes: nothing to age into
+function lsIsCalves(m){ return lsClass(m) === "Calves" && m.species === "Cattle"; }
+// Heifer mobs are named J + the last digit of the year they are joined (e.g. joined 2026 = J6); the year goes in front automatically.
+function lsJName(year){ var y = String(year || ""); return y.length >= 4 ? "J" + y.slice(-1) : ""; }
+function lsSyncJ(inp){
+  var w = inp.form && inp.form.elements.words; if(!w) return;
+  var auto = w.getAttribute("data-auto") || "";
+  if(!w.value || w.value === auto){ var nw = lsJName(inp.value); w.value = nw; w.setAttribute("data-auto", nw); }
+}
 var LS_NEXT_CLASS = { "Calves": "Steers", "Heifer weaners": "Heifers", "Steer weaners": "Steers", "Heifers": "Cows", "Lambs": "Ewe weaners", "Ewe weaners": "Maiden ewes", "Maiden ewes": "Ewes" };
 var LS_SEED = {"farms": ["Bullamon Plains", "Box Plains", "Cedarvale", "Fenton", "Nullera"], "paddocks": {"Cedarvale": ["Bore", "Burr", "Cedarvale North", "Cedarvale South", "Cox's", "Front Langtons", "Front Langtons Cultivation", "Frontage", "House", "Lagoon", "Langtons", "Middle Cultivation", "North Cultivation", "Shed", "South Cultivation", "Topaz", "Topaz Cultivation", "Woolthorpe"], "Fenton": ["Back North", "Back South", "Barwon", "Black Soil", "Brigalow", "Browns Paddock", "Buffel", "Bull", "Coolibah Cultivation", "Coolibah Laneway", "Coolibah South Cultivation", "G1", "G2", "G3", "G4", "G5", "Glenwood River", "Gundabloui", "Iron Bark", "Kellys", "Kurrajong", "Lot 105", "Major", "Mitchell", "North Weir", "North Yards", "Oats Paddock", "Paddock 1", "Paddock 2", "Paddock 3", "Pit", "Quadtrak", "Ridge", "Rum Jungle", "Silo", "South Weir", "South Yard", "Triangle", "Triangle Cultivation", "White Tank"], "Nullera": ["Airstrip", "Blue Gate", "Dry Drain", "Grazing", "Melon Hole", "Railway", "Shed 1", "Shed 2", "Shed 3", "Sheep Yard", "Silo", "Tank", "Wards Foley"], "Bullamon Plains": [], "Box Plains": []}, "mobs": [{"farm": "Cedarvale", "name": "J 0's", "species": "Cattle", "breed": "Angus", "ageClass": "Cows", "colour": "Purple", "head": 115, "paddock": "Cedarvale North", "weight": 500, "weighed": "2026-02-20", "note": "Born 2019 (bred)"}, {"farm": "Cedarvale", "name": "J3's", "species": "Cattle", "breed": "Angus", "ageClass": "Cows", "colour": "Blue", "head": 110, "paddock": "Bore", "weight": 480, "weighed": "2026-02-20", "note": "Transferred in Jul 2022"}, {"farm": "Cedarvale", "name": "J5 White Tag", "species": "Cattle", "breed": "Angus", "ageClass": "Cows", "colour": "White", "head": 221, "paddock": "Langtons", "weight": 370, "weighed": "2026-05-07", "note": "Replacement heifers (White J5 heifers). Transferred in Jul 2024"}, {"farm": "Cedarvale", "name": "Sale nanny", "species": "Sheep", "breed": "Damara", "ageClass": "Ewes", "colour": "Mixed", "head": 300, "paddock": "Langtons", "weight": 10, "weighed": "2025-01-31", "note": "Cull nannys"}, {"farm": "Fenton", "name": "Angus Calves (J4 calf's)", "species": "Cattle", "breed": "Angus", "ageClass": "Heifer weaners", "colour": "", "head": 146, "paddock": "Silo", "weight": 80, "weighed": "2025-09-26", "note": "J4 calf's. Born Jun 2025"}, {"farm": "Fenton", "name": "Angus Calves (J1/J2 calf's)", "species": "Cattle", "breed": "Angus", "ageClass": "Calves", "colour": "", "head": 174, "paddock": "Silo", "weight": 80, "weighed": "2025-09-26", "note": "J1/J2 calf's. Born Jun 2025"}, {"farm": "Fenton", "name": "Angus Calves 2026", "species": "Cattle", "breed": "Angus", "ageClass": "Calves", "colour": "", "head": 176, "paddock": "Triangle", "weight": 100, "weighed": "2026-10-07", "note": "Born Jul 2026"}, {"farm": "Fenton", "name": "Blue Tag Dorper Ewe Weaners (Black Soil)", "species": "Sheep", "breed": "Dorper", "ageClass": "Ewe weaners", "colour": "Blue", "head": 50, "paddock": "Black Soil", "weight": 35, "weighed": "2023-12-01", "note": "Weaner ewes blue tags. Born May 2023"}, {"farm": "Fenton", "name": "Blue Tag Dorper Ewe Weaners (Brigalow)", "species": "Sheep", "breed": "Dorper", "ageClass": "Ewe weaners", "colour": "Blue", "head": 417, "paddock": "Brigalow", "weight": 35, "weighed": "2023-12-01", "note": "Weaner ewes blue tags. Born May 2023"}, {"farm": "Fenton", "name": "Blue Tag Dorper Ewe Weaners (Ridge)", "species": "Sheep", "breed": "Dorper", "ageClass": "Ewe weaners", "colour": "Blue", "head": 527, "paddock": "Ridge", "weight": 35, "weighed": "2023-12-01", "note": "Weaner ewes blue tags. Born May 2023"}, {"farm": "Fenton", "name": "Dorper Ewe Weaners (black tag)", "species": "Sheep", "breed": "Dorper", "ageClass": "Ewe weaners", "colour": "Black", "head": 801, "paddock": "Browns Paddock", "weight": 35, "weighed": "2025-04-29", "note": "Black tag dorper ewes. Born May 2024"}, {"farm": "Fenton", "name": "Dorper Ewes", "species": "Sheep", "breed": "Dorper", "ageClass": "Ewes", "colour": "Yellow", "head": 27, "paddock": "Black Soil", "weight": 60, "weighed": "2025-04-29", "note": "Mixed ages ewes, yellow and red tag. Born 2021"}, {"farm": "Fenton", "name": "J1 and 60 J2's", "species": "Cattle", "breed": "Angus", "ageClass": "Cows", "colour": "Orange", "head": 182, "paddock": "Triangle", "weight": 550, "weighed": "2026-03-05", "note": "J1 & J2's PTIC. Born Jul 2020"}, {"farm": "Fenton", "name": "White Tag Dorper Maiden Ewes", "species": "Sheep", "breed": "Dorper", "ageClass": "Maiden ewes", "colour": "White", "head": 550, "paddock": "White Tank", "weight": 42, "weighed": "2026-06-29", "note": "2025 drop ewes"}]};
 
@@ -18046,6 +18055,7 @@ function lsBuildName(year, words){
   words = (words || "").trim();
   if(!words) return "";
   if(!year) return words;
+  if(/^J\d$/i.test(words)) return words;           // heifer/cow mobs called J6, J7... carry no year in front (Maria, 2026-10-27)
   if(words.indexOf(String(year)) === 0) return words;
   return year + " " + words;
 }
@@ -18314,8 +18324,8 @@ function renderLsForm(){
     lsField("Cow mob the calves are with", lsMobSelect("mob", active.filter(function(m){ return (m.calvesAtFoot || 0) > 0; }), sel), "span-2") +
     lsDateField("date", "Weaning / branding date") + lsNumField("steers", "Steers", 'min="0"') + lsNumField("heifers", "Heifers", 'min="0"') +
     lsField("Steer mob name", '<input type="text" name="steerName" maxlength="60" value="' + lsNextJulyYear(today) + ' Steers" />') +
-    lsField("Heifers: year they become cows", '<input type="number" name="year" min="2000" max="2100" step="1" inputmode="numeric" value="' + lsNextJulyYear(today) + '" required />') +
-    lsField("Heifer mob name (year added in front)", '<input type="text" name="words" maxlength="60" value="Heifers" />') +
+    lsField("Heifers: year they are joined (they become cows on 1 July that year)", '<input type="number" name="year" min="2000" max="2100" step="1" inputmode="numeric" value="' + lsNextJulyYear(today) + '" oninput="lsSyncJ(this)" required />') +
+    lsField("Heifer mob name (e.g. J6; other names get the year in front)", '<input type="text" name="words" maxlength="60" value="' + lsJName(lsNextJulyYear(today)) + '" data-auto="' + lsJName(lsNextJulyYear(today)) + '" />') +
     lsField("Put them in paddock (blank = same as the cows)", lsPaddockSelect("paddock", "", false)) +
     lsNumField("weight", "Average weight kg (optional)", 'step="0.1"'), "Wean and brand");
   if(k === "preg") return lsFormWrap("Pregnancy test", "lsSavePreg",
@@ -18368,12 +18378,23 @@ function renderLsForm(){
   if(k === "weight") return lsFormWrap("Weight", "lsSaveWeight",
     lsField("Mob", lsMobSelect("mob", active, sel)) + lsNumField("kg", "Average weight per head (kg)", 'min="1" step="0.1" required') + lsDateField("date", "Date weighed"), "Save weight");
   if(k === "age"){
-    var am = sel ? lsMobById(sel) : null, cur = am ? lsClass(am) : "", nxt = am ? (LS_NEXT_CLASS[cur] || cur) : "";
+    var am = sel ? lsMobById(sel) : null, cur = am ? lsClass(am) : "", ageable = active.filter(function(x){ return !lsAgeHidden(x); });
+    var pick = lsField("Mob", lsMobSelect("mob", ageable, sel).replace('<select name="mob"', '<select name="mob" onchange="lsPickForForm(this.value)"'), "span-2");
+    if(am && lsIsCalves(am)){
+      var jy = lsNextJulyYear(today);
+      return lsFormWrap("Age calves into steers and heifers", "lsSaveAge",
+        pick + '<p class="row-muted" style="margin:0;grid-column:1/-1;">' + esc(am.name) + ' has <strong>' + am.head + '</strong> calves. Enter how many become steers and how many heifers; any you leave out stay as calves.</p>' +
+        lsNumField("steers", "Aged to steers", 'min="0"') + lsNumField("heifers", "Aged to heifers", 'min="0"') +
+        lsField("Steer mob name", '<input type="text" name="steerName" maxlength="60" value="' + jy + ' Steers" />') +
+        lsField("Heifers: year they are joined (they become cows on 1 July that year)", '<input type="number" name="year" min="2000" max="2100" step="1" inputmode="numeric" value="' + jy + '" oninput="lsSyncJ(this)" />') +
+        lsField("Heifer mob name (e.g. J6; other names get the year in front)", '<input type="text" name="words" maxlength="60" value="' + lsJName(jy) + '" data-auto="' + lsJName(jy) + '" />') +
+        lsField("New mobs' paddock (blank = same as the calves)", lsPaddockSelect("paddock", "", false)) + lsDateField("date"), "Age calves");
+    }
+    var nxt = am ? (LS_NEXT_CLASS[cur] || cur) : "";
     return lsFormWrap("Age a mob (change its class)", "lsSaveAge",
-      lsField("Mob", lsMobSelect("mob", active, sel).replace('<select name="mob"', '<select name="mob" onchange="lsPickForForm(this.value)"'), "span-2") +
-      (am ? '<p class="row-muted" style="margin:0;grid-column:1/-1;">' + esc(am.name) + ' is now: <strong>' + esc(cur || "no class") + '</strong>.</p>' : '') +
+      pick + (am ? '<p class="row-muted" style="margin:0;grid-column:1/-1;">' + esc(am.name) + ' is now: <strong>' + esc(cur || "no class") + '</strong>.</p>' : '') +
       lsField("Move up to", lsClassSelect("klass", nxt)) +
-      lsField("Year they become cows (heifers and cows; goes in front of the name)", '<input type="number" name="year" min="2000" max="2100" step="1" inputmode="numeric" value="' + (am && am.cohortYear ? am.cohortYear : lsNextJulyYear(today)) + '" />') +
+      lsField("Year they are joined (heifers and cows; goes in front of the name)", '<input type="number" name="year" min="2000" max="2100" step="1" inputmode="numeric" value="' + (am && am.cohortYear ? am.cohortYear : lsNextJulyYear(today)) + '" />') +
       lsDateField("date"), "Age mob");
   }
   if(k === "rename") {
@@ -18584,6 +18605,31 @@ function lsSaveWeight(e){
 }
 function lsSaveAge(e){
   e.preventDefault(); var f = e.target, m = lsPickMob(f); if(!m) return;
+  if(lsAgeHidden(m)) return lsFormError(m.name + " is already " + lsClass(m) + ", so there is nothing to age it into.");
+  if(f.elements.steers){
+    var steers = lsInt(f, "steers") || 0, heifers = lsInt(f, "heifers") || 0, total = steers + heifers, year = lsInt(f, "year");
+    if(total < 1) return lsFormError("Enter how many become steers and how many become heifers.");
+    if(total > m.head) return lsFormError("That is " + total + " calves but " + m.name + " only has " + m.head + ".");
+    if(heifers > 0 && !year) return lsFormError("Enter the year the heifers are joined.");
+    var date = lsVal(f, "date") || lsLocalToday(), pad = lsPaddock(lsVal(f, "paddock")) || lsPaddock(m.paddockId), farm = pad ? pad.farm : lsMobFarm(m);
+    var words = lsVal(f, "words") || lsJName(year) || "Heifers", steerName = lsVal(f, "steerName") || "Steers", parts = [];
+    var src = " Aged from " + m.name + " on " + fmtDate(date) + ".";
+    if(steers > 0){
+      var sm = lsNewMob({ name: steerName, nameWords: steerName, species: "Cattle", breed: m.breed, colour: m.colour, ageClass: "Steers", head: steers, paddockId: pad ? pad.id : m.paddockId, weight: m.weight, weighed: m.weighed, note: src.trim() });
+      lsLog(sm, "age", steers + " calves aged to steers from " + m.name + ".", { date: date, farm: farm });
+      parts.push(steers + " steers (" + steerName + ")");
+    }
+    if(heifers > 0){
+      var hname = lsBuildName(year, words);
+      var hm = lsNewMob({ name: hname, nameWords: words, cohortYear: year, species: "Cattle", breed: m.breed, colour: m.colour, ageClass: "Heifers", head: heifers, paddockId: pad ? pad.id : m.paddockId, weight: m.weight, weighed: m.weighed, note: src.trim() });
+      lsLog(hm, "age", heifers + " calves aged to heifers from " + m.name + ". They become cows on 1 July " + year + ".", { date: date, farm: farm });
+      parts.push(heifers + " heifers (" + hname + ")");
+    }
+    m.head -= total;
+    lsLog(m, "age", "Aged " + parts.join(" and ") + "." + (m.head > 0 ? " " + m.head + " calves left." : ""), { date: date });
+    lsCloseIfEmpty(m, "All aged", date);
+    return lsFinish();
+  }
   var klass = lsVal(f, "klass"), year = lsInt(f, "year"), date = lsVal(f, "date") || lsLocalToday();
   if(!klass) return lsFormError("Choose the class.");
   var breeder = klass === "Heifers" || klass === "Cows", cur = lsClass(m), oldName = m.name;
@@ -19063,9 +19109,9 @@ function lsMobCard(m, showFarm){
   var plain = function(label, fn){ return '<button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="' + fn + '">' + label + '</button>'; };
   var buttons = open
     ? (breeder ? btn("Add calves", "calves") : '') + (breeder && (m.calvesAtFoot || 0) > 0 ? btn("Wean and brand", "wean") : '') + (breeder ? btn("Pregnancy test", "preg") + btn("Joining", "join") : '') +
-      btn("Move", "move") + plain("Pick up", "lsPickUp(\'" + m.id + "\')") + btn("Weight", "weight") + btn("Recount", "recount") + btn("Split", "split") + btn("Age", "age") + btn("Rename", "rename") + btn("Sell / death", "sell") +
+      btn("Move", "move") + plain("Pick up", "lsPickUp(\'" + m.id + "\')") + btn("Weight", "weight") + btn("Recount", "recount") + btn("Split", "split") + (lsAgeHidden(m) ? '' : btn("Age", "age")) + btn("Rename", "rename") + btn("Sell / death", "sell") +
       (isAdmin() ? plain("Delete", "lsDeleteMob(\'" + m.id + "\')") : '') + plain("Close", "lsToggleMob(\'" + m.id + "\')")
-    : plain("Open", "lsToggleMob(\'" + m.id + "\')") + (breeder ? btn("Add calves", "calves") : '') + btn("Move", "move") + plain("Pick up", "lsPickUp(\'" + m.id + "\')") + btn("Age", "age") + btn("Rename", "rename");
+    : plain("Open", "lsToggleMob(\'" + m.id + "\')") + (breeder ? btn("Add calves", "calves") : '') + btn("Move", "move") + plain("Pick up", "lsPickUp(\'" + m.id + "\')") + (lsAgeHidden(m) ? '' : btn("Age", "age")) + btn("Rename", "rename");
   return '<div class="ls-mob" id="ls-mob-' + m.id + '"' + (open ? ' data-open="1"' : '') + '>' +
     '<div class="card-row" style="cursor:pointer;" onclick="lsToggleMob(\'' + m.id + '\')"><h4 style="margin:0;font-size:17px;">' + esc(m.name) + '</h4><span style="font-size:22px;font-weight:800;white-space:nowrap;">' + m.head + ' <span style="font-size:13px;font-weight:600;" class="row-muted">head</span></span></div>' +
     '<div class="row-muted" style="font-size:13.5px;margin:2px 0 6px;">' + esc(meta) + (m.colour ? ' &middot; ' + esc(m.colour) + ' tag' : '') + '</div>' +
