@@ -488,6 +488,9 @@
   .pill-closed{background:color-mix(in srgb, var(--status-done) 16%, transparent);color:var(--status-done);}
   .pill-admin{background:color-mix(in srgb, var(--accent) 18%, transparent);color:var(--accent-strong);}
 
+  .tsr-tbl{width:100%;border-collapse:collapse;min-width:0 !important;}
+  .tsr-tbl th,.tsr-tbl td{padding:8px 8px !important;font-size:13px !important;text-align:left;vertical-align:top;white-space:normal;}
+  .tsr-tbl th:not(.l),.tsr-tbl td.n{text-align:center;}
   .table-wrap{overflow-x:auto;border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--surface);box-shadow:var(--shadow);}
   table{width:100%;border-collapse:collapse;min-width:560px;}
   th,td{text-align:left;padding:10px 14px;border-bottom:1px solid var(--divider);font-size:13px;vertical-align:top;}
@@ -1084,6 +1087,8 @@
     body.printing-ts #print-ts-sheet .ts-table{ width:100%; border-collapse:collapse; table-layout:fixed; }
     body.printing-ts #print-ts-sheet .ts-table th, body.printing-ts #print-ts-sheet .ts-table td{ border:1px solid #000; padding:4px 3px; text-align:center; height:7.2mm; font-size:10.5px; }
     body.printing-ts #print-ts-sheet .ts-table th{ background:#f0f0f0; font-size:10px; }
+    body.printing-ts #print-ts-sheet .tsr-person{ page-break-inside:avoid; margin-bottom:10px; }
+    body.printing-ts #print-ts-sheet .row-muted{ color:#444; }
     body.printing-ts #print-ts-sheet .ts-table td.n{ background:#f0f0f0; font-weight:700; }
     body.printing-ts #print-ts-sheet .ts-table td.l, body.printing-ts #print-ts-sheet .ts-table th.l{ text-align:left; width:30%; }
     body.printing-ts #print-ts-sheet .ts-table td.d{ text-align:left; }
@@ -1877,7 +1882,7 @@ const DEFAULT_STATE = {
 // change to this file, same as CACHE_NAME in sw.js -- it gives an instant,
 // no-technical-steps-needed way to confirm whether a given device is
 // actually running the latest deploy, without comparing file contents.
-var APP_BUILD = "2026-10-27.1";
+var APP_BUILD = "2026-10-27.2";
 
 /* ======================================================================
    UTILITIES
@@ -15527,7 +15532,200 @@ function tsRefresh(sheet){
   if(bEl){ bEl.textContent = showBlk; bEl.style.display = showBlk ? "" : "none"; }
 }
 function tsStatusPill(sheet){
+  if(tsIsPaid(sheet)) return '<span class="pill pill-closed">Paid</span>';
   return sheet.status === "submitted" ? '<span class="pill pill-done">Submitted</span>' : '<span class="pill pill-progress">Draft</span>';
+}
+/* PAID FORTNIGHT FOLDERS + HOURS REPORT (2026-10-26, Maria). An admin marks a submitted sheet Paid (and can Undo it). The
+   sheet stays "submitted" (locked) and gets paid/paidAt/paidBy; paid sheets leave the main list and sit in one folder per
+   fortnight, titled with that fortnight's dates. The hours report adds up nett hours worked (not annual leave) for one or
+   several employees over any From/To dates, counting submitted and paid sheets, day by day. */
+function tsIsPaid(sheet){ return !!(sheet && sheet.status === "submitted" && sheet.paid); }
+function tsMarkPaid(id){
+  var sheet = tsFind(id);
+  if(!isAdmin() || !sheet || sheet.status !== "submitted" || sheet.paid) return;
+  if(!confirm("Mark " + sheet.person + "'s time sheet as paid? It will move into the folder for " + tsRangeLabel(sheet.startDate) + ". You can undo this.")) return;
+  sheet.paid = true;
+  sheet.paidAt = new Date().toISOString();
+  sheet.paidBy = currentUser().name;
+  persist();
+}
+function tsUnmarkPaid(id){
+  var sheet = tsFind(id);
+  if(!isAdmin() || !sheet || !sheet.paid) return;
+  if(!confirm("Take " + sheet.person + "'s time sheet out of the paid folder? It goes back to the main list as submitted.")) return;
+  sheet.paid = false; sheet.paidAt = null; sheet.paidBy = null;
+  persist();
+}
+function tsOpenFolder(start){ ui.tsFolder = start; ui.tsError = ""; render(); window.scrollTo(0, 0); }
+function tsCloseFolder(){ ui.tsFolder = null; render(); }
+function tsCardHtml(s){
+  var tm = findTeam(s.person);
+  return '<div class="card" style="margin-bottom:10px;"><div class="card-row" style="gap:10px;align-items:flex-start;">' +
+    '<div><div style="font-weight:700;">#' + tsPad(s.no) + ' · ' + esc(s.person) + (tm && tm.archived ? ' <span class="row-muted" style="font-weight:400;font-size:12px;">(archived)</span>' : '') + ' ' + tsStatusPill(s) + '</div>' +
+    '<div class="row-muted" style="font-size:12.5px;margin-top:2px;">' + tsRangeLabel(s.startDate) + '</div>' +
+    '<div style="font-size:13px;margin-top:6px;">Nett hours: <b>' + tilFmtHours(tsTotal(s)) + '</b>' + (tsAnnualTotal(s) ? ' · Annual leave: <b>' + tilFmtHours(tsAnnualTotal(s)) + '</b>' : '') + (s.paidHours !== "" && s.paidHours != null ? ' · To be paid: <b>' + esc(String(s.paidHours)) + '</b>' : '') + '</div>' +
+    (tsIsPaid(s) ? '<div class="row-muted" style="font-size:12px;margin-top:4px;">Paid ' + (s.paidAt ? fmtDate(String(s.paidAt).slice(0, 10)) : '') + (s.paidBy ? ' · marked by ' + esc(s.paidBy) : '') + '</div>' : '') +
+    (s.status === "submitted" ? '<div style="margin-top:4px;">' + tsEmailLine(s) + '</div>' : '') + '</div>' +
+    '<div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;"><button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="tsOpenSheet(\'' + s.id + '\')">Open</button>' +
+    '<button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="tsPrint(\'' + s.id + '\')">Print</button>' +
+    (isAdmin() && s.status === "submitted" && !s.paid ? '<button type="button" class="btn btn-primary btn-sm" style="width:auto;" onclick="tsMarkPaid(\'' + s.id + '\')">Mark paid</button>' : '') +
+    (isAdmin() && tsIsPaid(s) ? '<button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="tsUnmarkPaid(\'' + s.id + '\')">Undo paid</button>' : '') +
+    '</div></div></div>';
+}
+var TS_FOLDER_ICON = '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/></svg>';
+function renderTsFolderView(paid){
+  var html = '<div style="margin-bottom:12px;"><button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="tsCloseFolder()">&larr; All time sheets</button></div>' +
+    '<div class="card" style="margin-bottom:12px;"><div style="display:flex;gap:10px;align-items:center;">' + TS_FOLDER_ICON +
+    '<div><h3 style="margin:0;">' + tsRangeLabel(ui.tsFolder) + '</h3><div class="row-muted" style="font-size:12.5px;">Paid time sheets · ' + paid.length + (paid.length === 1 ? ' sheet' : ' sheets') + '</div></div></div></div>';
+  return html + paid.map(tsCardHtml).join("");
+}
+/* ---------- Hours report ---------- */
+function tsRepPeople(){
+  var names = [];
+  tsData().items.filter(tsCanView).forEach(function(s){ if(s.status === "submitted" && names.indexOf(s.person) === -1) names.push(s.person); });
+  return names.sort(function(a, b){ return a.localeCompare(b); });
+}
+function tsOpenReport(){
+  var people = tsRepPeople();
+  var from = tsCurrentStart(-1) || (tilLocalToday().slice(0, 8) + "01");
+  ui.tsReport = { people: people.length === 1 ? people.slice() : [], from: from, to: tilLocalToday() };
+  ui.tsError = ""; render(); window.scrollTo(0, 0);
+}
+function tsCloseReport(){ ui.tsReport = null; render(); }
+function tsRepToggle(i, on){
+  var people = tsRepPeople(), n = people[i], r = ui.tsReport; if(!r || n == null) return;
+  var at = r.people.indexOf(n);
+  if(on && at < 0) r.people.push(n);
+  if(!on && at > -1) r.people.splice(at, 1);
+  render();
+}
+function tsRepAll(on){ if(ui.tsReport){ ui.tsReport.people = on ? tsRepPeople() : []; render(); } }
+function tsRepDate(field, v){ if(ui.tsReport){ ui.tsReport[field] = v; render(); } }
+function tsRepQuick(kind){
+  var r = ui.tsReport; if(!r) return;
+  var cs = tsCurrentStart(0);
+  if(kind === "thisF" && cs){ r.from = cs; r.to = tsAddDays(cs, 13); }
+  else if(kind === "lastF" && cs){ r.from = tsAddDays(cs, -14); r.to = tsAddDays(cs, -1); }
+  else if(kind === "month"){ var t = tilLocalToday(); r.from = t.slice(0, 8) + "01"; r.to = t; }
+  else if(kind === "fy"){ var d = tilLocalToday(), y = +d.slice(0, 4); if(+d.slice(5, 7) < 7) y--; r.from = y + "-07-01"; r.to = d; }
+  render();
+}
+// Compute the report. Returns { error } or { rows: [{person, days:[{date, dow, hrs, loc, no}], total, notes:[]}] }
+function tsRepCompute(rep){
+  var from = rep.from, to = rep.to, ok = /^\d{4}-\d{2}-\d{2}$/;
+  if(!ok.test(from || "") || !ok.test(to || "")) return { error: "Pick a From date and a To date." };
+  if(from > to) return { error: "The From date is after the To date." };
+  if(!rep.people.length) return { error: "Tick at least one employee." };
+  var cycle = state.settings && state.settings.timesheetCycleStart;
+  var items = tsData().items.filter(function(s){ return tsCanView(s); });
+  var out = [];
+  rep.people.slice().sort(function(a, b){ return a.localeCompare(b); }).forEach(function(person){
+    var days = [], total = 0, notes = [];
+    var mine = items.filter(function(s){ return s.person === person; });
+    mine.filter(function(s){ return s.status === "submitted"; }).forEach(function(s){
+      (s.rows || []).forEach(function(r, i){
+        var date = tsAddDays(s.startDate, i);
+        if(date < from || date > to) return;
+        var n = tsNett(r);
+        if(n === null || n <= 0) return;
+        days.push({ date: date, dow: TS_DAY_LABELS[i], hrs: n, loc: r.location || "", no: s.no });
+        total += n;
+      });
+    });
+    days.sort(function(a, b){ return a.date.localeCompare(b.date); });
+    // fortnights inside the dates that have no submitted sheet for this person
+    if(cycle && Date.parse(to) - Date.parse(from) < 86400000 * 800){
+      var diff = Math.floor((Date.parse(from + "T00:00:00Z") - Date.parse(cycle + "T00:00:00Z")) / 86400000);
+      var st = tsAddDays(cycle, Math.floor(diff / 14) * 14);
+      for(var guard = 0; st <= to && guard < 80; guard++, st = tsAddDays(st, 14)){
+        var sh = mine.filter(function(s){ return s.startDate === st; });
+        if(!sh.length) notes.push("No time sheet for " + tsRangeLabel(st) + ".");
+        else if(!sh.some(function(s){ return s.status === "submitted"; })) notes.push("The time sheet for " + tsRangeLabel(st) + " is not submitted yet, so it is not counted.");
+      }
+    }
+    out.push({ person: person, days: days, total: Math.round(total * 100) / 100, notes: notes });
+  });
+  return { rows: out, from: from, to: to };
+}
+function tsDM2(iso){ return new Date(iso + "T00:00:00").toLocaleDateString("en-AU", { day: "numeric", month: "short" }); }
+function tsRepTable(p){
+  if(!p.days.length) return '<p class="row-muted" style="margin:6px 0;">No hours worked in these dates.</p>';
+  return '<div class="table-wrap" style="box-shadow:none;"><table class="ts-table tsr-tbl"><thead><tr><th class="l">Date</th><th>Hours</th><th class="l">Location</th></tr></thead><tbody>' +
+    p.days.map(function(d){ return '<tr><td class="l" style="white-space:nowrap;">' + d.dow + ' ' + tsDM2(d.date) + '</td><td class="n">' + tilFmtHours(d.hrs) + '</td><td class="l">' + esc(d.loc) + '</td></tr>'; }).join("") +
+    '<tr><td class="l"><b>Total</b></td><td class="n"><b>' + tilFmtHours(p.total) + '</b></td><td class="l">' + p.days.length + (p.days.length === 1 ? ' day' : ' days') + '</td></tr></tbody></table></div>';
+}
+function tsRepSummary(res){
+  if(res.rows.length < 2) return "";
+  var grand = res.rows.reduce(function(a, p){ return a + p.total; }, 0);
+  return '<div class="table-wrap" style="box-shadow:none;margin-bottom:12px;"><table class="ts-table tsr-tbl"><thead><tr><th class="l">Employee</th><th>Days</th><th>Hours</th></tr></thead><tbody>' +
+    res.rows.map(function(p){ return '<tr><td class="l">' + esc(p.person) + '</td><td>' + p.days.length + '</td><td class="n">' + tilFmtHours(p.total) + '</td></tr>'; }).join("") +
+    '<tr><td class="l"><b>All selected</b></td><td>' + res.rows.reduce(function(a, p){ return a + p.days.length; }, 0) + '</td><td class="n"><b>' + tilFmtHours(grand) + '</b></td></tr></tbody></table></div>';
+}
+function tsRepBody(res, forPrint){
+  var h = tsRepSummary(res);
+  res.rows.forEach(function(p){
+    h += '<div class="tsr-person"><h3 style="margin:12px 0 4px;">' + esc(p.person) + '</h3>' + tsRepTable(p) +
+      p.notes.map(function(n){ return '<p class="row-muted" style="margin:4px 0;font-size:12.5px;">' + esc(n) + '</p>'; }).join("") + '</div>';
+  });
+  return h;
+}
+function renderTsReport(){
+  var rep = ui.tsReport, people = tsRepPeople();
+  var html = '<div style="margin-bottom:12px;"><button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="tsCloseReport()">&larr; All time sheets</button></div>' +
+    pageHead("Hours report", "Hours worked by one or several employees between any two dates. Counts nett hours worked on submitted and paid time sheets (annual leave is not included).");
+  if(!people.length) return html + '<div class="empty-state">No submitted time sheets to report on yet.</div>';
+  html += '<div class="card" style="margin-bottom:14px;"><div class="field"><label>Employees</label>' +
+    '<div style="display:flex;gap:6px;margin-bottom:6px;"><button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="tsRepAll(true)">Tick all</button><button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="tsRepAll(false)">Clear</button></div>' +
+    '<div style="display:grid;gap:4px;max-height:220px;overflow:auto;">' + people.map(function(n, i){
+      var tm = findTeam(n);
+      return '<label style="display:flex;gap:8px;align-items:center;font-weight:400;text-transform:none;letter-spacing:0;font-size:14px;"><input type="checkbox" id="tsr_p' + i + '"' + (rep.people.indexOf(n) > -1 ? ' checked' : '') + ' onchange="tsRepToggle(' + i + ',this.checked)" /> ' + esc(n) + (tm && tm.archived ? ' <span class="row-muted" style="font-size:12px;">(archived)</span>' : '') + '</label>';
+    }).join("") + '</div></div>' +
+    '<div style="display:flex;gap:10px;flex-wrap:wrap;"><div class="field" style="margin:0;"><label>From</label><input type="date" id="tsr_from" value="' + escAttr(rep.from || "") + '" onchange="tsRepDate(\'from\',this.value)" /></div>' +
+    '<div class="field" style="margin:0;"><label>To</label><input type="date" id="tsr_to" value="' + escAttr(rep.to || "") + '" onchange="tsRepDate(\'to\',this.value)" /></div></div>' +
+    '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;">' +
+      '<button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="tsRepQuick(\'thisF\')">This fortnight</button>' +
+      '<button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="tsRepQuick(\'lastF\')">Last fortnight</button>' +
+      '<button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="tsRepQuick(\'month\')">This month</button>' +
+      '<button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="tsRepQuick(\'fy\')">This financial year</button></div></div>';
+  var res = tsRepCompute(rep);
+  if(res.error) return html + '<div class="empty-state" id="tsr_msg">' + esc(res.error) + '</div>';
+  html += '<div class="card" id="tsr_result"><div class="card-row" style="gap:10px;flex-wrap:wrap;align-items:flex-start;"><div><h3 style="margin:0;">' + fmtDate(res.from) + ' – ' + fmtDate(res.to) + '</h3>' +
+    '<div class="row-muted" style="font-size:12.5px;">Hours worked</div></div><div style="display:flex;gap:6px;"><button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="tsRepPrint()">Print</button>' +
+    '<button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="tsRepCsv()">Download spreadsheet (CSV)</button></div></div>' + tsRepBody(res) + '</div>';
+  return html;
+}
+function tsRepPrint(){
+  var rep = ui.tsReport, el = document.getElementById("print-ts-sheet");
+  if(!rep || !el) return;
+  var res = tsRepCompute(rep); if(res.error) return;
+  el.innerHTML = '<div class="ts-co">BULLAMON PLAINS PASTORAL</div><div class="ts-title" style="text-align:left;">Hours report</div>' +
+    '<div class="ts-range">' + fmtDate(res.from) + ' – ' + fmtDate(res.to) + ' · nett hours worked</div>' + tsRepBody(res, true);
+  var pageStyle = document.getElementById("ts-page-style");
+  if(!pageStyle){ pageStyle = document.createElement("style"); pageStyle.id = "ts-page-style"; document.head.appendChild(pageStyle); }
+  pageStyle.textContent = "@media print{ @page{ size: A4 portrait; margin: 10mm; } }";
+  document.body.classList.add("printing-ts");
+  var cleanup = function(){ document.body.classList.remove("printing-ts"); el.innerHTML = ""; window.removeEventListener("afterprint", cleanup); };
+  window.addEventListener("afterprint", cleanup);
+  window.print();
+  setTimeout(cleanup, 3000);
+}
+function tsCsvCell(v){ v = String(v == null ? "" : v); return /[",\r\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }
+function tsRepCsvText(res){
+  var lines = [["Employee", "Date", "Day", "Hours worked", "Work location & description"]];
+  res.rows.forEach(function(p){
+    p.days.forEach(function(d){ lines.push([p.person, d.date, d.dow, tilFmtHours(d.hrs), d.loc]); });
+    lines.push([p.person + " TOTAL", "", p.days.length + (p.days.length === 1 ? " day" : " days"), tilFmtHours(p.total), ""]);
+  });
+  return lines.map(function(r){ return r.map(tsCsvCell).join(","); }).join("\r\n");
+}
+function tsRepCsv(){
+  var rep = ui.tsReport; if(!rep) return;
+  var res = tsRepCompute(rep); if(res.error) return;
+  var blob = new Blob(["﻿" + tsRepCsvText(res)], { type: "text/csv;charset=utf-8" });
+  var url = URL.createObjectURL(blob), a = document.createElement("a");
+  a.href = url; a.download = "bullamon-hours-report-" + res.from + "-to-" + res.to + ".csv";
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(function(){ URL.revokeObjectURL(url); }, 1000);
 }
 function tsEmailLine(sheet){
   if(sheet.status !== "submitted") return "";
@@ -15540,6 +15738,7 @@ function renderTimeSheets(){
   if(!me) return pageHead("Time Sheets", "") + '<div class="empty-state">Sign in to use time sheets.</div>';
   var open = ui.tsOpen ? tsFind(ui.tsOpen) : null;
   if(open && tsCanView(open)) return renderTsSheet(open);
+  if(ui.tsReport) return renderTsReport();
   var html = pageHead("Time Sheets", "Your fortnightly time sheets. Fill yours in, then submit it; it is emailed on automatically. Only you (and admins, or anyone given access to everyone's sheets) can see your sheets.");
   if(ui.tsError) html += '<div class="signin-error" style="margin-bottom:12px;">' + esc(ui.tsError) + '</div>';
   var cycle = state.settings && state.settings.timesheetCycleStart;
@@ -15558,28 +15757,41 @@ function renderTimeSheets(){
       '<div style="display:flex;gap:8px;flex-wrap:wrap;"><button type="button" class="btn btn-primary" style="width:auto;" onclick="tsOpenMine(0)">Open this fortnight’s sheet</button>' +
       '<button type="button" class="btn btn-ghost" style="width:auto;" onclick="tsOpenMine(-1)">Previous fortnight</button></div></div>';
   }
-  var items = tsData().items.filter(tsCanView).sort(function(a, b){ return (b.startDate || "").localeCompare(a.startDate || "") || (a.no - b.no); });
+  var all = tsData().items.filter(tsCanView).sort(function(a, b){ return (b.startDate || "").localeCompare(a.startDate || "") || (a.no - b.no); });
   var people = [];
-  items.forEach(function(s){ if(people.indexOf(s.person) === -1) people.push(s.person); });
+  all.forEach(function(s){ if(people.indexOf(s.person) === -1) people.push(s.person); });
   var filter = ui.tsFilter && people.indexOf(ui.tsFilter) > -1 ? ui.tsFilter : "";
-  if(filter) items = items.filter(function(s){ return s.person === filter; });
+  if(filter) all = all.filter(function(s){ return s.person === filter; });
+  var paidAll = all.filter(tsIsPaid), items = all.filter(function(s){ return !tsIsPaid(s); });
+  if(ui.tsFolder){
+    var inFolder = paidAll.filter(function(s){ return s.startDate === ui.tsFolder; });
+    if(inFolder.length) return renderTsFolderView(inFolder);
+    ui.tsFolder = null;   // folder emptied (e.g. last sheet un-paid)
+  }
+  if(all.length || canSeeAllPay()){
+    html += '<div class="card" style="margin-bottom:14px;"><div class="card-row" style="gap:10px;flex-wrap:wrap;align-items:center;"><div><h3 style="margin:0 0 2px;">Hours report</h3><div class="row-muted" style="font-size:12.5px;">Hours worked by one or several employees over any dates.</div></div>' +
+      '<button type="button" class="btn btn-primary btn-sm" style="width:auto;" onclick="tsOpenReport()">Make a report</button></div></div>';
+  }
   if(canSeeAllPay()){
     html += '<div class="toolbar"><div class="field" style="margin:0;min-width:200px;"><select onchange="ui.tsFilter=this.value;render();"><option value="">All employees</option>' +
       people.map(function(n){ var tm = findTeam(n); return '<option value="' + escAttr(n) + '"' + (n === filter ? " selected" : "") + '>' + esc(n) + (tm && tm.archived ? ' (archived)' : '') + '</option>'; }).join("") + '</select></div></div>';
   }
-  if(!items.length){
+  if(!all.length){
     html += '<div class="empty-state">No time sheets yet.</div>';
   } else {
-    html += items.map(function(s){
-      return '<div class="card" style="margin-bottom:10px;"><div class="card-row" style="gap:10px;align-items:flex-start;">' +
-        '<div><div style="font-weight:700;">#' + tsPad(s.no) + ' · ' + esc(s.person) + (findTeam(s.person) && findTeam(s.person).archived ? ' <span class="row-muted" style="font-weight:400;font-size:12px;">(archived)</span>' : '') + ' ' + tsStatusPill(s) + '</div>' +
-        '<div class="row-muted" style="font-size:12.5px;margin-top:2px;">' + tsRangeLabel(s.startDate) + '</div>' +
-        '<div style="font-size:13px;margin-top:6px;">Nett hours: <b>' + tilFmtHours(tsTotal(s)) + '</b>' + (tsAnnualTotal(s) ? ' · Annual leave: <b>' + tilFmtHours(tsAnnualTotal(s)) + '</b>' : '') + (s.paidHours !== "" && s.paidHours != null ? ' · To be paid: <b>' + esc(String(s.paidHours)) + '</b>' : '') + '</div>' +
-        (s.status === "submitted" ? '<div style="margin-top:4px;">' + tsEmailLine(s) + '</div>' : '') + '</div>' +
-        '<div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;"><button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="tsOpenSheet(\'' + s.id + '\')">Open</button>' +
-        '<button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="tsPrint(\'' + s.id + '\')">Print</button></div>' +
-      '</div></div>';
-    }).join("");
+    if(items.length) html += items.map(tsCardHtml).join("");
+    else html += '<div class="empty-state">No unpaid time sheets.</div>';
+    if(paidAll.length){
+      var starts = [];
+      paidAll.forEach(function(s){ if(starts.indexOf(s.startDate) === -1) starts.push(s.startDate); });
+      starts.sort(function(a, b){ return b.localeCompare(a); });
+      html += '<h3 style="margin:18px 0 8px;">Paid fortnights</h3>' + starts.map(function(st){
+        var here = paidAll.filter(function(s){ return s.startDate === st; });
+        var names = here.map(function(s){ return s.person; }).filter(function(n, i, a){ return a.indexOf(n) === i; });
+        return '<button type="button" class="card ts-folder" style="margin-bottom:8px;width:100%;text-align:left;cursor:pointer;display:flex;gap:12px;align-items:center;" onclick="tsOpenFolder(\'' + st + '\')">' + TS_FOLDER_ICON +
+          '<span><span style="font-weight:700;display:block;">' + tsRangeLabel(st) + '</span><span class="row-muted" style="font-size:12.5px;">' + here.length + (here.length === 1 ? ' sheet' : ' sheets') + ' · ' + esc(names.join(", ")) + '</span></span></button>';
+      }).join("");
+    }
   }
   return html;
 }
@@ -15630,6 +15842,7 @@ function renderTsSheet(sheet){
     '<div class="field" style="margin-top:12px;"><label>Comments</label><textarea id="ts_comments" rows="2"' + dis + ' onchange="tsSet(\'' + sheet.id + '\',null,\'comments\',this.value)">' + esc(sheet.comments || "") + '</textarea></div>';
   if(sheet.status === "submitted"){
     html += '<p style="margin:12px 0 4px;font-size:13px;"><b>Signed:</b> ' + esc(sheet.submittedBy || sheet.person) + ' — submitted ' + (sheet.submittedAt ? fmtDateTime(sheet.submittedAt) : "") + '</p>' +
+      (tsIsPaid(sheet) ? '<p style="margin:0 0 4px;font-size:13px;"><b>Paid:</b> ' + (sheet.paidAt ? fmtDate(String(sheet.paidAt).slice(0, 10)) : '') + (sheet.paidBy ? ' — marked by ' + esc(sheet.paidBy) : '') + '</p>' : '') +
       '<div style="margin-bottom:8px;">' + tsEmailLine(sheet) + '</div>' + tsCopyPanel(sheet);
   }
   var shownBlock = ui.tsBlockId === sheet.id ? tsSubmitBlock(sheet) : "";
@@ -15638,6 +15851,8 @@ function renderTsSheet(sheet){
     (editable ? '<button type="button" id="ts_submit" class="btn btn-primary" style="width:auto;" onclick="tsSubmit(\'' + sheet.id + '\')">Submit time sheet</button>' : '') +
     (sheet.status === "submitted" && !(ui.tsCopy && ui.tsCopy.id === sheet.id) ? '<button type="button" class="btn btn-ghost" style="width:auto;" onclick="tsOpenCopy(\'' + sheet.id + '\')">Email me a copy</button>' : '') +
     '<button type="button" class="btn btn-ghost" style="width:auto;" onclick="tsPrint(\'' + sheet.id + '\')">Print</button>' +
+    (isAdmin() && sheet.status === "submitted" && !sheet.paid ? '<button type="button" class="btn btn-primary" style="width:auto;" onclick="tsMarkPaid(\'' + sheet.id + '\')">Mark paid</button>' : '') +
+    (isAdmin() && tsIsPaid(sheet) ? '<button type="button" class="btn btn-ghost" style="width:auto;" onclick="tsUnmarkPaid(\'' + sheet.id + '\')">Undo paid</button>' : '') +
     (isAdmin() && sheet.status === "submitted" ? '<button type="button" class="btn btn-ghost" style="width:auto;" onclick="tsReopen(\'' + sheet.id + '\')">Reopen for editing</button>' : '') +
     (isAdmin() ? '<button type="button" class="btn btn-danger" style="width:auto;" onclick="tsDelete(\'' + sheet.id + '\')">Delete</button>' : '') +
   '</div>' +
@@ -15684,8 +15899,9 @@ function tsReopen(id){
   var sheet = tsFind(id);
   if(!isAdmin() || !sheet) return;
   if(tsTilRemovalBlocked(sheet)){ ui.tsError = sheet.person + " has already used the time in lieu earned on this sheet, so it can't be reopened without taking their balance below zero. Reduce their taken entries first."; render(); window.scrollTo(0, 0); return; }
-  if(!confirm("Reopen this time sheet so it can be edited? It will need submitting again.")) return;
+  if(!confirm("Reopen this time sheet so it can be edited? It will need submitting again." + (sheet.paid ? " It is marked as paid, so it will also come out of the paid folder." : ""))) return;
   sheet.status = "draft";
+  sheet.paid = false; sheet.paidAt = null; sheet.paidBy = null;
   sheet.emailStatus = null; sheet.emailError = "";
   tsRemoveTil(sheet.id);        // its time in lieu entry comes off until the sheet is submitted again
   persist();
@@ -15822,7 +16038,7 @@ function tsPrintHtml(sheet){
     '<div class="ts-line"><span>EMPLOYEE NAME</span> <u>' + esc(sheet.person) + '</u></div>' +
     '<div class="ts-line"><span>EMPLOYEE SIGNATURE:</span> <u>' + (sheet.status === "submitted" ? esc(sheet.submittedBy || sheet.person) + ' (submitted ' + (sheet.submittedAt ? fmtDateTime(sheet.submittedAt) : "") + ')' : '&nbsp;') + '</u></div></div></div>' +
     '<div class="ts-range">Fortnight: ' + tsRangeLabel(sheet.startDate) + '</div>' +
-    '<table class="ts-table"><thead><tr><th>DAY</th><th>DATE</th><th>START<br>TIME</th><th>FINISH<br>TIME</th><th>SMOKO<br>(mins)</th><th>LUNCH<br>(mins)</th><th>NETT<br>HRS</th><th class="l">WORK LOCATION &amp;<br>DESCRIPTION</th></tr></thead><tbody>' + rows + '</tbody></table>' +
+    '<table class="ts-table tsr-tbl"><thead><tr><th>DAY</th><th>DATE</th><th>START<br>TIME</th><th>FINISH<br>TIME</th><th>SMOKO<br>(mins)</th><th>LUNCH<br>(mins)</th><th>NETT<br>HRS</th><th class="l">WORK LOCATION &amp;<br>DESCRIPTION</th></tr></thead><tbody>' + rows + '</tbody></table>' +
     '<div class="ts-totals"><div>TOTAL NETT HOURS WORKED: <span class="box">' + tilFmtHours(tsTotal(sheet)) + '</span></div>' +
     '<div>ANNUAL LEAVE HOURS: <span class="box">' + tilFmtHours(tsAnnualTotal(sheet)) + '</span></div>' +
     '<div><b>TOTAL (WORKED + ANNUAL LEAVE):</b> <span class="box">' + tilFmtHours(tsTotal(sheet) + tsAnnualTotal(sheet)) + '</span></div>' +
