@@ -1882,7 +1882,7 @@ const DEFAULT_STATE = {
 // change to this file, same as CACHE_NAME in sw.js -- it gives an instant,
 // no-technical-steps-needed way to confirm whether a given device is
 // actually running the latest deploy, without comparing file contents.
-var APP_BUILD = "2026-10-27.7";
+var APP_BUILD = "2026-10-27.8";
 
 /* ======================================================================
    UTILITIES
@@ -15296,21 +15296,32 @@ function tsFmt12(t){
 }
 function tsBox12(t){ var m = /^(\d{1,2}):(\d{2})$/.exec(t || ""); if(!m) return ""; var h = (+m[1]) % 12; return (h === 0 ? 12 : h) + ":" + m[2]; }
 function tsMins(t){ var m = /^(\d{1,2}):(\d{2})$/.exec(t || ""); return m ? (parseInt(m[1], 10) * 60 + parseInt(m[2], 10)) : null; }
-// Employees get a 30 minute paid smoko each day (Maria, 2026-10-16): only smoko time beyond 30 minutes is taken off. Lunch is always taken off in full.
+// Break rules (Maria). Every employee gets 30 minutes of paid break a day.
+//  v1 (sheets submitted before 2026-10-27, left exactly as they were): only SMOKO beyond 30 minutes is taken off, and lunch is always taken off in full.
+//  v2 (everything new, from 2026-10-27): 30 minutes of break a day is paid however it is taken (smoko, lunch or both together);
+//     only break time (smoko + lunch) beyond 30 minutes is taken off.
+// A sheet's rule: its breakRule if stamped; otherwise a sheet already submitted before this change is v1, anything else is v2.
+// Submitting stamps v2; reopening an old (unstamped) submitted sheet stamps v1 so its hours never change.
 var TS_PAID_BREAK_MINS = 30;
-// Nett hours for one row: finish - start - (smoko beyond the paid 30 minutes) - lunch (a finish earlier than the start is taken as past midnight). null until both times are in.
-function tsNett(r){
+function tsRule(sheet){
+  if(sheet && (sheet.breakRule === "v1" || sheet.breakRule === "v2")) return sheet.breakRule;
+  return sheet && sheet.status === "submitted" ? "v1" : "v2";
+}
+// Nett hours for one row: finish - unpaid break time (a finish earlier than the start is taken as past midnight). null until both times are in.
+function tsNett(r, rule){
   if(r && r.annual) return null;            // an Annual Leave day bypasses start/finish/smoko/lunch
   var a = tsMins(r.start), b = tsMins(r.finish);
   if(a === null || b === null) return null;
   var d = b - a; if(d < 0) d += 1440;
-  var unpaid = Math.max(0, (parseFloat(r.smoko) || 0) - TS_PAID_BREAK_MINS) + (parseFloat(r.lunch) || 0);
+  var smoko = parseFloat(r.smoko) || 0, lunch = parseFloat(r.lunch) || 0;
+  var unpaid = rule === "v1" ? Math.max(0, smoko - TS_PAID_BREAK_MINS) + lunch : Math.max(0, smoko + lunch - TS_PAID_BREAK_MINS);
   return Math.max(0, d - unpaid) / 60;
 }
 function tsTotal(sheet){
-  return (sheet.rows || []).reduce(function(sum, r){ var n = tsNett(r); return sum + (n || 0); }, 0);
+  var rule = tsRule(sheet);
+  return (sheet.rows || []).reduce(function(sum, r){ var n = tsNett(r, rule); return sum + (n || 0); }, 0);
 }
-function tsNettText(r){ var n = tsNett(r); return n === null ? "" : tilFmtHours(n); }
+function tsNettText(r, rule){ var n = tsNett(r, rule); return n === null ? "" : tilFmtHours(n); }
 /* ANNUAL LEAVE + TIME IN LIEU LINK (2026-10-20, Maria). Each day has an "Annual leave" tick: ticked, the day skips
    start/finish/smoko/lunch and the employee types their own annual leave hours for it. The sheet then shows nett
    hours worked, annual leave hours, and their total. On Submit, (worked + annual leave) minus "hours you want to be
@@ -15365,7 +15376,7 @@ function tsTilText(sheet){
   if(ef === null || Math.abs(ef.d) < 0.005) return "0";
   return (ef.d > 0 ? "+" : "-") + tilFmtHours(Math.abs(ef.d));
 }
-function tsRowText(r){ return r && r.annual ? (tsAnnualHrs(r) ? "AL " + tilFmtHours(tsAnnualHrs(r)) : "AL") : tsNettText(r); }
+function tsRowText(r, rule){ return r && r.annual ? (tsAnnualHrs(r) ? "AL " + tilFmtHours(tsAnnualHrs(r)) : "AL") : tsNettText(r, rule); }
 function tsRemoveTil(sheetId){
   var arr = tilData().entries;
   for(var i = arr.length - 1; i >= 0; i--) if(arr[i] && arr[i].sheetId === sheetId) arr.splice(i, 1);
@@ -15523,7 +15534,7 @@ window.addEventListener("pagehide", function(){ if(tsSaveTimer){ clearTimeout(ts
 function tsRefresh(sheet){
   (sheet.rows || []).forEach(function(r, i){
     var el = document.getElementById("ts_n" + i);
-    if(el) el.textContent = tsRowText(r);
+    if(el) el.textContent = tsRowText(r, tsRule(sheet));
   });
   var t = document.getElementById("ts_total");
   if(t) t.textContent = tilFmtHours(tsTotal(sheet));
@@ -15632,7 +15643,7 @@ function tsRepCompute(rep){
       (s.rows || []).forEach(function(r, i){
         var date = tsAddDays(s.startDate, i);
         if(date < from || date > to) return;
-        var n = tsNett(r);
+        var n = tsNett(r, tsRule(s));
         if(n === null || n <= 0) return;
         days.push({ date: date, dow: TS_DAY_LABELS[i], hrs: n, loc: r.location || "", no: s.no });
         total += n;
@@ -15835,10 +15846,10 @@ function renderTsSheet(sheet){
           '<td>' + f("smoko", "number", 'min="0" step="1" inputmode="numeric" style="width:60px;"') + '</td><td>' + f("lunch", "number", 'min="0" step="1" inputmode="numeric" style="width:60px;"') + '</td>';
       return '<tr' + (i === 7 ? ' style="border-top:3px solid var(--border);"' : '') + (r.annual ? ' class="ts-leave-row"' : '') + '><td style="white-space:nowrap;font-weight:600;">' + TS_DAY_LABELS[i] + '</td>' +
         '<td style="white-space:nowrap;">' + tsDM(dates[i]) + '</td>' + al + middle +
-        '<td id="ts_n' + i + '" style="background:var(--surface-2);font-weight:700;white-space:nowrap;">' + tsRowText(r) + '</td>' +
+        '<td id="ts_n' + i + '" style="background:var(--surface-2);font-weight:700;white-space:nowrap;">' + tsRowText(r, tsRule(sheet)) + '</td>' +
         '<td>' + f("location", "text", 'placeholder="" style="min-width:170px;"') + '</td></tr>';
     }).join("") + '</tbody></table></div>' +
-    '<div style="margin-top:14px;display:grid;gap:8px;max-width:460px;">' +
+    (tsRule(sheet) === "v2" ? '<p class="row-muted" style="margin:8px 0 0;font-size:12.5px;">You get 30 minutes of paid break a day, whenever you take it (smoko, lunch or both). Only break time over 30 minutes in total is taken off.</p>' : '') + '<div style="margin-top:14px;display:grid;gap:8px;max-width:460px;">' +
       '<div class="card-row" style="flex-wrap:nowrap;"><span>Nett hours worked:</span><span id="ts_total" style="font-size:18px;font-weight:400;display:inline-block;min-width:66px;padding-right:7px;box-sizing:border-box;text-align:right;">' + tilFmtHours(tsTotal(sheet)) + '</span></div>' +
       '<div class="card-row" style="flex-wrap:nowrap;"><span>Annual leave hours:</span><span id="ts_annual" style="font-size:18px;font-weight:400;display:inline-block;min-width:66px;padding-right:7px;box-sizing:border-box;text-align:right;">' + tilFmtHours(tsAnnualTotal(sheet)) + '</span></div>' +
       '<div class="card-row" style="flex-wrap:nowrap;"><b>Total (worked + annual leave):</b><span id="ts_all" style="font-size:18px;font-weight:700;display:inline-block;min-width:66px;padding-right:7px;box-sizing:border-box;text-align:right;">' + tilFmtHours(tsTotal(sheet) + tsAnnualTotal(sheet)) + '</span></div>' +
@@ -15874,7 +15885,7 @@ function tsSubmit(id){
   var badLeave = -1;
   sheet.rows.forEach(function(r, i){ if(badLeave < 0 && r.annual && (tsAnnualHrs(r) <= 0 || tsAnnualHrs(r) > 24)) badLeave = i; });
   if(badLeave > -1) return fail("Enter the annual leave hours (between 0 and 24) for " + TS_DAY_LABELS[badLeave] + " " + tsDM(tsAddDays(sheet.startDate, badLeave)) + ", or untick Annual leave for that day.");
-  if(!sheet.rows.some(function(r){ return tsNett(r) !== null || tsAnnualHrs(r) > 0; })) return fail("Enter start and finish times (or annual leave hours) for at least one day before submitting.");
+  if(!sheet.rows.some(function(r){ return tsNett(r, tsRule(sheet)) !== null || tsAnnualHrs(r) > 0; })) return fail("Enter start and finish times (or annual leave hours) for at least one day before submitting.");
   var paid = String(sheet.paidHours == null ? "" : sheet.paidHours).trim();
   if(paid === "" || !isFinite(parseFloat(paid)) || parseFloat(paid) < 0) return fail("Enter the hours you want to be paid for (a number, e.g. 76).");
   // not enough time in lieu to cover the hours they want paid: warn and refuse (Maria, 2026-10-20)
@@ -15891,6 +15902,7 @@ function tsSubmit(id){
   if(!confirm("Submit this time sheet? It will be locked and emailed, and your time in lieu will change by " + tsTilText(sheet) + " hrs. An admin can reopen it if you need to change it.")) return;
   ui.tsError = "";
   sheet.status = "submitted";
+  if(sheet.breakRule !== "v1") sheet.breakRule = "v2";    // new sheets use the 30-minutes-paid-break-a-day rule
   sheet.submittedAt = new Date().toISOString();
   sheet.submittedBy = currentUser().name;
   sheet.submitCount = (sheet.submitCount || 0) + 1;
@@ -15906,6 +15918,7 @@ function tsReopen(id){
   if(!isAdmin() || !sheet) return;
   if(tsTilRemovalBlocked(sheet)){ ui.tsError = sheet.person + " has already used the time in lieu earned on this sheet, so it can't be reopened without taking their balance below zero. Reduce their taken entries first."; render(); window.scrollTo(0, 0); return; }
   if(!confirm("Reopen this time sheet so it can be edited? It will need submitting again." + (sheet.paid ? " It is marked as paid, so it will also come out of the paid folder." : ""))) return;
+  if(!sheet.breakRule) sheet.breakRule = "v1";   // a sheet submitted before the break-rule change keeps its old hours when reopened
   sheet.status = "draft";
   sheet.paid = false; sheet.paidAt = null; sheet.paidBy = null;
   sheet.emailStatus = null; sheet.emailError = "";
@@ -15930,7 +15943,7 @@ function tsEmailPayload(s){
     no: tsPad(s.no), person: s.person, range: tsRangeLabel(s.startDate),
     resubmitted: (s.submitCount || 1) > 1,
     submittedAt: s.submittedAt, submittedBy: s.submittedBy,
-    rows: s.rows.map(function(r, i){ return { day: TS_DAY_LABELS[i], date: tsDM(dates[i]), start: tsFmt12(r.start), finish: tsFmt12(r.finish), smoko: r.smoko, lunch: r.lunch, nett: tsNettText(r), location: r.location, annual: !!r.annual, annualHours: r.annual ? tilFmtHours(tsAnnualHrs(r)) : "" }; }),
+    rows: s.rows.map(function(r, i){ return { day: TS_DAY_LABELS[i], date: tsDM(dates[i]), start: tsFmt12(r.start), finish: tsFmt12(r.finish), smoko: r.smoko, lunch: r.lunch, nett: tsNettText(r, tsRule(s)), location: r.location, annual: !!r.annual, annualHours: r.annual ? tilFmtHours(tsAnnualHrs(r)) : "" }; }),
     totalNett: tilFmtHours(tsTotal(s)), annualHours: tilFmtHours(tsAnnualTotal(s)), totalAll: tilFmtHours(tsTotal(s) + tsAnnualTotal(s)), tilText: tsTilText(s),
     paidHours: s.paidHours, comments: s.comments
   };
@@ -16036,7 +16049,7 @@ function tsPrintHtml(sheet){
   for(var i = 0; i < 14; i++) dates.push(tsAddDays(sheet.startDate, i));
   var rows = sheet.rows.map(function(r, i){
     if(r.annual) return '<tr><td class="d">' + TS_DAY_LABELS[i] + '</td><td>' + tsDM(dates[i]) + '</td><td colspan="4"><b>ANNUAL LEAVE</b></td><td class="n">' + tilFmtHours(tsAnnualHrs(r)) + '</td><td class="l">' + esc(r.location || "") + '</td></tr>';
-    return '<tr><td class="d">' + TS_DAY_LABELS[i] + '</td><td>' + tsDM(dates[i]) + '</td><td>' + esc(tsFmt12(r.start)) + '</td><td>' + esc(tsFmt12(r.finish)) + '</td><td>' + esc(r.smoko || "") + '</td><td>' + esc(r.lunch || "") + '</td><td class="n">' + tsNettText(r) + '</td><td class="l">' + esc(r.location || "") + '</td></tr>';
+    return '<tr><td class="d">' + TS_DAY_LABELS[i] + '</td><td>' + tsDM(dates[i]) + '</td><td>' + esc(tsFmt12(r.start)) + '</td><td>' + esc(tsFmt12(r.finish)) + '</td><td>' + esc(r.smoko || "") + '</td><td>' + esc(r.lunch || "") + '</td><td class="n">' + tsNettText(r, tsRule(sheet)) + '</td><td class="l">' + esc(r.location || "") + '</td></tr>';
   }).join("");
   return '<div class="ts-head"><div><div class="ts-co">BULLAMON PLAINS PASTORAL</div>' +
     '<div class="ts-addr">“Bullamon Plains”<br>Thallon QLD 4497<br>ABN: 51 564 037 986<br><br>Maria Willis: 0438 741 295<br>Ed Willis: 0427 259 028</div></div>' +
