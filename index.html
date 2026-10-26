@@ -1882,7 +1882,7 @@ const DEFAULT_STATE = {
 // change to this file, same as CACHE_NAME in sw.js -- it gives an instant,
 // no-technical-steps-needed way to confirm whether a given device is
 // actually running the latest deploy, without comparing file contents.
-var APP_BUILD = "2026-10-27.3";
+var APP_BUILD = "2026-10-27.4";
 
 /* ======================================================================
    UTILITIES
@@ -18053,26 +18053,183 @@ function lsBullLabel(b){
   if(!nm) return tag; if(!tag || nm.toUpperCase().indexOf(tag.toUpperCase()) > -1) return nm;
   return tag + " " + nm;
 }
-function lsFormError(msg){
-  var form = document.getElementById("ls-form"), saved = [];
-  if(form){
-    Array.prototype.forEach.call(form.elements, function(el){
-      if(!el.name) return;
-      if(el.type === "checkbox") saved.push({ name: el.name, value: el.value, checked: el.checked });
-      else saved.push({ name: el.name, value: el.value });
-    });
-  }
-  ui.formErrors.lsForm = msg; render();
-  var f2 = document.getElementById("ls-form");
-  if(f2) saved.forEach(function(s){
+function lsFormVals(form){
+  var saved = [];
+  if(form) Array.prototype.forEach.call(form.elements, function(el){
+    if(!el.name || el.type === "file" || el.type === "button" || el.type === "submit") return;
+    if(el.type === "checkbox") saved.push({ name: el.name, value: el.value, checked: el.checked });
+    else saved.push({ name: el.name, value: el.value });
+  });
+  return saved;
+}
+function lsRestoreVals(f2, saved){
+  if(f2) (saved || []).forEach(function(s){
     Array.prototype.forEach.call(f2.elements, function(el){
       if(el.name !== s.name) return;
       if(el.type === "checkbox"){ if(el.value === s.value) el.checked = s.checked; } else el.value = s.value;
     });
   });
+}
+function lsFormError(msg){
+  var saved = lsFormVals(document.getElementById("ls-form"));
+  ui.formErrors.lsForm = msg; render();
+  var f2 = document.getElementById("ls-form");
+  lsRestoreVals(f2, saved);
   if(f2 && f2.scrollIntoView) f2.scrollIntoView({ block: "start" });
 }
-function lsFinish(){ delete ui.formErrors.lsForm; ui.openForms.lsForm = null; ui.lsMobId = null; ui.lsNewFarm = null; persist(); }
+/* UNDO / EDIT OF RECORDS (2026-10-27, Maria: "I need to be able to edit or cancel any action... I can't undo the preg test").
+   Every form is run through lsRun, which remembers how the mobs looked before and what was typed. When the form saves
+   (lsFinish) the difference is stored as an "act" (state.livestock.acts) and the new history lines are tagged with its id.
+   Cancel puts the mobs back exactly as they were, removes the mobs/paddocks that record created and deletes its history lines.
+   Edit = cancel + reopen the same form with what was typed, ready to change and save again. A record can't be cancelled
+   while a LATER record has changed the same mob (cancel the newer one first), so nothing is ever overwritten. */
+var lsPending = null;
+function lsSnap(){
+  var L = lsData(), mobs = {};
+  L.mobs.forEach(function(m){ mobs[m.id] = JSON.stringify(m); });
+  return { mobs: mobs, pads: L.paddocks.map(function(p){ return p.id; }), logs: L.log.map(function(x){ return x.id; }) };
+}
+function lsRun(name, e){
+  var f = e.target;
+  lsPending = { before: lsSnap(), vals: lsFormVals(f), key: ui.openForms.lsForm, mobId: ui.lsMobId || null };
+  try{ window[name](e); } finally { lsPending = null; }
+}
+function lsCommitAct(){
+  var P = lsPending; if(!P) return; lsPending = null;
+  var L = lsData(), before = {}, created = [], touched = [], cur = {};
+  L.mobs.forEach(function(m){ cur[m.id] = m; });
+  Object.keys(P.before.mobs).forEach(function(id){
+    if(!cur[id] || JSON.stringify(cur[id]) !== P.before.mobs[id]){ before[id] = JSON.parse(P.before.mobs[id]); touched.push(id); }
+  });
+  L.mobs.forEach(function(m){ if(!(m.id in P.before.mobs)){ created.push(m.id); touched.push(m.id); } });
+  var newLogs = L.log.filter(function(x){ return P.before.logs.indexOf(x.id) < 0; });
+  if(!newLogs.length && !touched.length) return;
+  var u = currentUser(), main = newLogs.filter(function(x){ return P.mobId && x.mobId === P.mobId; })[0] || newLogs[0];
+  var act = { id: uid("lsa"), at: new Date().toISOString(), by: u ? u.name : "", key: P.key, mobId: P.mobId, vals: P.vals, before: before, created: created, touched: touched,
+    padsAdded: L.paddocks.filter(function(p){ return P.before.pads.indexOf(p.id) < 0; }).map(function(p){ return p.id; }), mainLogId: main ? main.id : null,
+    summary: main ? ((main.mobName ? main.mobName + ": " : "") + main.text) : "" };
+  newLogs.forEach(function(x){ x.actId = act.id; });
+  if(!L.acts) L.acts = [];
+  L.acts.push(act);
+  if(L.acts.length > 150) L.acts.splice(0, L.acts.length - 150);
+}
+function lsActFor(x){ return x && x.actId ? (lsData().acts || []).filter(function(a){ return a.id === x.actId; })[0] || null : null; }
+function lsActBlocker(act){
+  var acts = lsData().acts || [], i = acts.indexOf(act);
+  for(var j = i + 1; j < acts.length; j++){
+    if(acts[j].touched.some(function(t){ return act.touched.indexOf(t) > -1; })) return acts[j];
+  }
+  return null;
+}
+function lsRemoveActLogs(actId){
+  var L = lsData();
+  for(var i = L.log.length - 1; i >= 0; i--) if(L.log[i].actId === actId) L.log.splice(i, 1);
+}
+// returns true if the record was cancelled
+function lsUndoAct(id, opts){
+  opts = opts || {};
+  var L = lsData(), act = (L.acts || []).filter(function(a){ return a.id === id; })[0]; if(!act) return false;
+  var blk = lsActBlocker(act);
+  if(blk){ alert("This record can't be cancelled yet, because a later record changed the same mob (" + blk.summary + "). Cancel that one first."); return false; }
+  if(!opts.noConfirm && !confirm("Cancel this record?\n\n" + act.summary + "\n\nThe mob goes back to how it was before.")) return false;
+  act.created.forEach(function(mid){ removeById(L.mobs, mid); });
+  Object.keys(act.before).forEach(function(mid){
+    var i = L.mobs.findIndex(function(m){ return m.id === mid; }), copy = JSON.parse(JSON.stringify(act.before[mid]));
+    if(i > -1) L.mobs[i] = copy; else L.mobs.push(copy);
+  });
+  act.padsAdded.forEach(function(pid){ if(!L.mobs.some(function(m){ return m.paddockId === pid; })) removeById(L.paddocks, pid); });
+  lsRemoveActLogs(act.id);
+  removeById(L.acts, act.id);
+  if(!opts.silent){
+    var first = Object.keys(act.before)[0], m = first ? lsMobById(first) : null;
+    lsLog(m, "undo", "Cancelled a record: " + act.summary);
+  }
+  if(!opts.noPersist) persist();
+  return true;
+}
+function lsReopenForm(key, mobId, vals){
+  ui.openForms.lsForm = key; ui.lsMobId = mobId || null; delete ui.formErrors.lsForm;
+  if(mobId && lsMobById(mobId)) ui.lsOpenMob = mobId; else ui.lsMobId = null;
+  var farmVal = (vals || []).filter(function(v){ return v.name === "farm"; })[0];
+  ui.lsNewFarm = key === "newmob" && farmVal ? farmVal.value : null;
+  render();
+  var f2 = document.getElementById("ls-form"); lsRestoreVals(f2, vals);
+  if(f2 && f2.scrollIntoView) f2.scrollIntoView({ block: "start", behavior: "smooth" });
+}
+function lsEditAct(id){
+  var L = lsData(), act = (L.acts || []).filter(function(a){ return a.id === id; })[0]; if(!act) return;
+  var blk = lsActBlocker(act);
+  if(blk){ alert("This record can't be edited yet, because a later record changed the same mob (" + blk.summary + "). Cancel that one first."); return; }
+  if(!confirm("Edit this record?\n\n" + act.summary + "\n\nIt is cancelled and the form reopens with what you entered, so you can change it and save it again.")) return;
+  var key = act.key, mobId = act.mobId, vals = act.vals;
+  if(!lsUndoAct(id, { silent: true, noConfirm: true, noPersist: true })) return;
+  persist();
+  lsReopenForm(key, mobId, vals);
+}
+// Records made before this update carry no undo information. Pregnancy tests and added calves can still be reversed from what they logged.
+function lsLegacyKind(x){
+  if(!x || x.actId) return "";
+  if(x.type === "preg" && /^Pregnancy test:/.test(x.text || "")) return "preg";
+  if(x.type === "calves" && /^Added \d+ calves/.test(x.text || "")) return "calves";
+  if(x.type === "recount" && /^Recount: \d+ to \d+ head/.test(x.text || "")) return "recount";
+  if(x.type === "move" && /^Moved from .+ to .+\.$/.test(x.text || "")) return "move";
+  return "";
+}
+function lsUndoLegacy(logId, thenEdit){
+  var L = lsData(), x = L.log.filter(function(l){ return l.id === logId; })[0]; if(!x) return;
+  var kind = lsLegacyKind(x), m = lsMobById(x.mobId); if(!kind || !m) return;
+  if(kind === "recount"){
+    var rc = /^Recount: (\d+) to (\d+) head/.exec(x.text), oldN = parseInt(rc[1], 10), newN = parseInt(rc[2], 10);
+    if(m.head !== newN){ alert(m.name + " has " + m.head + " head now, not " + newN + ", so this recount can't be cancelled automatically. Use Recount to set the right number."); return; }
+    if(!confirm("Cancel this record?\n\n" + m.name + ": " + x.text + "\n\nThe head count goes back to " + oldN + ".")) return;
+    m.head = oldN; removeById(L.log, x.id); persist(); return;
+  }
+  if(kind === "move"){
+    var parse = function(t){ if(t === "no paddock") return { none: true }; var q = /^(.*) \((.*)\)$/.exec(t); return q ? { name: q[1], farm: q[2] } : null; };
+    var mv = /^Moved from (.+) to (.+)\.$/.exec(x.text), from = parse(mv[1]), to = parse(mv[2]), cur = lsPaddock(m.paddockId);
+    var back = from && !from.none ? L.paddocks.filter(function(q){ return q.name === from.name && q.farm === from.farm; })[0] : null;
+    if(!from || !to || !cur || cur.name !== to.name || cur.farm !== to.farm || (!from.none && !back)){ alert(m.name + " isn't in " + mv[2] + " now (or the old paddock is gone), so this move can't be cancelled automatically. Use Move to put it where it should be."); return; }
+    if(!confirm("Cancel this record?\n\n" + m.name + ": " + x.text + "\n\nThe mob goes back to " + mv[1] + ".")) return;
+    m.paddockId = back ? back.id : null; removeById(L.log, x.id); persist(); return;
+  }
+  if(kind === "calves"){
+    var n = parseInt(/^Added (\d+) calves/.exec(x.text)[1], 10);
+    if((m.calvesAtFoot || 0) < n){ alert("This mob only has " + (m.calvesAtFoot || 0) + " calves with it now, so these " + n + " can't be taken off. They may have been weaned or recounted since."); return; }
+    if(!confirm("Cancel this record?\n\n" + m.name + ": " + x.text + "\n\n" + n + " calves are taken off the mob.")) return;
+    m.calvesAtFoot -= n; removeById(L.log, x.id); persist(); return;
+  }
+  var pt = m.pregTest, no = pt ? pt.notInCalf : 0, split = null;
+  if(no > 0){
+    split = L.mobs.filter(function(o){ return o.toSell && o.status !== "closed" && o.name === "Not in calf - " + m.name && o.head === no; })[0];
+    if(!split){ alert("The " + no + " not in calf have been moved, sold, changed or merged since the test, so this can't be cancelled automatically. Recount or Merge the mobs instead."); return; }
+  }
+  if(!confirm("Cancel this record?\n\n" + m.name + ": " + x.text + "\n\n" + (split ? "The " + no + " not in calf go back into " + m.name + ". " : "") + "The test result is removed.")) return;
+  var vals = pt ? [{ name: "mob", value: m.id }, { name: "date", value: pt.date }, { name: "inCalf", value: String(pt.inCalf) }, { name: "notInCalf", value: String(pt.notInCalf) }] : [];
+  if(split){
+    m.head += split.head;
+    for(var i = L.log.length - 1; i >= 0; i--) if(L.log[i].mobId === split.id && L.log[i].type === "preg") L.log.splice(i, 1);
+    removeById(L.mobs, split.id);
+  }
+  if(m.status === "closed" && /not in calf/i.test(m.closedReason || "")){ m.status = "active"; delete m.closedReason; delete m.closedAt; }
+  delete m.pregTest; removeById(L.log, x.id);
+  persist();
+  if(thenEdit) lsReopenForm("preg", m.id, vals);
+}
+function lsRecordButtons(x){
+  var act = lsActFor(x), b = function(label, fn){ return '<button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="' + fn + '">' + label + '</button>'; };
+  if(act && act.mainLogId === x.id) return b("Edit", "lsEditAct(\'" + act.id + "\')") + b("Undo", "lsUndoAct(\'" + act.id + "\')");
+  var k = lsLegacyKind(x);
+  if(k === "preg") return b("Edit", "lsUndoLegacy(\'" + x.id + "\',true)") + b("Undo", "lsUndoLegacy(\'" + x.id + "\')");
+  if(k) return b("Undo", "lsUndoLegacy(\'" + x.id + "\')");
+  return "";
+}
+function lsRecordRow(x){
+  var bt = lsRecordButtons(x);
+  return '<div style="padding:8px 0;border-top:1px solid var(--divider);"><div class="card-row" style="align-items:flex-start;gap:8px;"><div><div style="font-size:14px;"><strong>' + esc(x.mobName || "") + '</strong> ' + esc(x.text) + '</div>' +
+    '<div class="row-muted" style="font-size:12px;">' + fmtDate(x.date) + (x.farm ? ' &middot; ' + esc(x.farm) : '') + ' &middot; ' + esc(x.by || "") + '</div></div>' +
+    (bt ? '<div style="display:flex;gap:6px;flex-shrink:0;">' + bt + '</div>' : '') + '</div></div>';
+}
+function lsFinish(){ lsCommitAct(); delete ui.formErrors.lsForm; ui.openForms.lsForm = null; ui.lsMobId = null; ui.lsNewFarm = null; persist(); }
 function lsVal(f, n){ var el = f.elements[n]; return el ? String(el.value || "").trim() : ""; }
 function lsInt(f, n){ var v = lsVal(f, n); if(v === "") return null; var x = parseInt(v, 10); return isNaN(x) ? null : x; }
 function lsNum(f, n){ var v = lsVal(f, n); if(v === "") return null; var x = parseFloat(v); return isNaN(x) ? null : x; }
@@ -18123,7 +18280,7 @@ function lsNumField(name, label, extra){ return lsField(label, '<input type="num
 function lsNoteField(label){ return lsField(label || "Note (optional)", '<input type="text" name="note" maxlength="300" />', "span-2"); }
 function lsFormWrap(title, submitFn, inner, submitLabel){
   var err = ui.formErrors.lsForm;
-  return '<form id="ls-form" class="form-panel" style="margin:10px 0 14px;" onsubmit="' + submitFn + '(event)">' +
+  return '<form id="ls-form" class="form-panel" style="margin:10px 0 14px;" onsubmit="lsRun(\'' + submitFn + '\',event)">' +
     '<h3 style="margin:0 0 10px;">' + esc(title) + '</h3>' +
     (err ? '<p style="color:var(--danger);font-size:13.5px;font-weight:700;margin:0 0 10px;">' + esc(err) + '</p>' : '') +
     '<div class="form-grid">' + inner + '</div>' +
@@ -18592,7 +18749,9 @@ function lsDrop(padId){
   if(!m || m.status === "closed" || !dest){ ui.lsCarry = null; render(); return; }
   if(dest.id === m.paddockId){ ui.lsCarry = null; ui.lsPadSel = padId; render(); return; }
   if(!confirm("Move " + m.name + " (" + m.head + " head) to " + dest.name + " (" + dest.farm + ")?")) return;
+  lsPending = { before: lsSnap(), vals: [], key: "move", mobId: m.id };
   lsMoveMob(m, dest);
+  lsCommitAct(); lsPending = null;
   ui.lsCarry = null; ui.lsPadSel = padId;
   persist();
 }
@@ -18856,6 +19015,12 @@ function lsFlag(m){
   if(m.weight >= LS_STEER_NEAR) return '<span class="pill pill-medium">Near ' + LS_STEER_TARGET + ' kg, ' + m.weight + ' kg</span>';
   return "";
 }
+function lsMobRecords(m){
+  var recs = lsData().log.filter(function(x){ return x.mobId === m.id && x.type !== "import"; }).sort(function(a, b){
+    return (b.date || "").localeCompare(a.date || "") || (b.at || "").localeCompare(a.at || ""); }).slice(0, 6);
+  if(!recs.length) return '';
+  return '<div style="margin-top:10px;"><div style="font-weight:700;font-size:13.5px;">Recent records for this mob</div>' + recs.map(lsRecordRow).join("") + '</div>';
+}
 function lsMobCard(m, showFarm){
   var cls = lsClass(m), bits = [], open = ui.lsOpenMob === m.id, breeder = lsIsBreeder(m);
   var meta = [m.species, m.breed, cls].filter(Boolean).join(" / ");
@@ -18881,6 +19046,7 @@ function lsMobCard(m, showFarm){
     (m.note ? '<div style="font-size:13.5px;margin-top:4px;">' + esc(m.note) + '</div>' : '') +
     '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;">' + buttons + '</div>' +
     (ui.lsMobId === m.id && ui.openForms.lsForm ? renderLsForm() : '') +
+    (open ? lsMobRecords(m) : '') +
   '</div>';
 }
 function renderLivestock(){
@@ -18950,10 +19116,7 @@ function renderLivestock(){
   var log = L.log.filter(function(x){ return farm === "All" || x.farm === farm; }).slice().sort(function(a, b){
     return (b.date || "").localeCompare(a.date || "") || (b.at || "").localeCompare(a.at || ""); });
   var limit = ui.lsLogLimit || LS_LOG_PAGE;
-  html += '<div class="card"><h3 style="margin:0 0 6px;">Recent records</h3>' + (log.length ? log.slice(0, limit).map(function(x){
-    return '<div style="padding:8px 0;border-top:1px solid var(--divider);"><div style="font-size:14px;"><strong>' + esc(x.mobName || "") + '</strong> ' + esc(x.text) + '</div>' +
-      '<div class="row-muted" style="font-size:12px;">' + fmtDate(x.date) + (x.farm ? ' &middot; ' + esc(x.farm) : '') + ' &middot; ' + esc(x.by || "") + '</div></div>';
-  }).join("") + (log.length > limit ? '<div style="padding-top:8px;"><button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="ui.lsLogLimit=(ui.lsLogLimit||' + LS_LOG_PAGE + ')+' + LS_LOG_PAGE + ';render();">Show more (' + (log.length - limit) + ' more)</button></div>' : '') : '<div class="empty-state">Nothing recorded yet.</div>') + '</div>';
+  html += '<div class="card"><h3 style="margin:0 0 6px;">Recent records</h3>' + (log.length ? log.slice(0, limit).map(lsRecordRow).join("") + (log.length > limit ? '<div style="padding-top:8px;"><button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="ui.lsLogLimit=(ui.lsLogLimit||' + LS_LOG_PAGE + ')+' + LS_LOG_PAGE + ';render();">Show more (' + (log.length - limit) + ' more)</button></div>' : '') : '<div class="empty-state">Nothing recorded yet.</div>') + '</div>';
 
   // past mobs
   var past = L.mobs.filter(function(m){ return m.status === "closed" && inFarm(Object.assign({}, m)); });
