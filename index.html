@@ -1883,7 +1883,7 @@ const DEFAULT_STATE = {
 // change to this file, same as CACHE_NAME in sw.js -- it gives an instant,
 // no-technical-steps-needed way to confirm whether a given device is
 // actually running the latest deploy, without comparing file contents.
-var APP_BUILD = "2026-10-28.4";
+var APP_BUILD = "2026-10-28.5";
 
 /* ======================================================================
    UTILITIES
@@ -18929,6 +18929,7 @@ function lsPickUp(id){
     ui.lsShowMap = true;
     var m = lsMobById(id), f = m ? lsMobFarm(m) : "";
     if(f && (ui.lsFarm || "All") !== "All") ui.lsFarm = f; // show the map of the farm the mob is on
+    else if(f) ui.lsMapFarm = f;                           // (on All Farms the map's own farm buttons follow the mob)
   }
   render();
   if(ui.lsCarry) setTimeout(function(){
@@ -19043,6 +19044,8 @@ function lsFitBox(pads, W, H){
 function lsMapFarm(farm){
   var L = lsData();
   if(farm !== "All") return farm;
+  // On All Farms the map has its own farm buttons; it opens on the one last chosen (Maria, 2026-10-28), else the first farm with outlines.
+  if(ui.lsMapFarm && L.farms.indexOf(ui.lsMapFarm) > -1) return ui.lsMapFarm;
   return L.farms.filter(function(f){ return L.paddocks.some(function(p){ return p.farm === f && p.poly; }); })[0] || L.farms[0] || "";
 }
 function lsTilesSvg(box, W){
@@ -19174,13 +19177,20 @@ function renderLsCarryBanner(){
   return '<div class="card" style="border:3px solid #ff7a00;background:#fff7ec;"><div class="card-row"><div style="font-weight:800;font-size:15.5px;">Carrying ' + esc(m.name) + ' (' + m.head + ' head)<div style="font-weight:600;font-size:13px;" class="row-muted">Tap a paddock to drop it there, on any farm. Use the farm tabs to change farm.</div></div>' +
     '<button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="lsCancelCarry()">Cancel</button></div></div>';
 }
+function lsPickMapFarm(f){ ui.lsMapFarm = f; ui.lsPadSel = null; render(); }
 function renderLsMapCard(farmTab){
   var L = lsData(), farm = lsMapFarm(farmTab), pads = L.paddocks.filter(function(p){ return p.farm === farm; });
   var mapped = pads.filter(function(p){ return p.poly && p.poly.length; }), unmapped = pads.filter(function(p){ return !(p.poly && p.poly.length); });
   var html = '<div class="card"><div class="card-row"><h3 style="margin:0;">Map: ' + esc(farm) + '</h3><div style="display:flex;gap:6px;">' +
     (mapped.length ? '<button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="lsZoomMap(1.5)" aria-label="Zoom in">+</button><button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="lsZoomMap(0.667)" aria-label="Zoom out">&minus;</button><button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="lsFitMap()">Fit</button>' +
       '<button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="lsToggleSat()">' + (ui.lsSat === false ? 'Satellite' : 'No satellite') + '</button>' : '') + '</div></div>';
-  if(farmTab === "All" && mapped.length) html += '<p class="row-muted" style="font-size:12.5px;margin:6px 0 0;">Showing ' + esc(farm) + '. Pick another farm above to see its map.</p>';
+  if(farmTab === "All"){
+    var withPads = L.farms.filter(function(f){ return L.paddocks.some(function(p){ return p.farm === f; }); });
+    html += '<div class="filter-pill-row" id="ls-map-farms" style="margin:8px 0 0;">' + withPads.map(function(f){
+      var has = L.paddocks.some(function(p){ return p.farm === f && p.poly && p.poly.length; });
+      return '<button type="button" class="filter-pill' + (f === farm ? ' active' : '') + '" data-mapfarm="' + escAttr(f) + '" onclick="lsPickMapFarm(this.getAttribute(\'data-mapfarm\'))"' + (has ? '' : ' style="opacity:.6;"') + '>' + esc(f) + '</button>';
+    }).join("") + '</div>';
+  }
   if(mapped.length){
     html += '<div id="ls-map" data-farm="' + escAttr(farm) + '" style="position:relative;width:100%;height:min(68vh,540px);margin-top:8px;background:#dfe7dc;border:1px solid var(--border);overflow:hidden;touch-action:none;"></div>' +
       '<div class="row-muted" style="font-size:11px;margin-top:3px;">' + (ui.lsSat === false ? '' : 'Imagery &copy; Esri, Maxar, Earthstar Geographics (needs a signal). ') + 'Pinch or scroll to zoom, drag to move. Tap a mob to pick it up, then tap a paddock.</div>';
