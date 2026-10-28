@@ -523,7 +523,8 @@
 // v180 (2026-10-27, later): Livestock: Age hidden on cows/bulls/ewes/wethers; ageing a Calves mob splits it into steers and heifers (heifer mob named J + last digit of the join year, e.g. J6) -- index.html changed.
 // v181 (2026-10-27, later): Livestock: heifer mobs named J6, J7 etc. no longer have the year in front -- index.html changed.
 // v182 (2026-10-27, later): Time Sheets: new sheets get 30 minutes of paid break a day however it is taken (only smoko + lunch over 30 comes off); sheets already submitted keep their old hours -- index.html changed.
-var CACHE_NAME = "bullamon-plains-shell-v182";
+// v183 (2026-10-28): Fuel Storage: every tank shows the date it was last updated (tile and tank page) -- index.html changed.
+var CACHE_NAME = "bullamon-plains-shell-v183";
 
 var SHELL_ASSETS = [
   "./",
