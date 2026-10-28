@@ -1883,7 +1883,7 @@ const DEFAULT_STATE = {
 // change to this file, same as CACHE_NAME in sw.js -- it gives an instant,
 // no-technical-steps-needed way to confirm whether a given device is
 // actually running the latest deploy, without comparing file contents.
-var APP_BUILD = "2026-10-28.1";
+var APP_BUILD = "2026-10-28.2";
 
 /* ======================================================================
    UTILITIES
@@ -16302,6 +16302,39 @@ function siloPreviewNorth(v){
   var sl = document.getElementById("silo-deg-range"); if(sl && String(sl.value) !== String(deg)) sl.value = deg;
 }
 
+// ---- Download every silo and its current details as a spreadsheet (CSV) ----------------------------------
+// One row per silo (headings in the order shown on the page), then a TOTAL row. Numbers are plain (no thousands
+// commas) so Excel / Sheets read them as numbers; dates are YYYY-MM-DD. Anyone who can use Silo Storage can download it.
+function siloCsvText(){
+  var d = siloData();
+  var lines = [["Heading", "Silo", "Crop", "Harvest year", "Notes", "Current tonnes", "Fill level (t)", "Space left (t)", "Full %", "Last entry date", "Last entry", "Last entry tonnes", "Last note", "Last entered by"]];
+  var total = 0, count = 0;
+  d.sites.forEach(function(st){
+    siloSortedItems(d.items.filter(function(x){ return x.site === st.id; })).forEach(function(s){
+      var b = siloBalance(s), cap = siloCap(s), sp = siloSpace(s), pct = siloFillPct(s);
+      var txs = siloSorted(s), last = txs.length ? txs[txs.length - 1] : null;
+      total += b; count++;
+      lines.push([st.name, s.code, s.crop || "", s.harvestYear || "", s.notes || "", b, cap || "", sp == null ? "" : sp, pct == null ? "" : pct,
+        last ? (last.date || "") : "", last ? siloTxLabel(last) : "", last && Number(last.delta) ? Number(last.delta) : "", last ? (last.description || "") : "", last ? (last.by || "") : ""]);
+    });
+  });
+  // silos whose heading no longer exists (should not happen) are still included
+  d.items.filter(function(x){ return !byId(d.sites, x.site); }).forEach(function(s){
+    var b = siloBalance(s), cap = siloCap(s), sp = siloSpace(s), pct = siloFillPct(s), txs = siloSorted(s), last = txs.length ? txs[txs.length - 1] : null;
+    total += b; count++;
+    lines.push(["", s.code, s.crop || "", s.harvestYear || "", s.notes || "", b, cap || "", sp == null ? "" : sp, pct == null ? "" : pct, last ? (last.date || "") : "", last ? siloTxLabel(last) : "", last && Number(last.delta) ? Number(last.delta) : "", last ? (last.description || "") : "", last ? (last.by || "") : ""]);
+  });
+  lines.push(["TOTAL", count + (count === 1 ? " silo" : " silos"), "", "", "", Math.round(total * 100) / 100, "", "", "", "", "", "", "", ""]);
+  return lines.map(function(r){ return r.map(tsCsvCell).join(","); }).join("\r\n");
+}
+function siloCsvDownload(){
+  if(!siloCanRecord()) return;
+  var blob = new Blob(["\ufeff" + siloCsvText()], { type: "text/csv;charset=utf-8" });
+  var url = URL.createObjectURL(blob), a = document.createElement("a");
+  a.href = url; a.download = "bullamon-silos-" + fuelLocalDay(new Date().toISOString()) + ".csv";
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(function(){ URL.revokeObjectURL(url); }, 1000);
+}
 function renderSilos(){
   if(!siloCanRecord()) return pageHead("Silo Storage", "") + '<div class="empty-state">You don\'t have access to this section.</div>';
   var open = ui.siloOpen ? siloFind(ui.siloOpen) : null;
@@ -16323,7 +16356,7 @@ function renderSilos(){
     totals[k].t += b;
   });
   html += '<div class="card" style="margin-bottom:14px;"><div class="card-row"><h3 style="margin:0;">In storage</h3><span style="font-size:20px;font-weight:700;">' + siloFmt(grand) + ' t</span></div>' +
-    (order.length ? '<div class="row-muted" style="font-size:12.5px;margin-top:6px;">' + order.sort(function(a, b){ return totals[b].t - totals[a].t; }).map(function(k){ return esc(totals[k].label) + ' ' + siloFmt(totals[k].t) + ' t'; }).join(' &middot; ') + '</div>' : '') + '</div>';
+    (order.length ? '<div class="row-muted" style="font-size:12.5px;margin-top:6px;">' + order.sort(function(a, b){ return totals[b].t - totals[a].t; }).map(function(k){ return esc(totals[k].label) + ' ' + siloFmt(totals[k].t) + ' t'; }).join(' &middot; ') + '</div>' : '') + '<div style="margin-top:10px;"><button type="button" id="silo-csv-btn" class="btn btn-ghost btn-sm" style="width:auto;" onclick="siloCsvDownload()">Download all silos (CSV)</button></div></div>';
   var site = byId(d.sites, siteId);
   var items = d.items.filter(function(s){ return s.site === siteId; });
   html += '<div class="card"><div class="filter-pill-row" style="margin:0 0 14px;">' + d.sites.map(function(st){
