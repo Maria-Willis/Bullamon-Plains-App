@@ -528,7 +528,9 @@
 // v185 (2026-10-28, later): Livestock: Box Plains and West Ginnibri paddock outlines from Maria's AgriWebb export are on the map (one-time, paddocks added by name) -- index.html changed.
 // v186 (2026-10-28, later): Livestock: Agistment (send a mob or part of one to a property we don't own; asks for the location) and map colours now match AgriWebb -- index.html changed.
 // v187 (2026-10-28, later): Livestock: on All Farms the map has farm buttons so any farm's map can be shown -- index.html changed.
-var CACHE_NAME = "bullamon-plains-shell-v187";
+// v188 (2026-10-28, later): Livestock: Bullamon Plains paddock outlines (29) on the map; each paddock drawn in its own AgriWebb colour -- index.html changed.
+// v189 (2026-10-28, later): Livestock: Fenton and Nullera outlines, every paddock in its own AgriWebb colour, and the latest AgriWebb mob lists added (mobs already there skipped) -- index.html changed.
+var CACHE_NAME = "bullamon-plains-shell-v189";
 
 var SHELL_ASSETS = [
   "./",
