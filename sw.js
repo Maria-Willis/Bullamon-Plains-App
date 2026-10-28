@@ -525,7 +525,9 @@
 // v182 (2026-10-27, later): Time Sheets: new sheets get 30 minutes of paid break a day however it is taken (only smoko + lunch over 30 comes off); sheets already submitted keep their old hours -- index.html changed.
 // v183 (2026-10-28): Fuel Storage: every tank shows the date it was last updated (tile and tank page) -- index.html changed.
 // v184 (2026-10-28, later): Silo Storage: "Download all silos (CSV)" button -- one row per silo with crop, year, tonnes, fill level, space left and last entry -- index.html changed.
-var CACHE_NAME = "bullamon-plains-shell-v184";
+// v185 (2026-10-28, later): Livestock: Box Plains and West Ginnibri paddock outlines from Maria's AgriWebb export are on the map (one-time, paddocks added by name) -- index.html changed.
+// v186 (2026-10-28, later): Livestock: Agistment (send a mob or part of one to a property we don't own; asks for the location) and map colours now match AgriWebb -- index.html changed.
+var CACHE_NAME = "bullamon-plains-shell-v186";
 
 var SHELL_ASSETS = [
   "./",
