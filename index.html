@@ -598,6 +598,7 @@
   .fuel-bar-fill.fuel-ulp-fill{background:#2e9d5b;}
   .fuel-low .fuel-bar-fill{background:var(--danger,#c0392b);}
   .fuel-sub{font-size:12px;color:var(--text-muted);}
+  .fuel-upd{font-size:11.5px;}
   .fuel-low .fuel-sub b{color:var(--danger,#c0392b);}
   .fuel-sum{display:flex;flex-wrap:wrap;gap:4px 8px;font-size:13px;margin-top:6px;}
   .silo:hover{background:#eef5fc;}
@@ -1882,7 +1883,7 @@ const DEFAULT_STATE = {
 // change to this file, same as CACHE_NAME in sw.js -- it gives an instant,
 // no-technical-steps-needed way to confirm whether a given device is
 // actually running the latest deploy, without comparing file contents.
-var APP_BUILD = "2026-10-27.8";
+var APP_BUILD = "2026-10-28.1";
 
 /* ======================================================================
    UTILITIES
@@ -17126,6 +17127,23 @@ function fuelViolations(txs, cap){
 function fuelSpace(t){ var c = fuelCap(t); return c ? Math.max(0, Math.round((c - fuelBalance(t)) * 100) / 100) : null; }
 function fuelL(n){ return siloFmt(n) + " L"; }
 function fuelPct(t){ var c = fuelCap(t); return c ? Math.max(0, Math.min(100, Math.round(fuelBalance(t) / c * 100))) : null; }
+// "Last updated" for a tank (Maria, 2026-10-28): the day someone last put anything on its log (fuel in/out, transfer, dip or level
+// set, or an edit to an entry). Uses the day it was recorded in the app (not the date typed on the entry, which can be back-dated);
+// older entries without a record time fall back to their own date. Returns { date: "YYYY-MM-DD", by, dip: "YYYY-MM-DD" } or null.
+function fuelLocalDay(iso){
+  var d = new Date(iso); if(isNaN(d.getTime())) return "";
+  return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+}
+function fuelLastInfo(t){
+  var best = null, dip = "";
+  (t.transactions || []).forEach(function(x){
+    var stamp = x.editedAt || x.at, day = (stamp ? fuelLocalDay(stamp) : "") || x.date || "";
+    if(!day) return;
+    if(!best || day > best.date || (day === best.date && String(stamp || "") > String(best.stamp || ""))) best = { date: day, by: x.editedBy || x.by || "", stamp: stamp };
+    if(x.type === "dip" && x.date && x.date > dip) dip = x.date;
+  });
+  return best ? { date: best.date, by: best.by, dip: dip } : null;
+}
 function fuelHasLevel(t){ return (t.transactions || []).length > 0; }
 // Two tanks can share a name (e.g. the three "Fenton House" tanks), so a name that is not unique within its
 // heading gets its capacity added, and a number if the capacity is the same too: "Fenton House (5,000 L) #2".
@@ -17208,13 +17226,14 @@ function fuelMatches(t, q){
 }
 function fuelTileHtml(t){
   var pct = fuelPct(t), bal = fuelBalance(t), has = fuelHasLevel(t);
-  var low = has && pct !== null && pct <= 20;
+  var low = has && pct !== null && pct <= 20, fuelLast = fuelLastInfo(t);
   var sub = !has ? 'Level not set yet' : (pct !== null ? pct + '% of ' + fuelL(t.capacity) : 'No capacity set');
   return '<button type="button" class="fuel-tank' + (low ? ' fuel-low' : '') + '" onclick="fuelOpen(\'' + t.id + '\')" aria-label="' + escAttr(fuelLabel(t) + ', ' + (has ? fuelL(bal) : 'level not set')) + '">' +
     '<span class="fuel-tank-top"><span class="fuel-name">' + esc(fuelName(t)) + '</span><span class="fuel-type ' + (t.fuelType === "ULP" ? "fuel-ulp" : "fuel-diesel") + '">' + esc(t.fuelType || "Diesel") + '</span></span>' +
     '<span class="fuel-l">' + (has ? fuelL(bal) : '—') + '</span>' +
     '<span class="fuel-bar"><span class="fuel-bar-fill ' + (t.fuelType === "ULP" ? "fuel-ulp-fill" : "") + '" style="width:' + (has && pct !== null ? pct : 0) + '%;"></span></span>' +
-    '<span class="fuel-sub">' + esc(sub) + (low ? ' · <b>Low</b>' : '') + '</span></button>';
+    '<span class="fuel-sub">' + esc(sub) + (low ? ' · <b>Low</b>' : '') + '</span>' +
+    '<span class="fuel-sub fuel-upd">' + (fuelLast ? 'Updated ' + fmtDate(fuelLast.date) : 'Not updated yet') + '</span></button>';
 }
 function renderFuel(){
   if(!fuelCanRecord()) return pageHead("Fuel Storage", "") + '<div class="empty-state">You don\'t have access to this section.</div>';
@@ -17294,7 +17313,8 @@ function renderFuelDetail(t){
     '<div style="text-align:right;"><div style="font-size:30px;font-weight:700;line-height:1;">' + (has ? fuelL(b) : '—') + '</div><div class="row-muted" style="font-size:12px;">' + (has ? 'in the tank' + (pct !== null ? ' · ' + pct + '% full' : '') : 'level not set yet') + '</div>' +
     (fuelCap(t) && has ? '<div style="font-size:12.5px;font-weight:700;margin-top:2px;">' + (fuelSpace(t) > 0 ? fuelL(fuelSpace(t)) + ' room left' : 'Full') + '</div>' : '') + '</div></div>' +
     (fuelCap(t) ? '<div class="fuel-bar fuel-bar-big"><span class="fuel-bar-fill ' + (t.fuelType === "ULP" ? "fuel-ulp-fill" : "") + '" style="width:' + (has && pct !== null ? pct : 0) + '%;"></span></div>' : '') +
-    '<div class="row-muted" style="font-size:12.5px;margin:8px 0 12px;">All-time: ' + fuelL(totalIn) + ' in, ' + fuelL(totalOut) + ' out</div>' +
+    '<div class="row-muted" style="font-size:12.5px;margin:8px 0 2px;">All-time: ' + fuelL(totalIn) + ' in, ' + fuelL(totalOut) + ' out</div>' +
+    (function(){ var li = fuelLastInfo(t); return '<div id="fuel-last-updated" style="font-size:13px;font-weight:700;margin:0 0 12px;">' + (li ? 'Last updated ' + fmtDate(li.date) + (li.by ? ' <span class="row-muted" style="font-weight:400;">by ' + esc(li.by) + '</span>' : '') + (li.dip ? ' <span class="row-muted" style="font-weight:400;">&middot; last dip ' + fmtDate(li.dip) + '</span>' : '') : 'Not updated yet') + '</div>'; })() +
     '<div class="filter-pill-row" style="margin:0;">' +
       [["in", "Fuel in"], ["out", "Fuel out"], ["transfer", "Transfer to another tank"], ["set", "Dip / set level"], ["details", "Edit tank"]].map(function(a){
         return '<button type="button" class="filter-pill' + (act === a[0] ? " active" : "") + '" onclick="fuelSetAction(\'' + a[0] + '\')">' + a[1] + '</button>';
