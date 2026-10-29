@@ -2013,7 +2013,7 @@ const DEFAULT_STATE = {
 // change to this file, same as CACHE_NAME in sw.js -- it gives an instant,
 // no-technical-steps-needed way to confirm whether a given device is
 // actually running the latest deploy, without comparing file contents.
-var APP_BUILD = "2026-10-29.2";
+var APP_BUILD = "2026-10-29.3";
 
 /* ======================================================================
    UTILITIES
@@ -19306,7 +19306,7 @@ function lsMapDraw(){
         var kind = sm.species === "Sheep" ? "sheep" : "cattle", an = LS_ANIMAL_IMG[kind], iw = tw * 0.8, ih = iw * an.h / an.w;
         if(ih > th * 0.8){ ih = th * 0.8; iw = ih * an.w / an.h; }
         chips += '<g class="ls-sym" data-pad="' + p.id + '" data-species="' + (more ? "more" : kind) + '" style="cursor:pointer;"><title>' + esc(more ? (here.length - 4) + " more mobs" : sm.name + " (" + sm.head + " head)") + '</title>' +
-          '<rect x="' + (cxs - tw / 2).toFixed(1) + '" y="' + (cy - th / 2).toFixed(1) + '" width="' + tw.toFixed(1) + '" height="' + th.toFixed(1) + '" rx="' + (u * 6).toFixed(1) + '" fill="' + (isCs ? "#ff7a00" : "#1870b9") + '" stroke="#fff" stroke-width="' + (u * 1.6) + '" />' +
+          '<rect x="' + (cxs - tw / 2).toFixed(1) + '" y="' + (cy - th / 2).toFixed(1) + '" width="' + tw.toFixed(1) + '" height="' + th.toFixed(1) + '" rx="' + (u * 6).toFixed(1) + '" fill="' + (isCs ? "#ff7a00" : (!more && kind === "sheep") ? "#08552b" : "#1870b9") + '" stroke="#fff" stroke-width="' + (u * 1.6) + '" />' +
           (more ? '<text x="' + cxs.toFixed(1) + '" y="' + (cy + th * 0.17).toFixed(1) + '" text-anchor="middle" font-size="' + (th * 0.55).toFixed(1) + '" font-weight="700" fill="#fff" pointer-events="none" font-family="sans-serif">' + '+' + (here.length - 4) + '</text>'
                  : '<use href="#ls-an-' + kind + '" x="' + (cxs - iw / 2).toFixed(1) + '" y="' + (cy - ih / 2).toFixed(1) + '" width="' + iw.toFixed(1) + '" height="' + ih.toFixed(1) + '" pointer-events="none"/>') + '</g>';
       }
