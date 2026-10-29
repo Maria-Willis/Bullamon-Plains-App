@@ -2014,7 +2014,7 @@ const DEFAULT_STATE = {
 // change to this file, same as CACHE_NAME in sw.js -- it gives an instant,
 // no-technical-steps-needed way to confirm whether a given device is
 // actually running the latest deploy, without comparing file contents.
-var APP_BUILD = "2026-10-29.4";
+var APP_BUILD = "2026-10-29.5";
 
 /* ======================================================================
    UTILITIES
@@ -18311,6 +18311,31 @@ function lsBullLabel(b){
   if(!nm) return tag; if(!tag || nm.toUpperCase().indexOf(tag.toUpperCase()) > -1) return nm;
   return tag + " " + nm;
 }
+// ---- Bulls in the Livestock section (2026-10-29, Maria: "put the bulls in the livestock section. The Bulls section is only for tracking their sperm tests") ----
+// Where each active bull is lives in state.livestock.bullPads = { bullId: paddockId } (the Bulls section's own records are untouched). On the
+// map all the bulls in one paddock share ONE bull symbol, and in the Mobs list there is ONE "Bulls" box; the individual bulls only show when
+// that symbol or box is opened.
+function lsBulls(){ return bullItems().filter(function(b){ return !b.status || b.status === "active"; }); }
+function lsBullPads(){ var L = lsData(); if(!L.bullPads) L.bullPads = {}; return L.bullPads; }
+function lsBullPadId(b){ var id = lsBullPads()[b.id]; return id && lsPaddock(id) ? id : null; }
+function lsBullsIn(padId){ return lsBulls().filter(function(b){ return lsBullPadId(b) === padId; }); }
+function lsBullFarm(b){ var p = lsPaddock(lsBullPadId(b)); return p ? p.farm : ""; }
+function lsBullWith(b){
+  var t = lsLocalToday();
+  return lsActiveMobs().filter(function(m){ return m.joining && m.joining.start <= t && t <= m.joining.end && (m.joining.bulls || []).some(function(x){ return x.id === b.id; }); }).map(function(m){ return m.name; });
+}
+function lsLogBull(b, text, farm, date){
+  var u = currentUser();
+  lsData().log.push({ id: uid("lsl"), date: date || lsLocalToday(), type: "move", mobId: null, bullId: b.id, mobName: lsBullLabel(b) + " (bull)", farm: farm || "", text: text,
+    by: u ? u.name : "Unknown", at: new Date().toISOString() });
+}
+function lsMoveBull(b, dest, date){
+  var from = lsPaddock(lsBullPadId(b));
+  if(from && from.id === dest.id) return false;
+  lsBullPads()[b.id] = dest.id;
+  lsLogBull(b, "Moved from " + (from ? from.name + " (" + from.farm + ")" : "no paddock") + " to " + dest.name + " (" + dest.farm + ").", dest.farm, date);
+  return true;
+}
 function lsFormVals(form){
   var saved = [];
   if(form) Array.prototype.forEach.call(form.elements, function(el){
@@ -18345,7 +18370,7 @@ var lsPending = null;
 function lsSnap(){
   var L = lsData(), mobs = {};
   L.mobs.forEach(function(m){ mobs[m.id] = JSON.stringify(m); });
-  return { mobs: mobs, pads: L.paddocks.map(function(p){ return p.id; }), logs: L.log.map(function(x){ return x.id; }) };
+  return { mobs: mobs, bulls: JSON.stringify(L.bullPads || {}), pads: L.paddocks.map(function(p){ return p.id; }), logs: L.log.map(function(x){ return x.id; }) };
 }
 function lsRun(name, e){
   var f = e.target;
@@ -18360,10 +18385,14 @@ function lsCommitAct(){
     if(!cur[id] || JSON.stringify(cur[id]) !== P.before.mobs[id]){ before[id] = JSON.parse(P.before.mobs[id]); touched.push(id); }
   });
   L.mobs.forEach(function(m){ if(!(m.id in P.before.mobs)){ created.push(m.id); touched.push(m.id); } });
+  var bb = JSON.parse(P.before.bulls || "{}"), bnow = L.bullPads || {}, bullsBefore = null;
+  Object.keys(bnow).concat(Object.keys(bb)).forEach(function(id){
+    if((bb[id] || null) !== (bnow[id] || null)){ bullsBefore = bullsBefore || {}; bullsBefore[id] = bb[id] || null; if(touched.indexOf("bull:" + id) < 0) touched.push("bull:" + id); }
+  });
   var newLogs = L.log.filter(function(x){ return P.before.logs.indexOf(x.id) < 0; });
   if(!newLogs.length && !touched.length) return;
   var u = currentUser(), main = newLogs.filter(function(x){ return P.mobId && x.mobId === P.mobId; })[0] || newLogs[0];
-  var act = { id: uid("lsa"), at: new Date().toISOString(), by: u ? u.name : "", key: P.key, mobId: P.mobId, vals: P.vals, before: before, created: created, touched: touched,
+  var act = { id: uid("lsa"), at: new Date().toISOString(), by: u ? u.name : "", key: P.key, mobId: P.mobId, vals: P.vals, before: before, bullsBefore: bullsBefore, created: created, touched: touched,
     padsAdded: L.paddocks.filter(function(p){ return P.before.pads.indexOf(p.id) < 0; }).map(function(p){ return p.id; }), mainLogId: main ? main.id : null,
     summary: main ? ((main.mobName ? main.mobName + ": " : "") + main.text) : "" };
   newLogs.forEach(function(x){ x.actId = act.id; });
@@ -18395,6 +18424,7 @@ function lsUndoAct(id, opts){
     var i = L.mobs.findIndex(function(m){ return m.id === mid; }), copy = JSON.parse(JSON.stringify(act.before[mid]));
     if(i > -1) L.mobs[i] = copy; else L.mobs.push(copy);
   });
+  if(act.bullsBefore) Object.keys(act.bullsBefore).forEach(function(id){ if(act.bullsBefore[id]) lsBullPads()[id] = act.bullsBefore[id]; else delete lsBullPads()[id]; });
   act.padsAdded.forEach(function(pid){ if(!L.mobs.some(function(m){ return m.paddockId === pid; })) removeById(L.paddocks, pid); });
   lsRemoveActLogs(act.id);
   removeById(L.acts, act.id);
@@ -18590,7 +18620,7 @@ function renderLsForm(){
     return lsFormWrap("Joining", "lsSaveJoin",
       lsField("Cow or heifer mob", lsMobSelect("mob", active.filter(lsIsBreeder), sel)) + lsDateField("date", "Bulls in") +
       lsNumField("days", "Days joined (about 70)", 'min="1" value="' + LS_JOIN_DAYS + '" required') +
-      lsField("Bulls (from the Bulls section)", '<div style="max-height:240px;overflow:auto;border:1px solid var(--border);padding:6px 10px;">' + bullHtml + '</div>', "span-2") + lsNoteField(), "Save joining");
+      lsField("Bulls (saving moves them into the mob's paddock)", '<div style="max-height:240px;overflow:auto;border:1px solid var(--border);padding:6px 10px;">' + bullHtml + '</div>', "span-2") + lsNoteField(), "Save joining");
   }
   if(k === "sell") return lsFormWrap("Sell / transfer off / death", "lsSaveSell",
     lsField("Mob", lsMobSelect("mob", active, sel), "span-2") +
@@ -18774,6 +18804,9 @@ function lsSaveJoin(e){
   });
   m.joining = { start: start, end: end, days: days, bulls: bulls, note: lsVal(f, "note") };
   lsLog(m, "join", "Joined with " + (bulls.length ? bulls.map(function(b){ return b.label; }).join(", ") : "bulls") + " from " + fmtDate(start) + " to " + fmtDate(end) + " (" + days + " days).", { date: start });
+  // the bulls go into the mob's paddock (Maria, 2026-10-29)
+  var jp = lsPaddock(m.paddockId);
+  if(jp) bulls.forEach(function(j){ var b = byId(bullItems(), j.id); if(b) lsMoveBull(b, jp, start); });
   lsFinish();
 }
 function lsSaveSell(e){
@@ -19099,7 +19132,10 @@ function lsImportBoundaries(e){
 
 /* ---------- picking up and dropping ---------- */
 function lsMoveMob(m, dest, date){
-  var from = lsPaddock(m.paddockId);
+  var from = lsPaddock(m.paddockId), day = date || lsLocalToday(), follow = [];
+  // bulls joined to this mob go with it while the joining period is running (and only if they are still in the mob's old paddock)
+  if(from && m.joining && m.joining.start <= day && day <= m.joining.end) follow = (m.joining.bulls || []).map(function(j){ return byId(bullItems(), j.id); }).filter(function(b){ return b && lsBullPadId(b) === from.id; });
+  follow.forEach(function(b){ lsMoveBull(b, dest, day); });
   m.paddockId = dest.id;
   lsLog(m, "move", "Moved from " + (from ? from.name + " (" + from.farm + ")" : "no paddock") + " to " + dest.name + " (" + dest.farm + ").", { date: date || lsLocalToday() });
 }
@@ -19112,6 +19148,7 @@ function lsTopFirst(list){
 }
 function lsPickUp(id){
   ui.lsCarry = ui.lsCarry === id ? null : id;
+  ui.lsCarryBulls = null;
   ui.lsTopMob = id;
   if(ui.lsCarry){
     ui.lsShowMap = true;
@@ -19121,13 +19158,49 @@ function lsPickUp(id){
     else if(f) ui.lsMapFarm = f;                           // (on All Farms the map's own farm buttons follow the mob)
   }
   render();
-  if(ui.lsCarry) setTimeout(function(){
-    var el = document.getElementById("ls-map") || document.getElementById("ls-form"); if(!el || !el.getBoundingClientRect) return;
-    var t = el.getBoundingClientRect().top; if((t < 0 || t > window.innerHeight * 0.6) && el.scrollIntoView) el.scrollIntoView({ block: "start", behavior: "smooth" });
-  }, 60);
+  if(ui.lsCarry) setTimeout(lsScrollToMap, 60);
 }
-function lsCancelCarry(){ ui.lsCarry = null; render(); }
+function lsScrollToMap(){
+  var el = document.getElementById("ls-map") || document.getElementById("ls-form"); if(!el || !el.getBoundingClientRect) return;
+  var t = el.getBoundingClientRect().top; if((t < 0 || t > window.innerHeight * 0.6) && el.scrollIntoView) el.scrollIntoView({ block: "start", behavior: "smooth" });
+}
+// Carry one or more bulls (ids as an array or "id1|id2") to another paddock.
+function lsCarryBullIds(){ return (ui.lsCarryBulls || []).filter(function(id){ return byId(bullItems(), id); }); }
+function lsPickUpBulls(ids){
+  if(typeof ids === "string") ids = ids.split("|").filter(Boolean);
+  ids = (ids || []).filter(function(id){ return byId(bullItems(), id); });
+  if(!ids.length) return;
+  var same = ui.lsCarryBulls && ui.lsCarryBulls.length === ids.length && ids.every(function(id){ return ui.lsCarryBulls.indexOf(id) > -1; });
+  ui.lsCarry = null; ui.lsCarryBulls = same ? null : ids;
+  if(ui.lsCarryBulls){
+    ui.lsShowMap = true;
+    var b = byId(bullItems(), ids[0]), f = b ? lsBullFarm(b) : "";
+    if(f && (ui.lsFarm || "All") !== "All") ui.lsFarm = f; else if(f) ui.lsMapFarm = f;
+  }
+  render();
+  if(ui.lsCarryBulls) setTimeout(lsScrollToMap, 60);
+}
+function lsPickUpTicked(){
+  var ids = Array.prototype.slice.call(document.querySelectorAll('#ls-bulls input[name="lsbullsel"]:checked')).map(function(c){ return c.value; });
+  if(!ids.length){ alert("Tick the bulls you want to pick up first."); return; }
+  lsPickUpBulls(ids);
+}
+function lsToggleBullsList(){ ui.lsBullsList = !ui.lsBullsList; render(); }
+function lsCancelCarry(){ ui.lsCarry = null; ui.lsCarryBulls = null; render(); }
+function lsDropBulls(padId){
+  var ids = lsCarryBullIds(), dest = lsPaddock(padId);
+  if(!ids.length || !dest){ ui.lsCarryBulls = null; render(); return; }
+  var bulls = ids.map(function(id){ return byId(bullItems(), id); }), moving = bulls.filter(function(b){ return lsBullPadId(b) !== dest.id; });
+  if(!moving.length){ ui.lsCarryBulls = null; ui.lsPadSel = padId; ui.lsBullsOpen = padId; render(); return; }
+  if(!confirm("Move " + (moving.length === 1 ? lsBullLabel(moving[0]) : moving.length + " bulls") + " to " + dest.name + " (" + dest.farm + ")?")) return;
+  lsPending = { before: lsSnap(), vals: [], key: "move", mobId: null };
+  moving.forEach(function(b){ lsMoveBull(b, dest); });
+  lsCommitAct(); lsPending = null;
+  ui.lsCarryBulls = null; ui.lsPadSel = padId; ui.lsBullsOpen = padId;
+  persist();
+}
 function lsDrop(padId){
+  if(ui.lsCarryBulls && ui.lsCarryBulls.length) return lsDropBulls(padId);
   var m = ui.lsCarry ? lsMobById(ui.lsCarry) : null, dest = lsPaddock(padId);
   if(!m || m.status === "closed" || !dest){ ui.lsCarry = null; render(); return; }
   if(dest.id === m.paddockId){ ui.lsCarry = null; ui.lsPadSel = padId; render(); return; }
@@ -19139,8 +19212,15 @@ function lsDrop(padId){
   persist();
 }
 function lsPadTap(padId){
-  if(ui.lsCarry) return lsDrop(padId);
-  ui.lsPadSel = ui.lsPadSel === padId ? null : padId; render();
+  if(ui.lsCarry || (ui.lsCarryBulls && ui.lsCarryBulls.length)) return lsDrop(padId);
+  ui.lsPadSel = ui.lsPadSel === padId ? null : padId; ui.lsBullsOpen = null; render();
+}
+// Tapping the bull symbol: show that paddock with its individual bulls listed (or drop what you are carrying there).
+function lsBullsTap(padId){
+  if(ui.lsCarry || (ui.lsCarryBulls && ui.lsCarryBulls.length)) return lsDrop(padId);
+  if(ui.lsPadSel === padId && ui.lsBullsOpen === padId){ ui.lsPadSel = null; ui.lsBullsOpen = null; }
+  else { ui.lsPadSel = padId; ui.lsBullsOpen = padId; }
+  render();
 }
 function lsToggleMap(){ ui.lsShowMap = !ui.lsShowMap; render(); }
 function lsToggleSat(){ ui.lsSat = ui.lsSat === false; render(); }
@@ -19268,25 +19348,25 @@ function lsMapDraw(){
   var box = ui.lsBox[farm];
   if(!box){ box = ui.lsBox[farm] = lsFitBox(pads, W, H); }
   if(Math.abs(box.w / box.h - W / H) > 0.02){ var cx = box.x + box.w / 2, cy = box.y + box.h / 2; box.h = box.w * H / W; box.x = cx - box.w / 2; box.y = cy - box.h / 2; }
-  var u = box.w / W, active = lsActiveMobs(), carry = ui.lsCarry, carried = carry ? lsMobById(carry) : null;
+  var u = box.w / W, active = lsActiveMobs(), carry = ui.lsCarry, carried = carry ? lsMobById(carry) : null, cb = lsCarryBullIds(), carrying = !!(carried || cb.length);
   var svg = '<svg id="ls-svg" xmlns="http://www.w3.org/2000/svg" width="100%" height="100%" viewBox="' + box.x + ' ' + box.y + ' ' + box.w + ' ' + box.h + '" style="display:block;touch-action:none;user-select:none;-webkit-user-select:none;">' + lsAnimalDefs();
   if(ui.lsSat !== false) svg += '<g id="ls-tiles">' + lsTilesSvg(box, W) + '</g>';
   var polys = "", labels = "", chips = "";
   pads.forEach(function(p){
     var rings = lsProjRings(p), cropping = /crop/i.test(p.landUse || "");
-    var isSel = ui.lsPadSel === p.id, isHere = carried && carried.paddockId === p.id;
+    var isSel = ui.lsPadSel === p.id, isHere = (carried && carried.paddockId === p.id) || (cb.length && lsBullsIn(p.id).some(function(b){ return cb.indexOf(b.id) > -1; }));
     polys += rings.map(function(r){
-      return '<polygon data-pad="' + p.id + '" points="' + r.map(function(q){ return q[0].toFixed(1) + "," + q[1].toFixed(1); }).join(" ") + '" fill="' + lsPadFill(p, cropping) + '" fill-opacity="' + (carried && !isHere ? "0.55" : "0.4") + '" stroke="' + (isSel ? "#ff7a00" : "#ffffff") + '" stroke-width="' + (u * (isSel ? 3.2 : 1.4)) + '" stroke-linejoin="round" style="cursor:pointer;" />';
+      return '<polygon data-pad="' + p.id + '" points="' + r.map(function(q){ return q[0].toFixed(1) + "," + q[1].toFixed(1); }).join(" ") + '" fill="' + lsPadFill(p, cropping) + '" fill-opacity="' + (carrying && !isHere ? "0.55" : "0.4") + '" stroke="' + (isSel ? "#ff7a00" : "#ffffff") + '" stroke-width="' + (u * (isSel ? 3.2 : 1.4)) + '" stroke-linejoin="round" style="cursor:pointer;" />';
     }).join("");
-    var c = lsLabelPoint(p, pads), here = active.filter(function(m){ return m.paddockId === p.id; });
+    var c = lsLabelPoint(p, pads), here = active.filter(function(m){ return m.paddockId === p.id; }), bhere = lsBullsIn(p.id);
     var fs = u * 12.5, y = c[1];
     // Mobs show as a small symbol (cow / sheep) until you have zoomed in far enough for the paddock to hold the name and every mob's
     // label (Maria, 2026-10-28: "make the livestock tags a symbol and show the detail when you zoom in"). Tap a symbol to see the mobs.
     var detail = false;
-    if(here.length){
+    if(here.length || bhere.length){
       var pw = p.name.length * 7.6 + 18;
       here.forEach(function(m){ var t = m.name + "  " + m.head + (m.calvesAtFoot ? " +" + m.calvesAtFoot : ""); pw = Math.max(pw, Math.max(40, t.length * 6.6) + 14); });
-      var dspot = lsNameSpot(p, rings, c, pw * u, (24 + here.length * 22) * u);
+      var dspot = lsNameSpot(p, rings, c, pw * u, (24 + (here.length + (bhere.length ? 1 : 0)) * 22) * u);
       if(dspot){ detail = true; c = dspot; y = c[1]; }
     }
     // a paddock's name only shows once zoomed in far enough for the whole name to fit comfortably inside the paddock
@@ -19294,14 +19374,20 @@ function lsMapDraw(){
     if(spot && !detail){ c = spot; y = c[1]; }
     if(spot)
     labels += '<text x="' + c[0].toFixed(1) + '" y="' + y.toFixed(1) + '" text-anchor="middle" font-size="' + fs + '" font-weight="700" fill="#fff" stroke="#000" stroke-opacity=".75" stroke-width="' + (u * 2.6) + '" paint-order="stroke" pointer-events="none" font-family="sans-serif">' + esc(p.name) + '</text>';
-    if(detail) here.forEach(function(m, i){
+    if(detail) here.concat(bhere.length ? [{ bullsPill: true }] : []).forEach(function(m, i){
+      if(m.bullsPill){
+        var btxt = "Bulls  " + bhere.length, btw = Math.max(40, btxt.length * 6.6) * u + u * 14, bth = u * 19, byy = y + u * 5 + i * (bth + u * 3), bC = bhere.some(function(b){ return cb.indexOf(b.id) > -1; });
+        chips += '<g data-bulls="' + p.id + '" style="cursor:pointer;"><rect x="' + (c[0] - btw / 2).toFixed(1) + '" y="' + byy.toFixed(1) + '" width="' + btw.toFixed(1) + '" height="' + bth + '" rx="' + (u * 9) + '" fill="' + (bC ? "#ff7a00" : "#8a2d1b") + '" fill-opacity=".93" stroke="#fff" stroke-width="' + (u * (bC ? 2.4 : 1)) + '" />' +
+          '<text x="' + c[0].toFixed(1) + '" y="' + (byy + bth * 0.69).toFixed(1) + '" text-anchor="middle" font-size="' + (u * 12) + '" font-weight="700" fill="#fff" pointer-events="none" font-family="sans-serif">' + esc(btxt) + '</text></g>';
+        return;
+      }
       var txt = m.name + "  " + m.head + (m.calvesAtFoot ? " +" + m.calvesAtFoot : ""), tw = Math.max(40, txt.length * 6.6) * u + u * 14, th = u * 19;
       var yy = y + u * 5 + i * (th + u * 3), isC = carry === m.id;
       chips += '<g data-mob="' + m.id + '" style="cursor:pointer;"><rect x="' + (c[0] - tw / 2).toFixed(1) + '" y="' + yy.toFixed(1) + '" width="' + tw.toFixed(1) + '" height="' + th + '" rx="' + (u * 9) + '" fill="' + (isC ? "#ff7a00" : "#0b2f4f") + '" fill-opacity=".93" stroke="#fff" stroke-width="' + (u * (isC ? 2.4 : 1)) + '" />' +
         '<text x="' + c[0].toFixed(1) + '" y="' + (yy + th * 0.69).toFixed(1) + '" text-anchor="middle" font-size="' + (u * 12) + '" font-weight="700" fill="#fff" pointer-events="none" font-family="sans-serif">' + esc(txt) + '</text></g>';
     });
-    else if(here.length){
-      var tw = u * 28, th = u * 22, step = tw * 1.12, shown = here.length > 5 ? 5 : here.length, cy = spot ? y + u * 16 : y, x0 = c[0] - (shown - 1) * step / 2;
+    else if(here.length || bhere.length){
+      var tw = u * 28, th = u * 22, step = tw * 1.12, shown = here.length > 5 ? 5 : here.length, cy = spot ? y + u * 16 : y, x0 = c[0] - (shown + (bhere.length ? 1 : 0) - 1) * step / 2;
       for(var si = 0; si < shown; si++){
         var more = here.length > 5 && si === 4, sm = here[si], isCs = !more && carry === sm.id, cxs = x0 + si * step;
         var kind = sm.species === "Sheep" ? "sheep" : "cattle", an = LS_ANIMAL_IMG[kind], iw = tw * 0.8, ih = iw * an.h / an.w;
@@ -19310,6 +19396,15 @@ function lsMapDraw(){
           '<rect x="' + (cxs - tw / 2).toFixed(1) + '" y="' + (cy - th / 2).toFixed(1) + '" width="' + tw.toFixed(1) + '" height="' + th.toFixed(1) + '" rx="' + (u * 6).toFixed(1) + '" fill="' + (isCs ? "#ff7a00" : (!more && kind === "sheep") ? "#08552b" : "#1870b9") + '" stroke="#fff" stroke-width="' + (u * 1.6) + '" />' +
           (more ? '<text x="' + cxs.toFixed(1) + '" y="' + (cy + th * 0.17).toFixed(1) + '" text-anchor="middle" font-size="' + (th * 0.55).toFixed(1) + '" font-weight="700" fill="#fff" pointer-events="none" font-family="sans-serif">' + '+' + (here.length - 4) + '</text>'
                  : '<use href="#ls-an-' + kind + '" x="' + (cxs - iw / 2).toFixed(1) + '" y="' + (cy - ih / 2).toFixed(1) + '" width="' + iw.toFixed(1) + '" height="' + ih.toFixed(1) + '" pointer-events="none"/>') + '</g>';
+      }
+      if(bhere.length){
+        // ONE bull symbol for all the bulls in this paddock: the cattle picture on a dark red tile with the number of bulls in a white badge
+        var bcx = x0 + shown * step, bC2 = bhere.some(function(b){ return cb.indexOf(b.id) > -1; }), ban = LS_ANIMAL_IMG.cattle, biw = tw * 0.66, bih = biw * ban.h / ban.w, br = u * 7.2;
+        chips += '<g class="ls-sym" data-bulls="' + p.id + '" data-species="bulls" style="cursor:pointer;"><title>' + bhere.length + (bhere.length === 1 ? " bull" : " bulls") + '</title>' +
+          '<rect x="' + (bcx - tw / 2).toFixed(1) + '" y="' + (cy - th / 2).toFixed(1) + '" width="' + tw.toFixed(1) + '" height="' + th.toFixed(1) + '" rx="' + (u * 6).toFixed(1) + '" fill="' + (bC2 ? "#ff7a00" : "#8a2d1b") + '" stroke="#fff" stroke-width="' + (u * 1.6) + '" />' +
+          '<use href="#ls-an-cattle" x="' + (bcx - biw / 2 - u * 1.5).toFixed(1) + '" y="' + (cy - bih / 2 + u * 1.5).toFixed(1) + '" width="' + biw.toFixed(1) + '" height="' + bih.toFixed(1) + '" pointer-events="none"/>' +
+          '<circle cx="' + (bcx + tw / 2 - u * 3).toFixed(1) + '" cy="' + (cy - th / 2 + u * 3).toFixed(1) + '" r="' + br.toFixed(1) + '" fill="#fff" stroke="#8a2d1b" stroke-width="' + (u * 1) + '" pointer-events="none" />' +
+          '<text x="' + (bcx + tw / 2 - u * 3).toFixed(1) + '" y="' + (cy - th / 2 + u * 3 + br * 0.36).toFixed(1) + '" text-anchor="middle" font-size="' + (br * 1.15).toFixed(1) + '" font-weight="800" fill="#8a2d1b" pointer-events="none" font-family="sans-serif">' + bhere.length + '</text></g>';
       }
     }
   });
@@ -19373,8 +19468,9 @@ function lsMapBind(el, farm){
     if(!had) return;
     if(!moved && Object.keys(pts).length === 0){
       var t = e.target && e.target.closest ? e.target : null;
-      var mobEl = t && t.closest("[data-mob]"), padEl = t && t.closest("[data-pad]");
-      if(mobEl) lsPickUp(mobEl.getAttribute("data-mob"));
+      var mobEl = t && t.closest("[data-mob]"), padEl = t && t.closest("[data-pad]"), bullEl = t && t.closest("[data-bulls]");
+      if(bullEl) lsBullsTap(bullEl.getAttribute("data-bulls"));
+      else if(mobEl) lsPickUp(mobEl.getAttribute("data-mob"));
       else if(padEl) lsPadTap(padEl.getAttribute("data-pad"));
       return;
     }
@@ -19387,6 +19483,12 @@ function lsMapBind(el, farm){
 /* ---------- the map card ---------- */
 function lsPadHeadCount(padId){ return lsActiveMobs().filter(function(m){ return m.paddockId === padId; }).reduce(function(a, m){ return a + m.head; }, 0); }
 function renderLsCarryBanner(){
+  var cbl = lsCarryBullIds();
+  if(cbl.length){
+    var bl = cbl.map(function(id){ return lsBullLabel(byId(bullItems(), id)); });
+    return '<div class="card" style="border:3px solid #ff7a00;background:#fff7ec;"><div class="card-row"><div style="font-weight:800;font-size:15.5px;">Carrying ' + (bl.length === 1 ? esc(bl[0]) : bl.length + ' bulls (' + esc(bl.slice(0, 3).join(", ")) + (bl.length > 3 ? ' and ' + (bl.length - 3) + ' more' : '') + ')') + '<div style="font-weight:600;font-size:13px;" class="row-muted">Tap a paddock to drop ' + (bl.length === 1 ? 'him' : 'them') + ' there, on any farm. Use the farm tabs to change farm.</div></div>' +
+      '<button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="lsCancelCarry()">Cancel</button></div></div>';
+  }
   var m = ui.lsCarry ? lsMobById(ui.lsCarry) : null;
   if(!m || m.status === "closed"){ ui.lsCarry = null; return ""; }
   return '<div class="card" style="border:3px solid #ff7a00;background:#fff7ec;"><div class="card-row"><div style="font-weight:800;font-size:15.5px;">Carrying ' + esc(m.name) + ' (' + m.head + ' head)<div style="font-weight:600;font-size:13px;" class="row-muted">Tap a paddock to drop it there, on any farm. Use the farm tabs to change farm.</div></div>' +
@@ -19473,13 +19575,25 @@ function renderLsMapCard(farmTab){
   return html + '</div>';
 }
 
+function lsBullRows(bulls, withBoxes){
+  return bulls.map(function(b){
+    var w = lsBullWith(b), carrying = lsCarryBullIds().indexOf(b.id) > -1;
+    return '<div class="card-row" style="padding:6px 0;"><span style="display:flex;gap:8px;align-items:center;">' + (withBoxes ? '<input type="checkbox" name="lsbullsel" value="' + escAttr(b.id) + '" style="width:auto;" />' : '') +
+      '<span><strong>' + esc(lsBullLabel(b)) + '</strong>' + (w.length ? ' <span class="row-muted">with ' + esc(w.join(", ")) + '</span>' : '') + '</span></span>' +
+      '<button type="button" class="btn btn-ghost btn-sm" style="width:auto;" data-ids="' + escAttr(b.id) + '" onclick="lsPickUpBulls(this.getAttribute(\'data-ids\'))">' + (carrying ? 'Put down' : 'Pick up') + '</button></div>';
+  }).join("");
+}
 // The paddock that was tapped on the map: its name, head and each mob with a Pick up button (used by the card and by full screen).
+// Its bulls are one "Bulls" line; tap it (or the bull symbol) to see them one by one.
 function lsSelPadHtml(farm){
   var sel = ui.lsPadSel ? lsPaddock(ui.lsPadSel) : null;
   if(!(sel && sel.farm === farm)) return "";
-  var here = lsTopFirst(lsSortMobs(lsActiveMobs().filter(function(m){ return m.paddockId === sel.id; })));
+  var here = lsTopFirst(lsSortMobs(lsActiveMobs().filter(function(m){ return m.paddockId === sel.id; }))), bh = lsBullsIn(sel.id), bopen = ui.lsBullsOpen === sel.id;
+  var bullsHtml = bh.length ? '<div style="padding:6px 0;border-top:1px solid var(--divider);margin-top:4px;"><div class="card-row"><span><strong>Bulls</strong> <span class="row-muted">' + bh.length + (bh.length === 1 ? ' bull' : ' bulls') + '</span></span><span style="display:flex;gap:6px;">' +
+      (bopen ? '<button type="button" class="btn btn-ghost btn-sm" style="width:auto;" data-ids="' + escAttr(bh.map(function(b){ return b.id; }).join("|")) + '" onclick="lsPickUpBulls(this.getAttribute(\'data-ids\'))">Pick up all ' + bh.length + '</button>' : '') +
+      '<button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="ui.lsBullsOpen=' + (bopen ? 'null' : '\'' + sel.id + '\'') + ';render();">' + (bopen ? 'Hide' : 'Show') + '</button></span></div>' + (bopen ? lsBullRows(bh, false) : '') + '</div>' : '';
   return '<div style="margin-top:10px;padding-top:8px;border-top:1px solid var(--divider);"><div class="card-row"><strong>' + esc(sel.name) + '</strong><span class="row-muted" style="font-size:13px;">' + (sel.ha ? sel.ha + ' ha &middot; ' : '') + lsPadHeadCount(sel.id) + ' head</span></div>' +
-    (here.length ? here.map(function(m){ return '<div class="card-row" style="padding:6px 0;"><span>' + esc(m.name) + ' <span class="row-muted">' + m.head + ' head</span></span><button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="lsPickUp(\'' + m.id + '\')">' + (ui.lsCarry === m.id ? 'Put down' : 'Pick up') + '</button></div>'; }).join("") : '<div class="row-muted" style="padding:6px 0;">No mobs here.</div>') + '</div>';
+    (here.length ? here.map(function(m){ return '<div class="card-row" style="padding:6px 0;"><span>' + esc(m.name) + ' <span class="row-muted">' + m.head + ' head</span></span><button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="lsPickUp(\'' + m.id + '\')">' + (ui.lsCarry === m.id ? 'Put down' : 'Pick up') + '</button></div>'; }).join("") : (bh.length ? '' : '<div class="row-muted" style="padding:6px 0;">No mobs here.</div>')) + bullsHtml + '</div>';
 }
 // ---- Full-screen map (2026-10-28, Maria: "make the maps full the whole screen") ----------------------------------------------
 // The same map, drawn over the whole screen: farm buttons across the top, round zoom/Fit/satellite buttons down the right, and the
@@ -19537,6 +19651,29 @@ function lsMobRecords(m){
   if(!recs.length) return '';
   return '<div style="margin-top:10px;"><div style="font-weight:700;font-size:13.5px;">Recent records for this mob</div>' + recs.map(lsRecordRow).join("") + '</div>';
 }
+// One "Bulls" box in the Mobs list; open it to see the individual bulls, where each one is, and pick them up to move them.
+function lsBullsBoxHtml(farm){
+  var list = lsBulls().filter(function(b){ return farm === "All" || lsBullFarm(b) === farm; });
+  if(!list.length) return "";
+  var open = !!ui.lsBullsList, groups = {}, order = [], farms = lsData().farms;
+  list.forEach(function(b){ var k = lsBullPadId(b) || ""; if(!groups[k]){ groups[k] = []; order.push(k); } groups[k].push(b); });
+  order.sort(function(a, b){
+    if(!a || !b) return a ? -1 : (b ? 1 : 0);
+    var pa = lsPaddock(a), pb = lsPaddock(b), fa = farms.indexOf(pa.farm), fb = farms.indexOf(pb.farm);
+    return fa !== fb ? fa - fb : pa.name.localeCompare(pb.name);
+  });
+  var summary = order.map(function(k){ var p = k ? lsPaddock(k) : null; return esc(p ? p.name : "No paddock") + ' <strong>' + groups[k].length + '</strong>'; }).join(' &middot; ');
+  var html = '<div class="ls-mob" id="ls-bulls"' + (open ? ' data-open="1"' : '') + '><div class="card-row" style="cursor:pointer;" onclick="lsToggleBullsList()"><h4 style="margin:0;font-size:17px;">Bulls</h4><span style="font-size:22px;font-weight:800;white-space:nowrap;">' + list.length + ' <span style="font-size:13px;font-weight:600;" class="row-muted">' + (list.length === 1 ? 'bull' : 'bulls') + '</span></span></div>' +
+    '<div class="row-muted" style="font-size:13.5px;margin:2px 0 6px;">Cattle / Bulls. Sperm tests are in the Bulls section.</div><div style="font-size:14.5px;font-weight:700;">' + summary + '</div>' +
+    '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;"><button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="lsToggleBullsList()">' + (open ? 'Close' : 'Open') + '</button>' +
+    (open ? '<button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="lsPickUpTicked()">Pick up ticked bulls</button>' : '') + '</div>';
+  if(open) order.forEach(function(k){
+    var p = k ? lsPaddock(k) : null, ids = groups[k].map(function(b){ return b.id; }).join("|");
+    html += '<div style="margin-top:10px;padding-top:6px;border-top:1px solid var(--divider);"><div class="card-row"><strong>' + (p ? esc(p.name) + ' <span class="row-muted">(' + esc(p.farm) + ')</span>' : 'No paddock yet') + ' <span class="row-muted">' + groups[k].length + '</span></strong>' +
+      '<button type="button" class="btn btn-ghost btn-sm" style="width:auto;" data-ids="' + escAttr(ids) + '" onclick="lsPickUpBulls(this.getAttribute(\'data-ids\'))">Pick up all ' + groups[k].length + '</button></div>' + lsBullRows(groups[k], true) + '</div>';
+  });
+  return html + '</div>';
+}
 function lsMobCard(m, showFarm){
   var cls = lsClass(m), bits = [], open = ui.lsOpenMob === m.id, breeder = lsIsBreeder(m);
   var meta = [m.species, m.breed, cls].filter(Boolean).join(" / ");
@@ -19572,7 +19709,7 @@ function renderLivestock(){
   var shown = lsTopFirst(lsSortMobs(active.filter(inFarm)));
   var headSum = function(list, sp){ return list.filter(function(m){ return !sp || m.species === sp; }).reduce(function(a, m){ return a + m.head; }, 0); };
   var foot = shown.reduce(function(a, m){ return a + (m.calvesAtFoot || 0); }, 0);
-  var html = pageHead("Livestock", "All your properties in one place. Mobs only; bulls stay in the Bulls section.");
+  var html = pageHead("Livestock", "All your properties in one place. Bulls are grouped in one Bulls box; their sperm tests stay in the Bulls section.");
 
   html += '<div class="ls-farm-tabs" role="tablist" aria-label="Farms">' + ["All"].concat(L.farms).map(function(f){
     var list = f === "All" ? active : active.filter(function(m){ return lsMobFarm(m) === f; });
@@ -19590,7 +19727,8 @@ function renderLivestock(){
 
   html += '<div class="card"><div class="card-row"><h3 style="margin:0;">Mobs' + (farm !== "All" ? ' on ' + esc(farm) : '') + '</h3><button type="button" class="btn btn-primary btn-sm" style="width:auto;" onclick="lsOpenForm(\'newmob\')">+ Add new mob</button></div>' +
     '<div class="row-muted" style="font-size:13px;margin:2px 0 6px;">' + shown.length + ' mobs &middot; ' + headSum(shown, "Cattle") + ' cattle &middot; ' + headSum(shown, "Sheep") + ' sheep' + (foot ? ' &middot; ' + foot + ' calves at foot' : '') + '. Tap a mob to open it.</div>';
-  html += shown.length ? shown.map(function(m){ return lsMobCard(m, farm === "All"); }).join("") : '<div class="empty-state">No mobs here yet. Tap "+ Add new mob" to add one.</div>';
+  var bullsBox = lsBullsBoxHtml(farm);
+  html += (shown.length || bullsBox) ? bullsBox + shown.map(function(m){ return lsMobCard(m, farm === "All"); }).join("") : '<div class="empty-state">No mobs here yet. Tap "+ Add new mob" to add one.</div>';
   html += '</div>';
 
   // paddocks
