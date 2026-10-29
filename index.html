@@ -2030,7 +2030,7 @@ const DEFAULT_STATE = {
 // change to this file, same as CACHE_NAME in sw.js -- it gives an instant,
 // no-technical-steps-needed way to confirm whether a given device is
 // actually running the latest deploy, without comparing file contents.
-var APP_BUILD = "2026-10-29.14";
+var APP_BUILD = "2026-10-29.15";
 
 /* ======================================================================
    UTILITIES
@@ -28418,7 +28418,7 @@ function pvApplyUploads(results){
     msgs.push(ex ? title + ": updated, " + items.length + " change" + (items.length === 1 ? "" : "s") + " to look over -- press Accept when you have." : title + ": added.");
   });
   if(changed){ info.updatedAt = now; info.updatedBy = u ? u.name : null; }
-  var lastWb = info.sheets.filter(function(w){ return w.uploadedAt === now; })[0]; if(lastWb) ui.pvTab = pvAreaOf(lastWb);
+  var lastWb = info.sheets.filter(function(w){ return w.uploadedAt === now; })[0]; if(lastWb) ui.pvView = pvViewOfWb(lastWb);
   ui.pvUploadMsg = msgs.join("  ");
   if(changed) persistPrivate(); else render();
 }
@@ -28426,9 +28426,9 @@ function pvClearChanges(id){
   var w = byId((PV.data.privateInfo && PV.data.privateInfo.sheets) || [], id); if(!w) return;
   w.changes = null; persistPrivate();
 }
-function pvAcceptAll(area){
+function pvAcceptAll(view){
   var any = false;
-  (((PV.data.privateInfo || {}).sheets) || []).forEach(function(w){ if(pvAreaOf(w) === area && w.changes){ w.changes = null; any = true; } });
+  pvWbsFor(view).forEach(function(w){ if(w.changes){ w.changes = null; any = true; } });
   if(any) persistPrivate();
 }
 function pvRemoveWorkbook(id){
@@ -28563,9 +28563,25 @@ function pvDryHarvest(){
       return '<tr><td><strong>' + esc(r.crop) + '</strong></td>' + cell(c.ha) + cell(c.hv, note) + cell(c.yl) + cell(c.sold, "") + cell(c.unsold, unsoldNote) + '</tr>';
     }).join("") + '</tbody></table></div><p class="row-muted" style="margin:6px 0 0;font-size:11.5px;">Taken from the uploaded spreadsheet. Sold and Unsold are in tonnes.</p>');
 }
-function pvSetTab(k){ ui.pvTab = k; render(); }
-function pvSetSub(k){ ui.pvSub = k; render(); }
-function pvToggleRaw(area){ ui.pvRaw = ui.pvRaw || {}; ui.pvRaw[area] = !ui.pvRaw[area]; render(); }
+/* ---- four buttons (2026-10-29, Maria: "This is confusing. Please put the boxes as shown"): Cotton Summary | Dryland Summary on the top
+   row, Picking Details | Harvest Details under them. Cotton spreadsheets with "picking" in the name go under Picking Details; the other
+   Cotton ones go under Cotton Summary. Dryland ones are sorted by what is in them (see pvDrySummary / pvDryHarvest). ---- */
+var PV_VIEWS = [{ k: "cs", label: "Cotton Summary" }, { k: "ds", label: "Dryland Summary" }, { k: "cp", label: "Picking Details" }, { k: "dh", label: "Harvest Details" }];
+function pvView(){ return PV_VIEWS.some(function(x){ return x.k === ui.pvView; }) ? ui.pvView : "ds"; }
+function pvViewArea(v){ return v === "cs" || v === "cp" ? "cotton" : "dryland"; }
+function pvIsPicking(w){ return /picking/i.test((w.key || "") + " " + (w.title || "")); }
+function pvViewOfWb(w){ return pvAreaOf(w) === "cotton" ? (pvIsPicking(w) ? "cp" : "cs") : (pvViewArea(pvView()) === "dryland" ? pvView() : "ds"); }
+// the uploaded spreadsheets that belong under a view's button
+function pvWbsFor(v){
+  return (((PV.data.privateInfo || {}).sheets) || []).filter(function(w){
+    if(pvAreaOf(w) !== pvViewArea(v)) return false;
+    if(v === "cs") return !pvIsPicking(w);
+    if(v === "cp") return pvIsPicking(w);
+    return true;
+  });
+}
+function pvSetView(k){ ui.pvView = k; render(); }
+function pvToggleRaw(v){ ui.pvRaw = ui.pvRaw || {}; ui.pvRaw[v] = !ui.pvRaw[v]; render(); }
 function pvTabBar(items, cur, fn){
   return '<div class="pv-tabs" role="tablist">' + items.map(function(it){
     return '<button type="button" role="tab" aria-selected="' + (cur === it.k ? 'true' : 'false') + '" class="job-area-tab' + (cur === it.k ? ' active' : '') + '" onclick="' + fn + '(\'' + it.k + '\')"><span class="job-area-name">' + esc(it.label) + '</span></button>';
@@ -28575,14 +28591,14 @@ function pvUploadCard(area){
   return '<div class="card"><div class="card-row"><h3 style="margin:0;font-size:15px;">Spreadsheets</h3>' +
     '<button type="button" class="btn btn-primary btn-sm" style="width:auto;" onclick="document.getElementById(\'pv-wb-file\').click()">Upload spreadsheet</button></div>' +
     '<input type="file" id="pv-wb-file" multiple accept=".xlsx,.xlsm,.xls" style="display:none;" onchange="pvUploadFiles(this)" />' +
-    '<p class="row-muted" style="margin:4px 0 0;font-size:12px;">Excel (.xlsx), as many as you like. A newer version of a spreadsheet replaces the earlier one and lists what changed, until you press Accept. "Cotton" in the name goes to the Cotton tab.</p>' +
+    '<p class="row-muted" style="margin:4px 0 0;font-size:12px;">Excel (.xlsx), as many as you like. A newer version of a spreadsheet replaces the earlier one and lists what changed, until you press Accept. "Cotton" in the name puts it under Cotton Summary, or under Picking Details if the name also has "Picking".</p>' +
     (ui.pvUploadMsg ? '<p style="margin:8px 0 0;font-size:12.5px;font-weight:600;">' + esc(ui.pvUploadMsg) + '</p>' : '') + '</div>';
 }
-function pvChangesCard(area){
-  var wbs = ((PV.data.privateInfo || {}).sheets || []).filter(function(w){ return pvAreaOf(w) === area && w.changes && w.changes.items && w.changes.items.length; });
+function pvChangesCard(view){
+  var wbs = pvWbsFor(view).filter(function(w){ return w.changes && w.changes.items && w.changes.items.length; });
   if(!wbs.length) return "";
   var html = '<div class="card pv-changes"><div class="card-row"><h3 style="margin:0 0 6px;">Changes in your latest uploads</h3>' +
-    (wbs.length > 1 ? '<button type="button" class="btn btn-primary btn-sm" style="width:auto;" onclick="pvAcceptAll(\'' + area + '\')">Accept all</button>' : '') + '</div>';
+    (wbs.length > 1 ? '<button type="button" class="btn btn-primary btn-sm" style="width:auto;" onclick="pvAcceptAll(\'' + view + '\')">Accept all</button>' : '') + '</div>';
   wbs.forEach(function(w){
     var c = w.changes, multi = w.sheets.length > 1, all = ui.pvAllChanges && ui.pvAllChanges[w.id], list = all ? c.items : c.items.slice(0, 8), n = c.total || c.items.length;
     html += '<div style="margin-top:10px;"><div class="card-row" style="align-items:flex-start;gap:8px;"><div style="font-weight:700;font-size:13.5px;">' + esc(w.title) + ' <span class="row-muted" style="font-weight:600;">&middot; ' + n + ' change' + (n === 1 ? '' : 's') + ' &middot; uploaded ' + fmtDateTime(c.at) + (c.by ? ' by ' + esc(c.by) : '') + '</span></div>' +
@@ -28592,9 +28608,9 @@ function pvChangesCard(area){
   });
   return html + '</div>';
 }
-function pvWorkbookCards(area){
+function pvWorkbookCards(view){
   var html = "";
-  ((PV.data.privateInfo || {}).sheets || []).filter(function(w){ return pvAreaOf(w) === area; }).forEach(function(w){
+  pvWbsFor(view).forEach(function(w){
     var chg = pvChgMap(w), c = w.changes, multi = w.sheets.length > 1;
     html += '<div class="card"><div class="card-row" style="align-items:flex-start;gap:8px;"><div><h3 style="margin:0;">' + esc(w.title) + '</h3>' +
       '<div class="row-muted" style="font-size:12px;margin-top:2px;">Uploaded ' + fmtDateTime(w.uploadedAt) + (w.uploadedBy ? ' by ' + esc(w.uploadedBy) : '') + ' &middot; ' + esc(w.fileName) + (w.checkedAt && w.checkedAt > w.uploadedAt ? ' &middot; checked again ' + fmtDateTime(w.checkedAt) + ', no changes' : '') + '</div></div>' +
@@ -28609,25 +28625,22 @@ function pvWorkbookCards(area){
   });
   return html;
 }
-function pvRawCard(area, always){
-  var wbs = ((PV.data.privateInfo || {}).sheets || []).filter(function(w){ return pvAreaOf(w) === area; });
+function pvRawCard(view, always){
+  var wbs = pvWbsFor(view);
   if(!wbs.length) return "";
-  var open = always || (ui.pvRaw && ui.pvRaw[area]);
+  var open = always || (ui.pvRaw && ui.pvRaw[view]);
   return (always ? '' : '<div class="card"><div class="card-row"><div><h3 style="margin:0;">Uploaded spreadsheets</h3><div class="row-muted" style="font-size:12.5px;">' + wbs.map(function(w){ return esc(w.title); }).join(" &middot; ") + '</div></div>' +
-    '<span style="display:flex;gap:6px;"><button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="pvToggleRaw(\'' + area + '\')">' + (open ? 'Hide full spreadsheets' : 'Show full spreadsheets') + '</button></span></div></div>') + (open ? pvWorkbookCards(area) : '');
+    '<span style="display:flex;gap:6px;"><button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="pvToggleRaw(\'' + view + '\')">' + (open ? 'Hide full spreadsheets' : 'Show full spreadsheets') + '</button></span></div></div>') + (open ? pvWorkbookCards(view) : '');
 }
 function renderPrivateWorkbooks(){
-  var top = ui.pvTab === "cotton" ? "cotton" : "dryland", html = pvTabBar([{ k: "cotton", label: "Cotton" }, { k: "dryland", label: "Dryland" }], top, "pvSetTab");
-  if(top === "cotton"){
-    html += pvUploadCard("cotton") + pvChangesCard("cotton");
-    var hasCotton = ((PV.data.privateInfo || {}).sheets || []).some(function(w){ return pvAreaOf(w) === "cotton"; });
-    html += hasCotton ? pvRawCard("cotton", true) : '<div class="card"><div class="empty-state">Nothing in Cotton yet. Upload a spreadsheet with Cotton in its name to fill this tab.</div></div>';
-    return html;
-  }
-  var sub = ui.pvSub === "harvest" ? "harvest" : "summary";
-  html += pvTabBar([{ k: "summary", label: "Summary" }, { k: "harvest", label: "Harvest" }], sub, "pvSetSub");
-  html += pvUploadCard("dryland") + pvChangesCard("dryland") + (sub === "summary" ? pvDrySummary() : pvDryHarvest()) + pvRawCard("dryland");
-  return html;
+  var v = pvView(), html = pvTabBar(PV_VIEWS, v, "pvSetView");
+  html += pvUploadCard(v) + pvChangesCard(v);
+  if(v === "ds") return html + pvDrySummary() + pvRawCard("ds");
+  if(v === "dh") return html + pvDryHarvest() + pvRawCard("dh");
+  if(pvWbsFor(v).length) return html + pvRawCard(v, true);
+  return html + '<div class="card"><div class="empty-state">' + (v === "cp"
+    ? 'Nothing in Picking Details yet. Upload a Cotton spreadsheet with Picking in its name to fill this.'
+    : 'Nothing in Cotton Summary yet. Upload a spreadsheet with Cotton in its name to fill this.') + '</div></div>';
 }
 function renderPrivateInfoCard(){
   var info = PV.data.privateInfo || { groups: [] };
