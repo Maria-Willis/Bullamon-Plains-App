@@ -671,6 +671,17 @@
   .ls-actions .btn{width:100%;min-height:50px;font-weight:700;font-size:14px;line-height:1.2;padding:8px 6px;}
   @media (min-width:700px){ .ls-actions{grid-template-columns:repeat(4,1fr);} }
   /* each mob in its own box with a shadow (2026-10-29, Maria) */
+  .pv-block{margin-top:14px;}
+  .pv-block h4,.pv-sheet{margin:0 0 6px;font-size:13px;text-transform:uppercase;letter-spacing:.03em;color:var(--muted);}
+  .pv-sub{font-weight:700;font-size:13px;margin:10px 0 2px;}
+  .pv-kv{padding:4px 0;border-bottom:1px solid var(--divider);gap:10px;}
+  .pv-table table{width:100%;border-collapse:collapse;font-size:12.5px;}
+  .pv-table th{white-space:nowrap;text-align:left;padding:6px 8px;background:#eef3f9;border-bottom:1px solid var(--border);}
+  .pv-table td{padding:6px 8px;border-bottom:1px solid var(--divider);white-space:nowrap;}
+  .pv-hit{background:#fff3cd;}
+  .pv-newrow td{background:#e6f6ea;}
+  .pv-was{display:block;font-size:11px;font-weight:600;color:var(--muted);}
+  .pv-new{display:inline-block;background:#1f8f4e;color:#fff;border-radius:99px;font-size:10px;font-weight:800;padding:1px 6px;margin-left:4px;vertical-align:middle;}
   .ls-mob{padding:12px 14px;margin:10px 0;border:1px solid var(--border,#e3e8ee);border-radius:12px;background:var(--surface,#fff);box-shadow:var(--shadow);}
   .ls-pad{display:inline-block;padding:3px 9px;border:1px solid var(--border);border-radius:99px;font-size:13px;}
   @media (max-width:560px){ .ls-farm-tabs{grid-template-columns:repeat(2,1fr);} }
@@ -2014,7 +2025,7 @@ const DEFAULT_STATE = {
 // change to this file, same as CACHE_NAME in sw.js -- it gives an instant,
 // no-technical-steps-needed way to confirm whether a given device is
 // actually running the latest deploy, without comparing file contents.
-var APP_BUILD = "2026-10-29.5";
+var APP_BUILD = "2026-10-29.7";
 
 /* ======================================================================
    UTILITIES
@@ -20646,7 +20657,7 @@ function renderMachineryList(){
   if(filter === "due") list = list.filter(machineDueForService);
   else if(filter === "out") list = list.filter(machineOutOfAction);
   if(q) list = list.filter(function(m){
-    return (m.name + " " + (m.type||"") + " " + (m.regNo||"")).toLowerCase().indexOf(q) > -1;
+    return (m.name + " " + (m.type||"") + " " + (m.regNo||"") + " " + (m.vin||"") + " " + (m.yearMade||"")).toLowerCase().indexOf(q) > -1;
   });
 
   var html = pageHead("Machinery Maintenance", "Service history, hour/km readings and reported issues for farm plant and vehicles.");
@@ -20725,6 +20736,7 @@ function renderMachineFleetCard(m){
         '<div class="machine-photo">' + machineIconHtml(m, "machine-icon-img") + '</div>' +
         '<div style="min-width:0;"><h3 style="margin-bottom:2px;font-size:18px;color:var(--accent-strong);">' + esc(m.name) + '</h3>' +
         '<p class="row-muted" style="margin:0;font-size:12.5px;">' + esc(m.type) + (m.regNo ? " &middot; " + esc(m.regNo) : "") + '</p>' +
+        machineIdLine(m) +
         (m.currentReading != null && m.currentReading !== "" ? '<p style="margin:3px 0 0;font-size:15px;font-weight:800;color:var(--accent-strong);">' + fmtNum(m.currentReading, "hrs") + (machineHoursSourceText(m) ? ' <span class="row-muted" style="font-size:11px;font-weight:500;">' + (machineHoursSourceText(m).when ? esc(machineHoursSourceText(m).when) : "John Deere") + '</span>' : '') + '</p>' : '') + '</div>' +
       '</div>' +
       '<div style="display:flex;gap:6px;align-items:center;flex-shrink:0;">' +
@@ -20787,6 +20799,7 @@ function renderMachineDetail(m){
       '<div class="machine-photo machine-photo-lg">' + machineIconHtml(m, "machine-icon-img") + '</div>' +
       '<div style="min-width:0;"><h3 style="margin-bottom:2px;font-size:22px;color:var(--accent-strong);">' + esc(m.name) + '</h3>' +
       '<p class="row-muted" style="margin:0;font-size:13px;">' + esc(m.type) + (m.regNo ? " &middot; " + esc(m.regNo) : "") + '</p>' +
+      machineIdLine(m, 13) +
       '</div>' +
     '</div>' +
     '<div style="display:flex;gap:6px;align-items:center;flex-shrink:0;">' +
@@ -22095,7 +22108,7 @@ function deleteMachineEntirely(id){
 function renderArchivedMachineCard(m){
   return '<div class="card" style="opacity:.85;">' +
     '<div class="card-row"><div><h3 style="margin-bottom:2px;font-size:20px;color:var(--accent-strong);">' + esc(m.name) + '</h3>' +
-      '<p class="row-muted" style="margin:0;font-size:12.5px;">' + esc(m.type) + (m.regNo ? " &middot; " + esc(m.regNo) : "") + '</p></div>' +
+      '<p class="row-muted" style="margin:0;font-size:12.5px;">' + esc(m.type) + (m.regNo ? " &middot; " + esc(m.regNo) : "") + '</p>' + machineIdLine(m) + '</div>' +
       '<span class="pill pill-todo">Sold / Other</span></div>' +
     '<p class="row-muted" style="margin:8px 0 0;font-size:12px;">' +
       (m.archivedReason ? esc(m.archivedReason) : "No reason given") + (m.archivedDate ? " &middot; " + fmtDate(m.archivedDate) : "") +
@@ -22815,6 +22828,13 @@ function clearMachineServiceHistory(machineId){
   persist();
 }
 
+// Year of manufacture and VIN, shown under the machine's type and rego (2026-10-29, Maria).
+function machineIdLine(m, size){
+  var bits = [];
+  if(m.yearMade) bits.push("Year " + esc(m.yearMade));
+  if(m.vin) bits.push("VIN " + esc(m.vin));
+  return bits.length ? '<p class="row-muted" style="margin:2px 0 0;font-size:' + (size || 12.5) + 'px;">' + bits.join(" &middot; ") + '</p>' : "";
+}
 function renderMachineForm(existing){
   var formKey = "machineForm_" + (existing ? existing.id : "new");
   var err = ui.formErrors[formKey];
@@ -22833,7 +22853,9 @@ function renderMachineForm(existing){
     '<div class="form-grid">' +
       '<div class="field span-2"><label>Name</label><input type="text" name="name" required value="' + escAttr(existing ? existing.name : "") + '" /></div>' +
       '<div class="field"><label>Type</label><input type="text" name="type" value="' + escAttr(existing ? existing.type : "") + '" /></div>' +
-      '<div class="field"><label>Rego / ID</label><input type="text" name="regNo" value="' + escAttr(existing ? existing.regNo : "") + '" /></div>' +
+      '<div class="field"><label>Rego</label><input type="text" name="regNo" value="' + escAttr(existing ? existing.regNo : "") + '" /></div>' +
+      '<div class="field"><label>Year of manufacture</label><input type="text" inputmode="numeric" maxlength="4" name="yearMade" value="' + escAttr(existing ? existing.yearMade : "") + '" placeholder="e.g. 2018" /></div>' +
+      '<div class="field"><label>VIN</label><input type="text" name="vin" maxlength="30" autocapitalize="characters" value="' + escAttr(existing ? existing.vin : "") + '" /></div>' +
       '<div class="field"><label>Service interval</label><input type="text" name="serviceIntervalDesc" value="' + escAttr(existing ? existing.serviceIntervalDesc : "") + '" placeholder="e.g. Every 250 hours" /></div>' +
       '<div class="field"><label>Next service due (hours)</label><input type="text" inputmode="decimal" name="nextServiceHours" value="' + escAttr(existing && existing.nextServiceHours != null ? existing.nextServiceHours : "") + '" placeholder="e.g. 2250" />' +
       '</div>' +
@@ -22848,8 +22870,13 @@ function saveMachine(e, id){
   e.preventDefault();
   var f = e.target;
   var formKey = "machineForm_" + (id || "new");
-  var data = { name: f.name.value.trim(), type: f.type.value.trim(), regNo: f.regNo.value.trim(), serviceIntervalDesc: f.serviceIntervalDesc.value.trim() };
+  var data = { name: f.name.value.trim(), type: f.type.value.trim(), regNo: f.regNo.value.trim(), yearMade: f.yearMade.value.trim(), vin: f.vin.value.trim().toUpperCase(), serviceIntervalDesc: f.serviceIntervalDesc.value.trim() };
   if(!data.name) return;
+  if(data.yearMade && (!/^\d{4}$/.test(data.yearMade) || +data.yearMade < 1900 || +data.yearMade > new Date().getFullYear() + 1)){
+    ui.formErrors[formKey] = "Enter the year of manufacture as four digits (e.g. 2018), or leave it blank.";
+    render();
+    return;
+  }
   // Next service is now entered as an hour-meter reading rather than a date.
   // Entering hours replaces any old date (cleared so it can't be used
   // instead); leaving it blank keeps an older date, if there was one.
@@ -27907,13 +27934,19 @@ async function pvFetch(quiet){
   }
   PV.data = { privateNotes: Array.isArray(r.notes) ? r.notes : [], privateInfo: (r.info && typeof r.info === "object") ? r.info : { groups: [] } };
   if(!PV.data.privateInfo.groups) PV.data.privateInfo.groups = [];
+  if(!PV.data.privateInfo.sheets) PV.data.privateInfo.sheets = [];
+  // 2026-10-29 (Maria: "scrap the current information in there"): the hand-typed Cropping Summary is cleared once; spreadsheets replace it
+  var scrapNow = !PV.data.privateInfo.scrapedV1;
+  if(scrapNow){ PV.data.privateInfo.groups = []; PV.data.privateInfo.scrapedV1 = true; PV.data.privateInfo.updatedAt = new Date().toISOString(); }
   PV.base = deepClone(PV.data);
+  if(scrapNow){ PV.base.privateInfo.groups = JSON.parse(JSON.stringify(r.info && r.info.groups ? r.info.groups : [])); PV.base.privateInfo.scrapedV1 = undefined; }
   PV.version = r.version;
   PV.isAdminSrv = !!r.isAdmin;
   PV.access = r.access || [];
   PV.withCode = r.withCode || [];
   PV.status = "ready";
   render();
+  if(scrapNow){ PV.dirty = true; pvSaveLoop(); }
 }
 async function pvUnlock(e){
   e.preventDefault();
@@ -28044,7 +28077,9 @@ function renderPrivate(){
   }
   html += renderPrivateCodeCard();
   if(isAdmin()) html += renderPrivateAccessCard();
-  html += renderPrivateInfoCard();
+  html += renderPrivateWorkbooks();
+  // the old hand-typed Cropping Summary was scrapped (2026-10-29); its card only shows if something is in it
+  if(((PV.data.privateInfo || {}).groups || []).length || ui.openForms.editPrivateInfo || ui.openForms.importPrivateInfo) html += renderPrivateInfoCard();
   html += renderPrivateNotesCard();
   return html;
 }
@@ -28167,6 +28202,259 @@ async function pvResetCode(name){
    Data model: PV.data.privateInfo = { groups: [{id, title, fields: [{id,
    label, value}]}], updatedAt, updatedBy }.
    ====================================================================== */
+/* ------------------------------------------------------------------------
+   Spreadsheets in Private (2026-10-29, Maria: "scrap the current information in there. I want to include the information in the 2
+   attached spreadsheets. I would also like to be able to upload updated spreadsheets directly into the private section", and "Any new
+   uploads should be read for any changes and those changes shown in the relevant places").
+   An uploaded .xlsx is read in the browser (SheetJS, already loaded for the John Deere import) into plain blocks -- headed lists of
+   Label / Value lines, and tables -- and kept with the rest of the Private data on the server (PV.data.privateInfo.sheets), never in
+   the shared app data. A file with the same name (ignoring its date) replaces the earlier upload, and the two versions are compared:
+   every changed figure is highlighted where it sits and listed in "Changes in your latest uploads".
+   Block shapes:  { title, kind: "kv",    rows: [ {h: "sub heading"} | {l: "label", v: "value"} ] }
+                  { title, kind: "table", header: [..], rows: [[..], ..] }
+   ---------------------------------------------------------------------- */
+var PV_WB_MAX_CELLS = 40000, PV_WB_MAX_BYTES = 450 * 1024;
+function pvWbKey(name){
+  var s = String(name || "").replace(/\.[a-z0-9]+$/i, "").replace(/\b\d{1,2}[-.\/]\d{1,2}[-.\/]\d{2,4}\b/g, " ").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  return s.replace(/ \d{1,2}$/, "").trim() || "spreadsheet";
+}
+function pvWbTitle(name){
+  var s = String(name || "").replace(/\.[a-z0-9]+$/i, "").replace(/\b\d{1,2}[-.\/]\d{1,2}[-.\/]\d{2,4}\b/g, " ").replace(/_+/g, " ").replace(/\s+/g, " ").trim();
+  s = s.replace(/\s+\d{1,2}$/, "").replace(/[\s\-–—]+$/g, "").replace(/\s*[\-–—]\s*[\-–—]\s*/g, " – ").trim();
+  return s || "Spreadsheet";
+}
+// one sheet's cells (as the text Excel shows) -> blocks
+function pvParseGrid(grid){
+  var rows = grid.map(function(r){ var a = r.map(function(c){ return c == null ? "" : String(c).trim(); }); while(a.length && a[a.length - 1] === "") a.pop(); return a; });
+  var filled = function(r){ return r.filter(function(c){ return c !== ""; }).length; };
+  var segs = [], cur = [];
+  rows.forEach(function(r){ if(!filled(r)){ if(cur.length){ segs.push(cur); cur = []; } } else cur.push(r); });
+  if(cur.length) segs.push(cur);
+  return segs.map(function(seg){
+    var title = "", i = 0;
+    if(seg.length && filled(seg[0]) === 1){ title = seg[0].filter(Boolean)[0]; i = 1; }
+    var rest = seg.slice(i);
+    if(rest.length && filled(rest[0]) >= 3){
+      var hdr = rest[0], n = hdr.length;
+      return { title: title, kind: "table", header: hdr.map(function(h){ return h || ""; }), rows: rest.slice(1).map(function(r){ var o = []; for(var k = 0; k < n; k++) o.push(r[k] || ""); return o; }) };
+    }
+    var out = [];
+    rest.forEach(function(r, idx){
+      var f = r.filter(Boolean);
+      if(f.length === 1){
+        var next = rest[idx + 1];
+        // a lone bold-looking word is a sub heading only when a figure line follows it (so "Weighted ave $/t" with no figure stays a line)
+        if(next && filled(next) >= 2) out.push({ h: f[0] }); else out.push({ l: f[0], v: "" });
+      } else out.push({ l: r[0] || f[0], v: r[0] ? (r.slice(1).filter(Boolean).join(" ") || "") : f.slice(1).join(" ") });
+    });
+    return { title: title, kind: "kv", rows: out };
+  });
+}
+function pvParseWorkbook(wb){
+  var cells = 0, sheets = wb.SheetNames.map(function(nm){
+    var grid = XLSX.utils.sheet_to_json(wb.Sheets[nm], { header: 1, raw: false, defval: "", blankrows: true });
+    cells += grid.reduce(function(a, r){ return a + r.length; }, 0);
+    return { name: nm, blocks: pvParseGrid(grid) };
+  }).filter(function(s){ return s.blocks.length; });
+  if(cells > PV_WB_MAX_CELLS) throw new Error("That spreadsheet is too big to keep in Private (" + cells + " cells).");
+  return sheets;
+}
+// keys that line a block up with the same block in the earlier upload
+function pvBlockKeys(blocks){ var seen = {}; return blocks.map(function(b){ var k = b.title || "(untitled)"; seen[k] = (seen[k] || 0) + 1; return seen[k] > 1 ? k + " #" + seen[k] : k; }); }
+function pvKvKeys(rows){
+  var head = "", seen = {};
+  return rows.map(function(r){
+    if(r.h != null){ head = r.h; return null; }
+    var k = (head ? head + " / " : "") + r.l; seen[k] = (seen[k] || 0) + 1; return seen[k] > 1 ? k + " #" + seen[k] : k;
+  });
+}
+// the column whose values are all different (and filled in) identifies a row; otherwise rows are lined up by position
+function pvKeyCol(header, rows){
+  for(var c = 0; c < header.length; c++){
+    var seen = {}, ok = rows.length > 0;
+    for(var i = 0; i < rows.length && ok; i++){ var v = rows[i][c]; if(!v || seen[v]) ok = false; else seen[v] = 1; }
+    if(ok) return c;
+  }
+  return -1;
+}
+function pvRowKeys(rows, kc){ return rows.map(function(r, i){ return kc < 0 ? "row " + (i + 1) : r[kc]; }); }
+function pvDiffWorkbook(oldSheets, newSheets){
+  var items = [], add = function(it){ items.push(it); };
+  var oldBy = {}; (oldSheets || []).forEach(function(s){ oldBy[s.name] = s; });
+  var newBy = {}; newSheets.forEach(function(s){ newBy[s.name] = s; });
+  newSheets.forEach(function(ns){
+    var os = oldBy[ns.name];
+    if(!os){ add({ k: "newsheet", s: ns.name }); return; }
+    var okeys = pvBlockKeys(os.blocks), nkeys = pvBlockKeys(ns.blocks), omap = {};
+    os.blocks.forEach(function(b, i){ omap[okeys[i]] = b; });
+    ns.blocks.forEach(function(nb, bi){
+      var key = nkeys[bi], ob = omap[key]; delete omap[key];
+      if(!ob || ob.kind !== nb.kind){ add({ k: "newblock", s: ns.name, b: key }); return; }
+      if(nb.kind === "kv"){
+        var nk = pvKvKeys(nb.rows), ok = pvKvKeys(ob.rows), ov = {};
+        ob.rows.forEach(function(r, i){ if(ok[i] != null) ov[ok[i]] = r.v; });
+        nb.rows.forEach(function(r, i){
+          if(nk[i] == null) return;
+          if(!(nk[i] in ov)) add({ k: "add", s: ns.name, b: key, r: nk[i], n: r.v });
+          else { if(ov[nk[i]] !== r.v) add({ k: "chg", s: ns.name, b: key, r: nk[i], c: "", o: ov[nk[i]], n: r.v }); delete ov[nk[i]]; }
+        });
+        Object.keys(ov).forEach(function(k){ add({ k: "rem", s: ns.name, b: key, r: k, o: ov[k] }); });
+      } else {
+        var kc = pvKeyCol(nb.header, nb.rows), kname = kc >= 0 ? nb.header[kc] : "", oc = kc >= 0 ? ob.header.indexOf(kname) : -1;
+        if(kc >= 0 && oc < 0) kc = -1;
+        var nrk = pvRowKeys(nb.rows, kc), ork = pvRowKeys(ob.rows, kc < 0 ? -1 : oc), orow = {};
+        ob.rows.forEach(function(r, i){ orow[ork[i]] = r; });
+        nb.rows.forEach(function(r, i){
+          var o = orow[nrk[i]];
+          if(!o){ add({ k: "add", s: ns.name, b: key, r: nrk[i], n: r.filter(Boolean).slice(0, 4).join(" · ") }); return; }
+          delete orow[nrk[i]];
+          nb.header.forEach(function(h, c){
+            var oci = ob.header.indexOf(h), oldv = oci < 0 ? "" : (o[oci] || "");
+            if(oldv !== (r[c] || "")) add({ k: "chg", s: ns.name, b: key, r: nrk[i], c: h || ("col " + (c + 1)), o: oldv, n: r[c] || "" });
+          });
+        });
+        Object.keys(orow).forEach(function(k){ add({ k: "rem", s: ns.name, b: key, r: k, o: orow[k].filter(Boolean).slice(0, 4).join(" · ") }); });
+      }
+    });
+    Object.keys(omap).forEach(function(k){ add({ k: "remblock", s: ns.name, b: k }); });
+  });
+  (oldSheets || []).forEach(function(os){ if(!newBy[os.name]) add({ k: "remsheet", s: os.name }); });
+  return items;
+}
+function pvChangeText(it, multiSheet){
+  var where = (multiSheet && it.s ? it.s + " › " : "") + (it.b ? it.b + (it.r ? " › " : "") : "") + (it.r || "") + (it.c ? " › " + it.c : "");
+  if(it.k === "chg") return where + ": " + (it.o || "(blank)") + " → " + (it.n || "(blank)");
+  if(it.k === "add") return "New: " + where + (it.n ? " (" + it.n + ")" : "");
+  if(it.k === "rem") return "Removed: " + where + (it.o ? " (was " + it.o + ")" : "");
+  if(it.k === "newblock") return "New section: " + where;
+  if(it.k === "remblock") return "Section removed: " + where;
+  if(it.k === "newsheet") return "New sheet: " + it.s;
+  return "Sheet removed: " + it.s;
+}
+function pvUploadFiles(input){
+  var files = Array.prototype.slice.call((input && input.files) || []);
+  if(input) input.value = "";
+  if(!files.length) return;
+  if(typeof XLSX === "undefined"){ ui.pvUploadMsg = "The Excel reader hasn't loaded (no internet?). Try again when you have signal."; render(); return; }
+  ui.pvUploadMsg = "Reading " + (files.length === 1 ? files[0].name : files.length + " files") + "..."; render();
+  var results = [], chain = Promise.resolve();
+  files.forEach(function(f){
+    chain = chain.then(function(){ return new Promise(function(res){
+      var rd = new FileReader();
+      rd.onload = function(){
+        try{
+          var sheets = pvParseWorkbook(XLSX.read(rd.result, { type: "array" }));
+          if(!sheets.length) results.push({ file: f.name, error: "There was nothing in it." });
+          else results.push({ file: f.name, sheets: sheets });
+        }catch(e){ results.push({ file: f.name, error: (e && e.message) || "Couldn't read it." }); }
+        res();
+      };
+      rd.onerror = function(){ results.push({ file: f.name, error: "Couldn't open it." }); res(); };
+      rd.readAsArrayBuffer(f);
+    }); });
+  });
+  chain.then(function(){ pvApplyUploads(results); });
+}
+function pvApplyUploads(results){
+  var info = PV.data && PV.data.privateInfo; if(!info){ ui.pvUploadMsg = "Private isn't open."; render(); return; }
+  info.sheets = info.sheets || [];
+  var u = currentUser(), now = new Date().toISOString(), msgs = [], changed = false;
+  results.forEach(function(r){
+    if(r.error){ msgs.push(r.file + ": " + r.error); return; }
+    var key = pvWbKey(r.file), title = pvWbTitle(r.file), ex = info.sheets.find(function(w){ return w.key === key; });
+    var items = ex ? pvDiffWorkbook(ex.sheets, r.sheets) : [];
+    if(JSON.stringify(r.sheets).length > PV_WB_MAX_BYTES){ msgs.push(r.file + ": too big to keep in Private."); return; }
+    if(ex && !items.length){
+      ex.checkedAt = now; ex.checkedBy = u ? u.name : null; changed = true;
+      msgs.push(title + ": no changes since the version uploaded " + fmtDateTime(ex.uploadedAt) + ".");
+      return;
+    }
+    var ask = ex ? "Update \"" + ex.title + "\" with " + r.file + "?\n\n" + items.length + " change" + (items.length === 1 ? "" : "s") + " since the version uploaded " + fmtDateTime(ex.uploadedAt) + (ex.uploadedBy ? " by " + ex.uploadedBy : "") + ". They will be highlighted."
+                    : "Add \"" + title + "\" (" + r.file + ") to Private?";
+    if(!confirm(ask)){ msgs.push(title + ": not saved."); return; }
+    var wb = { id: ex ? ex.id : uid("pwb"), key: key, title: title, fileName: r.file, uploadedAt: now, uploadedBy: u ? u.name : null, sheets: r.sheets,
+      changes: ex ? { at: now, by: u ? u.name : null, from: ex.uploadedAt, items: items.slice(0, 400), total: items.length } : null };
+    if(ex) info.sheets[info.sheets.indexOf(ex)] = wb; else info.sheets.push(wb);
+    changed = true;
+    msgs.push(ex ? title + ": updated, " + items.length + " change" + (items.length === 1 ? "" : "s") + " highlighted." : title + ": added.");
+  });
+  if(changed){ info.updatedAt = now; info.updatedBy = u ? u.name : null; }
+  ui.pvUploadMsg = msgs.join("  ");
+  if(changed) persistPrivate(); else render();
+}
+function pvClearChanges(id){
+  var w = byId((PV.data.privateInfo && PV.data.privateInfo.sheets) || [], id); if(!w) return;
+  w.changes = null; persistPrivate();
+}
+function pvRemoveWorkbook(id){
+  var w = byId((PV.data.privateInfo && PV.data.privateInfo.sheets) || [], id); if(!w) return;
+  if(!confirm("Remove \"" + w.title + "\" from Private? You can upload it again later.")) return;
+  removeById(PV.data.privateInfo.sheets, id); persistPrivate();
+}
+function pvToggleAllChanges(id){ ui.pvAllChanges = ui.pvAllChanges || {}; ui.pvAllChanges[id] = !ui.pvAllChanges[id]; render(); }
+function pvIsNum(s){ return /^[-($]*[\d,]*\.?\d+%?\)?$/.test(String(s || "").trim()); }
+function renderPvBlock(w, s, b, key, chg, multi){
+  var wasHtml = function(it){ return it ? '<span class="pv-was">was ' + (it.o ? esc(it.o) : '(blank)') + '</span>' : ''; };
+  var out = '<div class="pv-block"><h4>' + esc(b.title || (multi ? s.name : "")) + '</h4>';
+  if(b.kind === "kv"){
+    var ks = pvKvKeys(b.rows);
+    out += b.rows.map(function(r, i){
+      if(r.h != null) return '<div class="pv-sub">' + esc(r.h) + '</div>';
+      var it = chg[s.name + "|" + key + "|" + ks[i] + "|"], isNew = chg[s.name + "|" + key + "|" + ks[i] + "|*"];
+      return '<div class="card-row pv-kv' + (it || isNew ? ' pv-hit' : '') + '"><span class="row-muted" style="font-size:12.5px;">' + esc(r.l) + (isNew ? ' <span class="pv-new">NEW</span>' : '') + '</span><span style="font-size:13.5px;font-weight:600;text-align:right;">' + (r.v ? esc(r.v) : '&mdash;') + wasHtml(it) + '</span></div>';
+    }).join("");
+  } else {
+    var kc = pvKeyCol(b.header, b.rows), rk = pvRowKeys(b.rows, kc);
+    out += '<div class="table-wrap pv-table"><table><thead><tr>' + b.header.map(function(h){ return '<th>' + esc(h) + '</th>'; }).join("") + '</tr></thead><tbody>' +
+      b.rows.map(function(r, i){
+        var isNew = chg[s.name + "|" + key + "|" + rk[i] + "|*"];
+        return '<tr' + (isNew ? ' class="pv-newrow"' : '') + '>' + b.header.map(function(h, c){
+          var it = chg[s.name + "|" + key + "|" + rk[i] + "|" + (h || ("col " + (c + 1)))], v = r[c] || "";
+          return '<td' + (pvIsNum(v) ? ' style="text-align:right;"' : '') + (it ? ' class="pv-hit"' : '') + '>' + esc(v) + (c === 0 && isNew ? ' <span class="pv-new">NEW</span>' : '') + wasHtml(it) + '</td>';
+        }).join("") + '</tr>';
+      }).join("") + '</tbody></table></div>';
+  }
+  return out + '</div>';
+}
+function renderPrivateWorkbooks(){
+  var info = PV.data.privateInfo || {}, wbs = info.sheets || [], html = "";
+  html += '<div class="card"><div class="card-row"><h3 style="margin:0;">Spreadsheets</h3>' +
+    '<button type="button" class="btn btn-primary btn-sm" style="width:auto;" onclick="document.getElementById(\'pv-wb-file\').click()">Upload spreadsheet</button></div>' +
+    '<input type="file" id="pv-wb-file" multiple accept=".xlsx,.xlsm,.xls" style="display:none;" onchange="pvUploadFiles(this)" />' +
+    '<p class="row-muted" style="margin:4px 0 0;font-size:12.5px;">Upload the latest spreadsheets (Excel .xlsx), as many at once as you like. A file with the same name, ignoring its date, replaces the earlier one, and everything that changed is highlighted and listed below.</p>' +
+    (ui.pvUploadMsg ? '<p style="margin:8px 0 0;font-size:12.5px;font-weight:600;">' + esc(ui.pvUploadMsg) + '</p>' : '') + '</div>';
+  var withChanges = wbs.filter(function(w){ return w.changes && w.changes.items && w.changes.items.length; });
+  if(withChanges.length){
+    html += '<div class="card pv-changes"><h3 style="margin:0 0 6px;">Changes in your latest uploads</h3>';
+    withChanges.forEach(function(w){
+      var c = w.changes, multi = w.sheets.length > 1, all = ui.pvAllChanges && ui.pvAllChanges[w.id], list = all ? c.items : c.items.slice(0, 8);
+      html += '<div style="margin-top:10px;"><div style="font-weight:700;font-size:13.5px;">' + esc(w.title) + ' <span class="row-muted" style="font-weight:600;">&middot; ' + (c.total || c.items.length) + ' change' + ((c.total || c.items.length) === 1 ? '' : 's') + ' &middot; uploaded ' + fmtDateTime(c.at) + (c.by ? ' by ' + esc(c.by) : '') + '</span></div>' +
+        '<ul style="margin:4px 0 0;padding-left:18px;font-size:13px;">' + list.map(function(it){ return '<li style="margin:2px 0;">' + esc(pvChangeText(it, multi)) + '</li>'; }).join("") + '</ul>' +
+        (c.items.length > 8 ? '<button type="button" class="btn btn-ghost btn-sm" style="width:auto;margin-top:6px;" onclick="pvToggleAllChanges(\'' + w.id + '\')">' + (all ? 'Show fewer' : 'Show all ' + c.items.length) + '</button>' : '') + '</div>';
+    });
+    html += '</div>';
+  }
+  if(!wbs.length) html += '<div class="card"><div class="empty-state">No spreadsheets uploaded yet. Press Upload spreadsheet to add them.</div></div>';
+  wbs.forEach(function(w){
+    var chg = {}, c = w.changes;
+    if(c && c.items) c.items.forEach(function(it){
+      if(it.k === "chg") chg[it.s + "|" + it.b + "|" + it.r + "|" + (it.c || "")] = it;
+      else if(it.k === "add") chg[it.s + "|" + it.b + "|" + it.r + "|*"] = it;
+    });
+    var multi = w.sheets.length > 1;
+    html += '<div class="card"><div class="card-row" style="align-items:flex-start;gap:8px;"><div><h3 style="margin:0;">' + esc(w.title) + '</h3>' +
+      '<div class="row-muted" style="font-size:12px;margin-top:2px;">Uploaded ' + fmtDateTime(w.uploadedAt) + (w.uploadedBy ? ' by ' + esc(w.uploadedBy) : '') + ' &middot; ' + esc(w.fileName) + (w.checkedAt && w.checkedAt > w.uploadedAt ? ' &middot; checked again ' + fmtDateTime(w.checkedAt) + ', no changes' : '') + '</div></div>' +
+      '<span style="display:flex;gap:6px;flex-shrink:0;">' + (c && c.items && c.items.length ? '<button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="pvClearChanges(\'' + w.id + '\')">Clear highlights</button>' : '') +
+      '<button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="pvRemoveWorkbook(\'' + w.id + '\')">Remove</button></span></div>';
+    w.sheets.forEach(function(s){
+      if(multi) html += '<h4 class="pv-sheet">' + esc(s.name) + '</h4>';
+      var keys = pvBlockKeys(s.blocks);
+      html += s.blocks.map(function(b, i){ return renderPvBlock(w, s, b, keys[i], chg, multi); }).join("");
+    });
+    html += '</div>';
+  });
+  return html;
+}
 function renderPrivateInfoCard(){
   var info = PV.data.privateInfo || { groups: [] };
   var groups = info.groups || [];
