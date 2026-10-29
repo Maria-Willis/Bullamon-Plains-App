@@ -2030,7 +2030,7 @@ const DEFAULT_STATE = {
 // change to this file, same as CACHE_NAME in sw.js -- it gives an instant,
 // no-technical-steps-needed way to confirm whether a given device is
 // actually running the latest deploy, without comparing file contents.
-var APP_BUILD = "2026-10-29.13";
+var APP_BUILD = "2026-10-29.14";
 
 /* ======================================================================
    UTILITIES
@@ -27913,6 +27913,13 @@ async function pvOpen(){
     ui.reauth.onCancel = function(){ PV.status = "needsSignin"; render(); };
     return;
   }
+  // 2026-10-29 (Maria: Private takes a long time to load): when this phone is already unlocked, ask for the data straight away --
+  // the server checks access and the Private code as part of that same request, so there is one wait instead of two. If it says no,
+  // fall through to the step-by-step check below to find out why.
+  if(getPrivateToken()){
+    var quick = await pvFetch(false, true);
+    if(quick !== false){ if(PV.status === "ready") setPrivateHint(true); return; }
+  }
   var a = await secureCall("/api/private", { action: "access", token: tok, ptoken: getPrivateToken() });
   if(!a.ok){ return pvFail(a); }
   setPrivateHint(!!a.allowed);
@@ -27932,14 +27939,16 @@ function pvFail(r){
   if(r.network){ PV.status = "offline"; render(); return; }
   PV.status = "error"; PV.error = r.error || "Something went wrong opening Private."; render();
 }
-async function pvFetch(quiet){
+async function pvFetch(quiet, soft){
   var t = pvTokens();
   PV.loadedAt = Date.now();
   var r = await secureCall("/api/private", { action: "get", token: t.token, ptoken: t.ptoken });
   if(!r.ok){
+    if(soft) return false;                          // the caller works out why
     if(quiet && r.network) return;                  // a failed background refresh just keeps what's on screen
     return pvFail(r);
   }
+  PV.hasCode = true;                                // getting the data means a Private code exists and was accepted
   // never replace what's on screen while edits are still waiting to be saved -- save them instead (they are
   // combined with anything newer on the server)
   if(PV.saving || PV.dirty || PV.unsaved){
