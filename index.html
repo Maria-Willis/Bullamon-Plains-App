@@ -2030,7 +2030,7 @@ const DEFAULT_STATE = {
 // change to this file, same as CACHE_NAME in sw.js -- it gives an instant,
 // no-technical-steps-needed way to confirm whether a given device is
 // actually running the latest deploy, without comparing file contents.
-var APP_BUILD = "2026-10-29.11";
+var APP_BUILD = "2026-10-29.12";
 
 /* ======================================================================
    UTILITIES
@@ -2688,7 +2688,14 @@ function canViewReceipts(){ var u = currentUser(); return !!(u && (u.isAdmin || 
 function canSeePrivateSection(){
   if(isAdmin()) return true;
   var u = currentUser();
-  return !!(u && getLocal(PRIVATE_HINT_KEY) === u.name);
+  if(!u) return false;
+  if(getLocal(PRIVATE_HINT_KEY) === u.name) return true;
+  // 2026-10-29 (Ed couldn't see Private on his phone): a phone that has no sign-in proof yet (signed in before the
+  // server check existed, or the proof ran out) can't ask the server whether this person is on the Access list, so the
+  // menu item used to stay hidden for good. Until the server has answered once on this phone, show it; tapping it asks
+  // for the access code, and if the answer is "no access" it disappears again.
+  if(!getSessionToken() && getLocal(PRIVATE_CHECKED_KEY) !== u.name) return true;
+  return false;
 }
 function isSignedIn(){ return !!(session.name && findTeam(session.name) && findTeam(session.name).active); }
 
@@ -2717,6 +2724,7 @@ var PRIVATE_TOKEN_KEY = "bp_private_token";
 var PRIVATE_TOKEN_NAME_KEY = "bp_private_token_name";
 var PRIVATE_TOKEN_EXP_KEY = "bp_private_token_exp";
 var PRIVATE_HINT_KEY = "bp_private_hint";
+var PRIVATE_CHECKED_KEY = "bp_private_checked";
 var PRIVATE_MIN_CODE = 6;
 
 // Does this person have an access code? (old data: the code itself; new data: just a yes/no flag)
@@ -2746,8 +2754,9 @@ function setPrivateToken(tok, exp){ setLocal(PRIVATE_TOKEN_KEY, tok); setLocal(P
 function clearPrivateToken(){ removeLocal(PRIVATE_TOKEN_KEY); removeLocal(PRIVATE_TOKEN_EXP_KEY); removeLocal(PRIVATE_TOKEN_NAME_KEY); }
 function setPrivateHint(allowed){
   if(allowed && session.name) setLocal(PRIVATE_HINT_KEY, session.name); else removeLocal(PRIVATE_HINT_KEY);
+  if(session.name) setLocal(PRIVATE_CHECKED_KEY, session.name);   // the server has answered for this person on this phone
 }
-function clearAllSecureLocal(){ clearSessionToken(); clearPrivateToken(); removeLocal(PRIVATE_HINT_KEY); }
+function clearAllSecureLocal(){ clearSessionToken(); clearPrivateToken(); removeLocal(PRIVATE_HINT_KEY); removeLocal(PRIVATE_CHECKED_KEY); }
 // Phones that already had the old copy of the data saved keep their place: if this person was on the
 // old Private access list, remember that so the menu item doesn't vanish before they next sign in.
 (function seedPrivateHintFromOldCopy(){
