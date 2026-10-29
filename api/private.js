@@ -37,8 +37,11 @@ async function loadRow(c){
 
 // who + allowed, from the staff token
 async function whoAllowed(c, body){
-  var a = await S.authStaff(c, body);
-  var row = await loadRow(c);
+  // a token that isn't even validly signed is refused before anything is read (nothing is touched for a stranger)
+  if(!S.readToken(c, body && body.token, "s")) throw S.failure(401, "Please confirm your access code again.", { needReauth: true });
+  // the sign-in check and the Private row are fetched together rather than one after the other
+  var both = await Promise.all([S.authStaff(c, body), loadRow(c)]);
+  var a = both[0], row = both[1];
   if(!S.privateAllowed(a.member, row.data.access)){
     throw S.failure(403, "You don't have access to Private.", { denied: true });
   }
@@ -46,11 +49,13 @@ async function whoAllowed(c, body){
 }
 // who + allowed + unlocked with the Private code
 async function unlocked(c, body){
-  var w = await whoAllowed(c, body);
-  var pt = S.readToken(c, body.ptoken, "p");
+  var st = S.readToken(c, body && body.token, "s");
   var again = function(){ return S.failure(401, "Please enter your Private code.", { needUnlock: true }); };
+  // this person's Private-code record is fetched at the same time as the sign-in and Private row checks
+  var got = await Promise.all([whoAllowed(c, body), st ? S.secGet(c, S.pcodeId(st.n)) : null]);
+  var w = got[0], prec = got[1];
+  var pt = S.readToken(c, body.ptoken, "p");
   if(!pt || pt.n !== w.a.name) throw again();
-  var prec = await S.secGet(c, S.pcodeId(w.a.name));
   if(!prec || !prec.hash || (prec.nbf && pt.i < prec.nbf)) throw again();
   return w;
 }
@@ -66,12 +71,13 @@ module.exports = S.wrap(async function(c, body){
   var action = body.action;
 
   if(action === "access"){
-    var a = await S.authStaff(c, body);
-    var row = await loadRow(c);
+    if(!S.readToken(c, body.token, "s")) throw S.failure(401, "Please confirm your access code again.", { needReauth: true });
+    var both = await Promise.all([S.authStaff(c, body), loadRow(c)]);
+    var a = both[0], row = both[1];
     var allowed = S.privateAllowed(a.member, row.data.access);
     if(!allowed) return { allowed: false };
-    var prec = await S.secGet(c, S.pcodeId(a.name));
-    var srec = await S.secGet(c, S.codeId(a.name));
+    var recs = await Promise.all([S.secGet(c, S.pcodeId(a.name)), S.secGet(c, S.codeId(a.name))]);
+    var prec = recs[0], srec = recs[1];
     var pt = S.readToken(c, body.ptoken, "p");
     var isUnlocked = !!(pt && pt.n === a.name && prec && prec.hash && !(prec.nbf && pt.i < prec.nbf));
     return { allowed: true, hasCode: !!(prec && prec.hash), unlocked: isUnlocked, hasStaffCode: !!(srec && srec.hash) };
@@ -132,14 +138,9 @@ module.exports = S.wrap(async function(c, body){
     if(w4.a.member.isAdmin){
       out.access = d.access || [];
       // which of those people have set a Private code yet (names only, never the codes)
-      var withCode = [];
-      var team = w4.a.team || [];
-      for(var i = 0; i < team.length; i++){
-        if(!team[i] || !S.privateAllowed(team[i], d.access)) continue;
-        var pr = await S.secGet(c, S.pcodeId(team[i].name));
-        if(pr && pr.hash) withCode.push(team[i].name);
-      }
-      out.withCode = withCode;
+      var team = (w4.a.team || []).filter(function(m){ return m && S.privateAllowed(m, d.access); });
+      var prs = await Promise.all(team.map(function(m){ return S.secGet(c, S.pcodeId(m.name)); }));
+      out.withCode = team.filter(function(m, i){ return prs[i] && prs[i].hash; }).map(function(m){ return m.name; });
     }
     return out;
   }
