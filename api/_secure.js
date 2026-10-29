@@ -170,14 +170,15 @@ function readToken(c, tok, kind){
 // per person, then that person is locked out for `lockMs`. A correct code clears the count. If the counter
 // can't be written, the attempt fails (it never skips the limit).
 var FAIL_WINDOW = 15 * 60 * 1000;
-async function throttleBegin(c, key, maxAttempts, lockMs){
+async function throttleBegin(c, key, maxAttempts, lockMs, tooManyText){
+  var lead = tooManyText || "Too many wrong codes. Please wait";
   var id = "thr:" + key;
   for(var i = 0; i < 15; i++){
     var rec = await secGet(c, id);
     var now = Date.now();
     if(rec && rec.lockedUntil && rec.lockedUntil > now){
       var mins = Math.max(1, Math.ceil((rec.lockedUntil - now) / 60000));
-      throw failure(429, "Too many wrong codes. Please wait " + mins + " minute" + (mins === 1 ? "" : "s") + " and try again.");
+      throw failure(429, lead + " " + mins + " minute" + (mins === 1 ? "" : "s") + " and try again.");
     }
     var fresh = !!(rec && rec.first && (now - rec.first) < FAIL_WINDOW);
     var n = (fresh ? rec.n : 0) + 1;
@@ -188,7 +189,7 @@ async function throttleBegin(c, key, maxAttempts, lockMs){
     if(!wrote) continue;                        // somebody else counted at the same moment: look again
     if(locking){
       var m2 = Math.max(1, Math.ceil(lockMs / 60000));
-      throw failure(429, "Too many wrong codes. Please wait " + m2 + " minute" + (m2 === 1 ? "" : "s") + " and try again.");
+      throw failure(429, lead + " " + m2 + " minute" + (m2 === 1 ? "" : "s") + " and try again.");
     }
     return;
   }
@@ -214,10 +215,11 @@ async function authStaff(c, body){
   var tok = readToken(c, body && body.token, "s");
   var again = function(){ return failure(401, "Please confirm your access code again.", { needReauth: true }); };
   if(!tok) throw again();
-  var team = await getTeam(c);
+  // the team and this person's sign-in record are asked for together (they don't depend on each other) -- one wait, not two
+  var got = await Promise.all([getTeam(c), secGet(c, codeId(tok.n))]);
+  var team = got[0], rec = got[1];
   var member = findMember(team, tok.n);
   if(!member || !member.active) throw again();
-  var rec = await secGet(c, codeId(tok.n));
   if(rec && rec.nbf && tok.i < rec.nbf) throw again();
   return { name: tok.n, member: member, team: team };
 }
