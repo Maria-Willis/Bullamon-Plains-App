@@ -670,7 +670,8 @@
   .ls-actions{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;}
   .ls-actions .btn{width:100%;min-height:50px;font-weight:700;font-size:14px;line-height:1.2;padding:8px 6px;}
   @media (min-width:700px){ .ls-actions{grid-template-columns:repeat(4,1fr);} }
-  .ls-mob{padding:12px 0;border-top:1px solid var(--divider);}
+  /* each mob in its own box with a shadow (2026-10-29, Maria) */
+  .ls-mob{padding:12px 14px;margin:10px 0;border:1px solid var(--border,#e3e8ee);border-radius:12px;background:var(--surface,#fff);box-shadow:var(--shadow);}
   .ls-pad{display:inline-block;padding:3px 9px;border:1px solid var(--border);border-radius:99px;font-size:13px;}
   @media (max-width:560px){ .ls-farm-tabs{grid-template-columns:repeat(2,1fr);} }
   /* big full-width button to the visitor sign-in website (Biosecurity) */
@@ -2013,7 +2014,7 @@ const DEFAULT_STATE = {
 // change to this file, same as CACHE_NAME in sw.js -- it gives an instant,
 // no-technical-steps-needed way to confirm whether a given device is
 // actually running the latest deploy, without comparing file contents.
-var APP_BUILD = "2026-10-29.3";
+var APP_BUILD = "2026-10-29.4";
 
 /* ======================================================================
    UTILITIES
