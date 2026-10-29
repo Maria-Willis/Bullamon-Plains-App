@@ -679,6 +679,10 @@
   .pv-table table{width:100%;border-collapse:collapse;font-size:12.5px;}
   .pv-table th{white-space:nowrap;text-align:left;padding:6px 8px;background:#eef3f9;border-bottom:1px solid var(--border);}
   .pv-table td{padding:6px 8px;border-bottom:1px solid var(--divider);white-space:nowrap;}
+  .pv-table th.num,.pv-table td.num{text-align:right;}
+  .pv-table table.pv-fixed{table-layout:fixed;min-width:0;width:100%;}
+  .pv-fixed th:first-child{width:52%;}
+  .pv-table td.pv-hit{background:#fff3cd;}
   .pv-hit{background:#fff3cd;}
   .pv-newrow td{background:#e6f6ea;}
   .pv-was{display:block;font-size:11px;font-weight:600;color:var(--muted);}
@@ -2026,7 +2030,7 @@ const DEFAULT_STATE = {
 // change to this file, same as CACHE_NAME in sw.js -- it gives an instant,
 // no-technical-steps-needed way to confirm whether a given device is
 // actually running the latest deploy, without comparing file contents.
-var APP_BUILD = "2026-10-29.10";
+var APP_BUILD = "2026-10-29.11";
 
 /* ======================================================================
    UTILITIES
@@ -28395,6 +28399,13 @@ function pvRemoveWorkbook(id){
   removeById(PV.data.privateInfo.sheets, id); persistPrivate();
 }
 function pvToggleAllChanges(id){ ui.pvAllChanges = ui.pvAllChanges || {}; ui.pvAllChanges[id] = !ui.pvAllChanges[id]; render(); }
+// which columns hold figures: those get their heading and every cell lined up on the right (2026-10-29, Maria: "align these better")
+function pvNumCols(header, rows){
+  return header.map(function(h, c){
+    var vals = rows.map(function(r){ return r[c]; }).filter(function(v){ return v; });
+    return vals.length > 0 && vals.filter(pvIsNum).length / vals.length >= 0.6;
+  });
+}
 function pvIsNum(s){ return /^[-($]*[\d,]*\.?\d+%?\)?$/.test(String(s || "").trim()); }
 function renderPvBlock(w, s, b, key, chg, multi, title){
   var wasHtml = function(it){ return it ? '<span class="pv-was">was ' + (it.o ? esc(it.o) : '(blank)') + '</span>' : ''; };
@@ -28407,13 +28418,13 @@ function renderPvBlock(w, s, b, key, chg, multi, title){
       return '<div class="card-row pv-kv' + (it || isNew ? ' pv-hit' : '') + '"><span class="row-muted" style="font-size:12.5px;">' + esc(r.l) + (isNew ? ' <span class="pv-new">NEW</span>' : '') + '</span><span style="font-size:13.5px;font-weight:600;text-align:right;">' + (r.v ? esc(r.v) : '&mdash;') + wasHtml(it) + '</span></div>';
     }).join("");
   } else {
-    var kc = pvKeyCol(b.header, b.rows), rk = pvRowKeys(b.rows, kc);
-    out += '<div class="table-wrap pv-table"><table><thead><tr>' + b.header.map(function(h){ return '<th>' + esc(h) + '</th>'; }).join("") + '</tr></thead><tbody>' +
+    var kc = pvKeyCol(b.header, b.rows), rk = pvRowKeys(b.rows, kc), nc = pvNumCols(b.header, b.rows);
+    out += '<div class="table-wrap pv-table"><table><thead><tr>' + b.header.map(function(h, c){ return '<th' + (nc[c] ? ' class="num"' : '') + '>' + esc(h) + '</th>'; }).join("") + '</tr></thead><tbody>' +
       b.rows.map(function(r, i){
         var isNew = chg[s.name + "|" + key + "|" + rk[i] + "|*"];
         return '<tr' + (isNew ? ' class="pv-newrow"' : '') + '>' + b.header.map(function(h, c){
           var it = chg[s.name + "|" + key + "|" + rk[i] + "|" + (h || ("col " + (c + 1)))], v = r[c] || "";
-          return '<td' + (pvIsNum(v) ? ' style="text-align:right;"' : '') + (it ? ' class="pv-hit"' : '') + '>' + esc(v) + (c === 0 && isNew ? ' <span class="pv-new">NEW</span>' : '') + wasHtml(it) + '</td>';
+          return '<td class="' + (nc[c] ? 'num' : '') + (it ? ' pv-hit' : '') + '">' + esc(v) + (c === 0 && isNew ? ' <span class="pv-new">NEW</span>' : '') + wasHtml(it) + '</td>';
         }).join("") + '</tr>';
       }).join("") + '</tbody></table></div>';
   }
@@ -28466,9 +28477,9 @@ function pvDrySummary(){
     var total = pvNum(tot.b.rows[hi].v), lrows = [];
     tot.b.rows.forEach(function(r, i){ if(i < hi && r.l != null && r.h == null) lrows.push({ r: r, key: ks[i] }); });
     if(lrows.length){
-      loc = '<div class="table-wrap pv-table"><table><thead><tr><th>Location</th><th>Tonnes</th><th>Share</th></tr></thead><tbody>' + lrows.map(function(x){
+      loc = '<div class="table-wrap pv-table"><table class="pv-fixed"><thead><tr><th>Location</th><th class="num">Tonnes</th><th class="num">Share</th></tr></thead><tbody>' + lrows.map(function(x){
         var it = tot.chg[tot.s.name + "|" + tot.key + "|" + x.key + "|"], n = pvNum(x.r.v);
-        return '<tr><td><strong>' + esc(x.r.l) + '</strong></td><td style="text-align:right;"' + (it ? ' class="pv-hit"' : '') + '>' + (x.r.v ? esc(x.r.v) : '&mdash;') + (it ? '<span class="pv-was">was ' + (it.o ? esc(it.o) : '(blank)') + '</span>' : '') + '</td><td style="text-align:right;">' + (n != null && total ? pvFmt(n / total * 100, 0) + '%' : '&mdash;') + '</td></tr>';
+        return '<tr><td><strong>' + esc(x.r.l) + '</strong></td><td class="num' + (it ? ' pv-hit' : '') + '">' + (x.r.v ? esc(x.r.v) : '&mdash;') + (it ? '<span class="pv-was">was ' + (it.o ? esc(it.o) : '(blank)') + '</span>' : '') + '</td><td class="num">' + (n != null && total ? pvFmt(n / total * 100, 0) + '%' : '&mdash;') + '</td></tr>';
       }).join("") + '</tbody></table></div><p class="row-muted" style="margin:6px 0 0;font-size:11.5px;">Tonnes delivered to each location, from the harvest summary.</p>';
     }
   }
@@ -28501,11 +28512,11 @@ function pvDryHarvest(){
   });
   if(!rows.length) return pvSection("Crops", pvEmptyNote("Crop, Hectares, Harvested (t), Yield (t/ha), Sold and Unsold"));
   var cell = function(c, note){
-    if(!c) return '<td style="text-align:right;">&mdash;</td>';
-    return '<td' + (pvIsNum(c.v) ? ' style="text-align:right;"' : '') + (c.it ? ' class="pv-hit"' : '') + '>' + (c.v ? esc(c.v) : '&mdash;') + (note ? '<span class="pv-was">' + esc(note) + '</span>' : '') + (c.it ? '<span class="pv-was">was ' + (c.it.o ? esc(c.it.o) : '(blank)') + '</span>' : '') + '</td>';
+    if(!c) return '<td class="num">&mdash;</td>';
+    return '<td class="num' + (c.it ? ' pv-hit' : '') + '">' + (c.v ? esc(c.v) : '&mdash;') + (note ? '<span class="pv-was">' + esc(note) + '</span>' : '') + (c.it ? '<span class="pv-was">was ' + (c.it.o ? esc(c.it.o) : '(blank)') + '</span>' : '') + '</td>';
   };
   var heads = ["Crop", "Hectares", "Harvested (t)", "Yield (t/ha)", "Sold", "Unsold"];
-  return pvSection("Crops", '<div class="table-wrap pv-table"><table><thead><tr>' + heads.map(function(h){ return '<th>' + esc(h) + '</th>'; }).join("") + '</tr></thead><tbody>' +
+  return pvSection("Crops", '<div class="table-wrap pv-table"><table><thead><tr>' + heads.map(function(h, i){ return '<th' + (i ? ' class="num"' : '') + '>' + esc(h) + '</th>'; }).join("") + '</tr></thead><tbody>' +
     rows.map(function(r){
       var c = r.cells, note = c.hv ? c.hv.label.replace(/^harvested\s*\(t\)\s*/i, "") : "", unsoldNote = c.unsold ? c.unsold.label.replace(/^unsold\s*\(t\)\s*/i, "") : "";
       return '<tr><td><strong>' + esc(r.crop) + '</strong></td>' + cell(c.ha) + cell(c.hv, note) + cell(c.yl) + cell(c.sold, "") + cell(c.unsold, unsoldNote) + '</tr>';
