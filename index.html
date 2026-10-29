@@ -2030,7 +2030,7 @@ const DEFAULT_STATE = {
 // change to this file, same as CACHE_NAME in sw.js -- it gives an instant,
 // no-technical-steps-needed way to confirm whether a given device is
 // actually running the latest deploy, without comparing file contents.
-var APP_BUILD = "2026-10-29.12";
+var APP_BUILD = "2026-10-29.13";
 
 /* ======================================================================
    UTILITIES
@@ -28370,13 +28370,28 @@ function pvUploadFiles(input){
   });
   chain.then(function(){ pvApplyUploads(results); });
 }
+// the sheet names of a workbook, as a layout fingerprint ("" when they are generic, like Sheet1, and say nothing)
+function pvSheetSig(sheets){
+  var names = (sheets || []).map(function(x){ return String(x.name || "").trim().toLowerCase(); });
+  if(!names.length || names.every(function(n){ return /^(sheet|table|page|data)\s*\d*$/.test(n); })) return "";
+  return names.join("|");
+}
 function pvApplyUploads(results){
   var info = PV.data && PV.data.privateInfo; if(!info){ ui.pvUploadMsg = "Private isn't open."; render(); return; }
   info.sheets = info.sheets || [];
   var u = currentUser(), now = new Date().toISOString(), msgs = [], changed = false;
   results.forEach(function(r){
     if(r.error){ msgs.push(r.file + ": " + r.error); return; }
-    var key = pvWbKey(r.file), title = pvWbTitle(r.file), ex = info.sheets.find(function(w){ return w.key === key; });
+    var key = pvWbKey(r.file), title = pvWbTitle(r.file), ex = info.sheets.find(function(w){ return w.key === key; }), byLayout = false;
+    // 2026-10-29 (Maria: the new Harvest spreadsheet "didn't update the summary"): her files are not always named the same way
+    // ("... 1", "... Summary"), and a differently named file used to be added as a second copy while the Summary kept reading the old one.
+    // A file whose sheets are laid out exactly like one already in Private is treated as the newer version of it.
+    if(!ex){
+      var area0 = /cotton/i.test(key) ? "cotton" : "dryland", sig = pvSheetSig(r.sheets);
+      var same = sig ? info.sheets.filter(function(w){ return pvAreaOf(w) === area0 && pvSheetSig(w.sheets) === sig; }) : [];
+      same.sort(function(a, b){ return String(b.uploadedAt).localeCompare(String(a.uploadedAt)); });
+      if(same.length){ ex = same[0]; byLayout = true; key = ex.key; title = ex.title; }
+    }
     var items = ex ? pvDiffWorkbook(ex.sheets, r.sheets) : [];
     if(JSON.stringify(r.sheets).length > PV_WB_MAX_BYTES){ msgs.push(r.file + ": too big to keep in Private."); return; }
     if(ex && !items.length){
@@ -28384,14 +28399,14 @@ function pvApplyUploads(results){
       msgs.push(title + ": no changes since the version uploaded " + fmtDateTime(ex.uploadedAt) + ".");
       return;
     }
-    var ask = ex ? "Update \"" + ex.title + "\" with " + r.file + "?\n\n" + items.length + " change" + (items.length === 1 ? "" : "s") + " since the version uploaded " + fmtDateTime(ex.uploadedAt) + (ex.uploadedBy ? " by " + ex.uploadedBy : "") + ". They will be highlighted."
-                    : "Add \"" + title + "\" (" + r.file + ") to Private?";
-    if(!confirm(ask)){ msgs.push(title + ": not saved."); return; }
+    // an update goes straight in and its changes wait for "Accept"; only a new file, or one matched by layout rather than name, is checked first
+    if(!ex){ if(!confirm("Add \"" + title + "\" (" + r.file + ") to Private?")){ msgs.push(title + ": not saved."); return; } }
+    else if(byLayout && !confirm("\"" + r.file + "\" is named differently but is laid out like \"" + ex.title + "\" (uploaded " + fmtDateTime(ex.uploadedAt) + "). Use it as the newer version of \"" + ex.title + "\"? " + items.length + " change" + (items.length === 1 ? "" : "s") + " will be listed for you to Accept.")){ msgs.push(title + ": not saved."); return; }
     var wb = { id: ex ? ex.id : uid("pwb"), key: key, area: /cotton/i.test(key) ? "cotton" : "dryland", title: title, fileName: r.file, uploadedAt: now, uploadedBy: u ? u.name : null, sheets: r.sheets,
       changes: ex ? { at: now, by: u ? u.name : null, from: ex.uploadedAt, items: items.slice(0, 400), total: items.length } : null };
     if(ex) info.sheets[info.sheets.indexOf(ex)] = wb; else info.sheets.push(wb);
     changed = true;
-    msgs.push(ex ? title + ": updated, " + items.length + " change" + (items.length === 1 ? "" : "s") + " highlighted." : title + ": added.");
+    msgs.push(ex ? title + ": updated, " + items.length + " change" + (items.length === 1 ? "" : "s") + " to look over -- press Accept when you have." : title + ": added.");
   });
   if(changed){ info.updatedAt = now; info.updatedBy = u ? u.name : null; }
   var lastWb = info.sheets.filter(function(w){ return w.uploadedAt === now; })[0]; if(lastWb) ui.pvTab = pvAreaOf(lastWb);
@@ -28401,6 +28416,11 @@ function pvApplyUploads(results){
 function pvClearChanges(id){
   var w = byId((PV.data.privateInfo && PV.data.privateInfo.sheets) || [], id); if(!w) return;
   w.changes = null; persistPrivate();
+}
+function pvAcceptAll(area){
+  var any = false;
+  (((PV.data.privateInfo || {}).sheets) || []).forEach(function(w){ if(pvAreaOf(w) === area && w.changes){ w.changes = null; any = true; } });
+  if(any) persistPrivate();
 }
 function pvRemoveWorkbook(id){
   var w = byId((PV.data.privateInfo && PV.data.privateInfo.sheets) || [], id); if(!w) return;
@@ -28446,7 +28466,8 @@ function renderPvBlock(w, s, b, key, chg, multi, title){
 function pvAreaOf(w){ return w.area || (/cotton/i.test(w.key || "") ? "cotton" : "dryland"); }
 function pvBlocksOf(area){
   var out = [];
-  ((PV.data.privateInfo || {}).sheets || []).forEach(function(w){
+  var list = (((PV.data.privateInfo || {}).sheets) || []).slice().sort(function(a, b){ return String(b.uploadedAt).localeCompare(String(a.uploadedAt)); });   // newest first, so the newest figures are the ones picked
+  list.forEach(function(w){
     if(pvAreaOf(w) !== area) return;
     var chg = pvChgMap(w);
     w.sheets.forEach(function(s){ var keys = pvBlockKeys(s.blocks); s.blocks.forEach(function(b, i){ out.push({ w: w, s: s, b: b, key: keys[i], chg: chg }); }); });
@@ -28508,15 +28529,17 @@ function pvDrySummary(){
 }
 // Dryland > Harvest: one line per crop with Hectares, Harvested (t), Yield (t/ha), Sold, Unsold
 function pvDryHarvest(){
-  var blocks = pvBlocksOf("dryland"), rows = [], anyChg = false;
+  var blocks = pvBlocksOf("dryland"), rows = [], anyChg = false, seenCrop = {};
   blocks.forEach(function(x){
     if(x.b.kind !== "kv" || !x.b.title) return;
+    if(seenCrop[x.b.title.toLowerCase()]) return;
     if(!x.b.rows.some(function(r){ return r.l && /^hectares$/i.test(r.l); })) return;
     var ks = pvKvKeys(x.b.rows), pick = function(re){
       for(var i = 0; i < x.b.rows.length; i++){ var r = x.b.rows[i]; if(r.l && re.test(r.l)) return { v: r.v, label: r.l, it: x.chg[x.s.name + "|" + x.key + "|" + ks[i] + "|"] }; }
       return null;
     };
     var cells = { ha: pick(/^hectares$/i), hv: pick(/^harvested/i), yl: pick(/^yield/i), sold: pick(/^sold/i), unsold: pick(/^unsold/i) };
+    seenCrop[x.b.title.toLowerCase()] = 1;
     rows.push({ crop: x.b.title, cells: cells });
   });
   if(!rows.length) return pvSection("Crops", pvEmptyNote("Crop, Hectares, Harvested (t), Yield (t/ha), Sold and Unsold"));
@@ -28543,16 +28566,18 @@ function pvUploadCard(area){
   return '<div class="card"><div class="card-row"><h3 style="margin:0;font-size:15px;">Spreadsheets</h3>' +
     '<button type="button" class="btn btn-primary btn-sm" style="width:auto;" onclick="document.getElementById(\'pv-wb-file\').click()">Upload spreadsheet</button></div>' +
     '<input type="file" id="pv-wb-file" multiple accept=".xlsx,.xlsm,.xls" style="display:none;" onchange="pvUploadFiles(this)" />' +
-    '<p class="row-muted" style="margin:4px 0 0;font-size:12px;">Excel (.xlsx), as many as you like. The same name (ignoring the date) replaces the earlier one and highlights what changed. "Cotton" in the name goes to the Cotton tab.</p>' +
+    '<p class="row-muted" style="margin:4px 0 0;font-size:12px;">Excel (.xlsx), as many as you like. A newer version of a spreadsheet replaces the earlier one and lists what changed, until you press Accept. "Cotton" in the name goes to the Cotton tab.</p>' +
     (ui.pvUploadMsg ? '<p style="margin:8px 0 0;font-size:12.5px;font-weight:600;">' + esc(ui.pvUploadMsg) + '</p>' : '') + '</div>';
 }
 function pvChangesCard(area){
   var wbs = ((PV.data.privateInfo || {}).sheets || []).filter(function(w){ return pvAreaOf(w) === area && w.changes && w.changes.items && w.changes.items.length; });
   if(!wbs.length) return "";
-  var html = '<div class="card pv-changes"><h3 style="margin:0 0 6px;">Changes in your latest uploads</h3>';
+  var html = '<div class="card pv-changes"><div class="card-row"><h3 style="margin:0 0 6px;">Changes in your latest uploads</h3>' +
+    (wbs.length > 1 ? '<button type="button" class="btn btn-primary btn-sm" style="width:auto;" onclick="pvAcceptAll(\'' + area + '\')">Accept all</button>' : '') + '</div>';
   wbs.forEach(function(w){
     var c = w.changes, multi = w.sheets.length > 1, all = ui.pvAllChanges && ui.pvAllChanges[w.id], list = all ? c.items : c.items.slice(0, 8), n = c.total || c.items.length;
-    html += '<div style="margin-top:10px;"><div style="font-weight:700;font-size:13.5px;">' + esc(w.title) + ' <span class="row-muted" style="font-weight:600;">&middot; ' + n + ' change' + (n === 1 ? '' : 's') + ' &middot; uploaded ' + fmtDateTime(c.at) + (c.by ? ' by ' + esc(c.by) : '') + '</span></div>' +
+    html += '<div style="margin-top:10px;"><div class="card-row" style="align-items:flex-start;gap:8px;"><div style="font-weight:700;font-size:13.5px;">' + esc(w.title) + ' <span class="row-muted" style="font-weight:600;">&middot; ' + n + ' change' + (n === 1 ? '' : 's') + ' &middot; uploaded ' + fmtDateTime(c.at) + (c.by ? ' by ' + esc(c.by) : '') + '</span></div>' +
+      '<button type="button" class="btn btn-primary btn-sm pv-accept" style="width:auto;flex-shrink:0;" onclick="pvClearChanges(\'' + w.id + '\')">Accept</button></div>' +
       '<ul style="margin:4px 0 0;padding-left:18px;font-size:13px;">' + list.map(function(it){ return '<li style="margin:2px 0;">' + esc(pvChangeText(it, multi)) + '</li>'; }).join("") + '</ul>' +
       (c.items.length > 8 ? '<button type="button" class="btn btn-ghost btn-sm" style="width:auto;margin-top:6px;" onclick="pvToggleAllChanges(\'' + w.id + '\')">' + (all ? 'Show fewer' : 'Show all ' + c.items.length) + '</button>' : '') + '</div>';
   });
@@ -28564,7 +28589,7 @@ function pvWorkbookCards(area){
     var chg = pvChgMap(w), c = w.changes, multi = w.sheets.length > 1;
     html += '<div class="card"><div class="card-row" style="align-items:flex-start;gap:8px;"><div><h3 style="margin:0;">' + esc(w.title) + '</h3>' +
       '<div class="row-muted" style="font-size:12px;margin-top:2px;">Uploaded ' + fmtDateTime(w.uploadedAt) + (w.uploadedBy ? ' by ' + esc(w.uploadedBy) : '') + ' &middot; ' + esc(w.fileName) + (w.checkedAt && w.checkedAt > w.uploadedAt ? ' &middot; checked again ' + fmtDateTime(w.checkedAt) + ', no changes' : '') + '</div></div>' +
-      '<span style="display:flex;gap:6px;flex-shrink:0;">' + (c && c.items && c.items.length ? '<button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="pvClearChanges(\'' + w.id + '\')">Clear highlights</button>' : '') +
+      '<span style="display:flex;gap:6px;flex-shrink:0;">' + (c && c.items && c.items.length ? '<button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="pvClearChanges(\'' + w.id + '\')">Accept changes</button>' : '') +
       '<button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="pvRemoveWorkbook(\'' + w.id + '\')">Remove</button></span></div>';
     w.sheets.forEach(function(s){
       if(multi) html += '<h4 class="pv-sheet">' + esc(s.name) + '</h4>';
