@@ -100,6 +100,19 @@ async function pvCas(c, version, data){
   return rows && rows[0] ? rows[0] : null;
 }
 
+// Uploaded files for Private (the All Entities 1 Page Info Sheets): each one is its own row in the same locked table,
+// id "file_<id>", so a file never counts toward (or slows down) the notes / spreadsheets row above.
+async function pvFileGet(c, fid){
+  var rows = await rest(c, "GET", "private_data?id=eq." + enc("file_" + fid) + "&select=data");
+  return rows && rows[0] ? rows[0].data : null;
+}
+async function pvFilePut(c, fid, data){
+  await rest(c, "POST", "private_data?on_conflict=id", { id: "file_" + fid, data: data, version: 1, updated_at: new Date().toISOString() }, "resolution=merge-duplicates,return=minimal");
+}
+async function pvFileDel(c, fid){
+  await rest(c, "DELETE", "private_data?id=eq." + enc("file_" + fid), undefined, "return=minimal");
+}
+
 // ---- the shared app data (only the parts we need) ----
 async function getTeam(c){
   var rows = await rest(c, "GET", "app_state?id=eq.main&select=team:data->team,version");
@@ -334,7 +347,7 @@ function wrap(handlerFn){
 module.exports = {
   SESSION_DAYS: SESSION_DAYS, PRIVATE_DAYS: PRIVATE_DAYS, MIN_CODE: MIN_CODE, MIN_PRIVATE_CODE: MIN_PRIVATE_CODE,
   cfg: cfg, missing: missing, failure: failure, setupError: setupError, wrap: wrap,
-  secGet: secGet, secSet: secSet, secDel: secDel, secInsertIfAbsent: secInsertIfAbsent, secCas: secCas, pvGet: pvGet, pvInsert: pvInsert, pvCas: pvCas,
+  secGet: secGet, secSet: secSet, secDel: secDel, secInsertIfAbsent: secInsertIfAbsent, secCas: secCas, pvGet: pvGet, pvInsert: pvInsert, pvCas: pvCas, pvFileGet: pvFileGet, pvFilePut: pvFilePut, pvFileDel: pvFileDel,
   getTeam: getTeam, getAppRow: getAppRow, appCas: appCas,
   hashCode: hashCode, checkCode: checkCode, cleanCode: cleanCode, codeId: codeId, pcodeId: pcodeId, nameKey: nameKey,
   makeToken: makeToken, readToken: readToken,
