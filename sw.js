@@ -530,6 +530,7 @@
 // v187 (2026-10-28, later): Livestock: on All Farms the map has farm buttons so any farm's map can be shown -- index.html changed.
 // v188 (2026-10-28, later): Livestock: Bullamon Plains paddock outlines (29) on the map; each paddock drawn in its own AgriWebb colour -- index.html changed.
 // v189 (2026-10-28, later): Livestock: Fenton and Nullera outlines, every paddock in its own AgriWebb colour, and the latest AgriWebb mob lists added (mobs already there skipped) -- index.html changed.
+// v219 (2026-10-31, later still): the Cropping Summary button is hidden on Private for now (nothing deleted) -- index.html changed.
 // v218 (2026-10-31, later): Private opens on a home page with the two buttons; each opens its own page with a back button to Private -- index.html changed.
 // v217 (2026-10-31): Private has two buttons -- Cropping Summary (the four buttons) and All Entities 1 Page Info Sheets (uploaded one-page files) -- index.html changed.
 // v216 (2026-10-29, night): Private now has four buttons -- Cotton Summary, Dryland Summary, Picking Details, Harvest Details -- index.html changed.
@@ -559,7 +560,7 @@
 // v192 (2026-10-28, later): Phone layout: every box runs edge to edge across the full width of the screen -- index.html changed.
 // v191 (2026-10-28, later): Livestock map: Full screen button -- the map fills the whole phone screen (farm buttons on top, zoom/Fit/Sat buttons, paddock panel at the bottom, satellite stays on) -- index.html changed.
 // v190 (2026-10-28, later): Livestock map: mobs show as a small cow / sheep symbol and only show their names once you zoom in far enough -- index.html changed.
-var CACHE_NAME = "bullamon-plains-shell-v218";
+var CACHE_NAME = "bullamon-plains-shell-v219";
 
 var SHELL_ASSETS = [
   "./",
