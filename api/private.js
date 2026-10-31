@@ -13,10 +13,22 @@
 //   get        {token, ptoken}             -> {notes, info, version, isAdmin, access?}
 //   save       {token, ptoken, notes, info, baseVersion}  -> {version} | {conflict:true, notes, info, version}
 //   setAccess  {token, ptoken, names}      admin: who (besides admins) can open Private (max 2)
+//   fileSave   {token, ptoken, fid, name, type, b64}  keep an uploaded info sheet (up to about 3 MB) in its own locked row
+//   fileGet    {token, ptoken, fid}        -> {name, type, b64}
+//   fileDelete {token, ptoken, fid}
 var S = require("./_secure");
 
 var UNLOCK_MAX_ATTEMPTS = 5, UNLOCK_LOCK_MS = 15 * 60 * 1000;
 var MAX_BYTES = 900 * 1024;
+var MAX_FILE_B64 = 4200000;                  // about 3.1 MB of file (Vercel accepts a request body up to 4.5 MB)
+var FILE_TYPES = { "application/pdf": 1, "image/png": 1, "image/jpeg": 1, "image/gif": 1, "image/webp": 1, "text/plain": 1,
+  "application/msword": 1, "application/vnd.openxmlformats-officedocument.wordprocessingml.document": 1,
+  "application/vnd.ms-excel": 1, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": 1 };
+function cleanFid(v){
+  var f = String(v == null ? "" : v);
+  if(!/^[A-Za-z0-9_-]{6,60}$/.test(f)) throw S.failure(400, "That file reference isn't valid.");
+  return f;
+}
 
 function emptyData(){ return { notes: [], info: { groups: [] }, access: [] }; }
 
@@ -178,6 +190,31 @@ module.exports = S.wrap(async function(c, body){
       if(await S.pvCas(c, cur.version, Object.assign({}, cur.data, { access: names }))) return { access: names };
     }
     throw S.failure(409, "Someone else was saving at the same moment. Please try again.");
+  }
+
+  if(action === "fileSave"){
+    await unlocked(c, body);
+    var fid = cleanFid(body.fid);
+    var b64 = typeof body.b64 === "string" ? body.b64 : "";
+    if(!b64 || b64.length > MAX_FILE_B64) throw S.failure(413, "That file is too big to keep in Private (the limit is about 3 MB).");
+    if(!/^[A-Za-z0-9+\/]+={0,2}$/.test(b64)) throw S.failure(400, "That file couldn't be read.");
+    var ftype = FILE_TYPES[body.type] ? body.type : "application/octet-stream";
+    var fname = String(body.name || "file").slice(0, 200);
+    await S.pvFilePut(c, fid, { name: fname, type: ftype, b64: b64, savedAt: new Date().toISOString() });
+    return { saved: true };
+  }
+
+  if(action === "fileGet"){
+    await unlocked(c, body);
+    var gf = await S.pvFileGet(c, cleanFid(body.fid));
+    if(!gf) throw S.failure(404, "That file isn't there any more.", { gone: true });
+    return { name: gf.name, type: gf.type, b64: gf.b64 };
+  }
+
+  if(action === "fileDelete"){
+    await unlocked(c, body);
+    await S.pvFileDel(c, cleanFid(body.fid));
+    return { deleted: true };
   }
 
   throw S.failure(400, "Unknown request.");
