@@ -672,6 +672,7 @@
   @media (min-width:700px){ .ls-actions{grid-template-columns:repeat(4,1fr);} }
   /* each mob in its own box with a shadow (2026-10-29, Maria) */
   .pv-tabs{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-bottom:14px;}
+  .pv-tabs-one{grid-template-columns:1fr;}
   .pv-tabs-sub .job-area-tab{padding-top:10px;padding-bottom:10px;}
   .pv-tabs-sub .job-area-name{font-size:14px;}
   .pv-ent-view{width:100%;height:70vh;border:1px solid var(--divider);border-radius:10px;background:#fff;margin-top:10px;}
@@ -2034,7 +2035,7 @@ const DEFAULT_STATE = {
 // change to this file, same as CACHE_NAME in sw.js -- it gives an instant,
 // no-technical-steps-needed way to confirm whether a given device is
 // actually running the latest deploy, without comparing file contents.
-var APP_BUILD = "2026-10-31.2";
+var APP_BUILD = "2026-10-31.3";
 
 /* ======================================================================
    UTILITIES
@@ -28643,7 +28644,10 @@ var PV_TOPS = [{ k: "crop", label: "Cropping Summary" }, { k: "ent", label: "All
 /* 2026-10-31 (Maria: "make it so that you have to go back to the private section to enter the All entities section"): Private opens on a home
    page with the two buttons, Notes, Your Private code and Access. Each button opens its own page with a "Private" back button at the top;
    to get to the other one you go back to Private first. */
-function pvTop(){ return ui.pvTop === "ent" ? "ent" : (ui.pvTop === "crop" ? "crop" : "home"); }
+// 2026-10-31 (Maria: "lets hide the cropping summary section for now"): set PV_SHOW_CROP to true to bring the Cropping Summary button back.
+// Nothing is deleted -- its uploaded spreadsheets stay safely in Private and reappear as they were.
+var PV_SHOW_CROP = false;
+function pvTop(){ return ui.pvTop === "ent" ? "ent" : (ui.pvTop === "crop" && PV_SHOW_CROP ? "crop" : "home"); }
 function pvSetTop(k){ ui.pvTop = k; pvEntClose(true); render(); }
 function pvGoHome(){ pvSetTop("home"); window.scrollTo(0, 0); }
 function pvBackBar(title){
@@ -28652,7 +28656,10 @@ function pvBackBar(title){
 }
 function renderPrivateWorkbooks(){
   var top = pvTop();
-  if(top === "home") return pvTabBar(PV_TOPS, "", "pvSetTop");
+  if(top === "home"){
+    var tops = PV_TOPS.filter(function(t){ return PV_SHOW_CROP || t.k !== "crop"; });
+    return pvTabBar(tops, "", "pvSetTop", tops.length === 1 ? "pv-tabs-one" : "");
+  }
   var html = pvBackBar(top === "ent" ? PV_TOPS[1].label : PV_TOPS[0].label);
   if(top === "ent") return html + renderPvEntities();
   var v = pvView();
