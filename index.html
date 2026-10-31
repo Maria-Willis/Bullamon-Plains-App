@@ -2034,7 +2034,7 @@ const DEFAULT_STATE = {
 // change to this file, same as CACHE_NAME in sw.js -- it gives an instant,
 // no-technical-steps-needed way to confirm whether a given device is
 // actually running the latest deploy, without comparing file contents.
-var APP_BUILD = "2026-10-31.1";
+var APP_BUILD = "2026-10-31.2";
 
 /* ======================================================================
    UTILITIES
@@ -15103,7 +15103,7 @@ function goTo(section){
   // it's not the ONLY thing stopping them. renderSection() below carries the
   // same guard for anything that sets ui.section directly, bypassing goTo().
   if(!isSectionAllowed(section)) section = fallbackSection();
-  if(ui.section !== section){ ui.siloError = ""; ui.siloMsg = ""; ui.siloAction = null; ui.siloEditTx = null; }
+  if(ui.section !== section){ ui.siloError = ""; ui.siloMsg = ""; ui.siloAction = null; ui.siloEditTx = null; if(section === "private") ui.pvTop = "home"; if(ui.section === "private") pvEntClose(true); }
   ui.section = section;
   ui.mobileMenuOpen = false;
   ui.lsMapFull = false;
@@ -28103,6 +28103,7 @@ function renderPrivate(){
       '<button type="button" class="subtle-btn" onclick="pvRetrySave()">Save now</button></div>';
   }
   html += renderPrivateWorkbooks();
+  if(pvTop() !== "home") return html;               // a Cropping Summary / Entities page shows only itself; go back to Private for the rest
   // the old hand-typed Cropping Summary was scrapped (2026-10-29); its card only shows if something is in it
   if(((PV.data.privateInfo || {}).groups || []).length || ui.openForms.editPrivateInfo || ui.openForms.importPrivateInfo) html += renderPrivateInfoCard();
   html += renderPrivateNotesCard();
@@ -28639,10 +28640,20 @@ function pvRawCard(view, always){
 /* ---- two top buttons (2026-10-31, Maria: "Combine the 4 current buttons and call them Cropping Summary. Add a new button for the Entities"):
    Cropping Summary (holds the four buttons above) | All Entities 1 Page Info Sheets (uploaded one-page files, one per entity). ---- */
 var PV_TOPS = [{ k: "crop", label: "Cropping Summary" }, { k: "ent", label: "All Entities 1 Page Info Sheets" }];
-function pvTop(){ return ui.pvTop === "ent" ? "ent" : "crop"; }
-function pvSetTop(k){ ui.pvTop = k; if(k !== "ent") pvEntClose(true); render(); }
+/* 2026-10-31 (Maria: "make it so that you have to go back to the private section to enter the All entities section"): Private opens on a home
+   page with the two buttons, Notes, Your Private code and Access. Each button opens its own page with a "Private" back button at the top;
+   to get to the other one you go back to Private first. */
+function pvTop(){ return ui.pvTop === "ent" ? "ent" : (ui.pvTop === "crop" ? "crop" : "home"); }
+function pvSetTop(k){ ui.pvTop = k; pvEntClose(true); render(); }
+function pvGoHome(){ pvSetTop("home"); window.scrollTo(0, 0); }
+function pvBackBar(title){
+  return '<div class="card-row" style="align-items:center;gap:10px;margin-bottom:12px;"><button type="button" class="btn btn-ghost btn-sm pv-home-btn" style="width:auto;" onclick="pvGoHome()">&larr; Private</button>' +
+    '<h2 style="margin:0;font-size:18px;color:var(--accent);">' + esc(title) + '</h2></div>';
+}
 function renderPrivateWorkbooks(){
-  var top = pvTop(), html = pvTabBar(PV_TOPS, top, "pvSetTop");
+  var top = pvTop();
+  if(top === "home") return pvTabBar(PV_TOPS, "", "pvSetTop");
+  var html = pvBackBar(top === "ent" ? PV_TOPS[1].label : PV_TOPS[0].label);
   if(top === "ent") return html + renderPvEntities();
   var v = pvView();
   html += pvTabBar(PV_VIEWS, v, "pvSetView", "pv-tabs-sub");
