@@ -672,6 +672,10 @@
   @media (min-width:700px){ .ls-actions{grid-template-columns:repeat(4,1fr);} }
   /* each mob in its own box with a shadow (2026-10-29, Maria) */
   .pv-tabs{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-bottom:14px;}
+  .pv-tabs-sub .job-area-tab{padding-top:10px;padding-bottom:10px;}
+  .pv-tabs-sub .job-area-name{font-size:14px;}
+  .pv-ent-view{width:100%;height:70vh;border:1px solid var(--divider);border-radius:10px;background:#fff;margin-top:10px;}
+  .pv-ent-img{max-width:100%;border-radius:10px;margin-top:10px;display:block;}
   .pv-block{margin-top:14px;}
   .pv-block h4,.pv-sheet{margin:0 0 6px;font-size:13px;text-transform:uppercase;letter-spacing:.03em;color:var(--muted);}
   .pv-sub{font-weight:700;font-size:13px;margin:10px 0 2px;}
@@ -2030,7 +2034,7 @@ const DEFAULT_STATE = {
 // change to this file, same as CACHE_NAME in sw.js -- it gives an instant,
 // no-technical-steps-needed way to confirm whether a given device is
 // actually running the latest deploy, without comparing file contents.
-var APP_BUILD = "2026-10-29.15";
+var APP_BUILD = "2026-10-31.1";
 
 /* ======================================================================
    UTILITIES
@@ -28000,7 +28004,7 @@ async function pvUnlock(e){
 }
 function pvLock(){
   if((PV.unsaved || PV.dirty || PV.saving) && !confirm("Some of your changes in Private haven't been saved yet. Lock anyway and lose them?")) return;
-  clearPrivateToken();
+  clearPrivateToken(); pvEntClose(true);
   PV.status = "locked"; PV.data = null; PV.base = null; PV.unsaved = false; PV.dirty = false; PV.formError = ""; PV.showChange = false;
   render();
 }
@@ -28582,8 +28586,8 @@ function pvWbsFor(v){
 }
 function pvSetView(k){ ui.pvView = k; render(); }
 function pvToggleRaw(v){ ui.pvRaw = ui.pvRaw || {}; ui.pvRaw[v] = !ui.pvRaw[v]; render(); }
-function pvTabBar(items, cur, fn){
-  return '<div class="pv-tabs" role="tablist">' + items.map(function(it){
+function pvTabBar(items, cur, fn, extraClass){
+  return '<div class="pv-tabs' + (extraClass ? ' ' + extraClass : '') + '" role="tablist">' + items.map(function(it){
     return '<button type="button" role="tab" aria-selected="' + (cur === it.k ? 'true' : 'false') + '" class="job-area-tab' + (cur === it.k ? ' active' : '') + '" onclick="' + fn + '(\'' + it.k + '\')"><span class="job-area-name">' + esc(it.label) + '</span></button>';
   }).join("") + '</div>';
 }
@@ -28632,8 +28636,16 @@ function pvRawCard(view, always){
   return (always ? '' : '<div class="card"><div class="card-row"><div><h3 style="margin:0;">Uploaded spreadsheets</h3><div class="row-muted" style="font-size:12.5px;">' + wbs.map(function(w){ return esc(w.title); }).join(" &middot; ") + '</div></div>' +
     '<span style="display:flex;gap:6px;"><button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="pvToggleRaw(\'' + view + '\')">' + (open ? 'Hide full spreadsheets' : 'Show full spreadsheets') + '</button></span></div></div>') + (open ? pvWorkbookCards(view) : '');
 }
+/* ---- two top buttons (2026-10-31, Maria: "Combine the 4 current buttons and call them Cropping Summary. Add a new button for the Entities"):
+   Cropping Summary (holds the four buttons above) | All Entities 1 Page Info Sheets (uploaded one-page files, one per entity). ---- */
+var PV_TOPS = [{ k: "crop", label: "Cropping Summary" }, { k: "ent", label: "All Entities 1 Page Info Sheets" }];
+function pvTop(){ return ui.pvTop === "ent" ? "ent" : "crop"; }
+function pvSetTop(k){ ui.pvTop = k; if(k !== "ent") pvEntClose(true); render(); }
 function renderPrivateWorkbooks(){
-  var v = pvView(), html = pvTabBar(PV_VIEWS, v, "pvSetView");
+  var top = pvTop(), html = pvTabBar(PV_TOPS, top, "pvSetTop");
+  if(top === "ent") return html + renderPvEntities();
+  var v = pvView();
+  html += pvTabBar(PV_VIEWS, v, "pvSetView", "pv-tabs-sub");
   html += pvUploadCard(v) + pvChangesCard(v);
   if(v === "ds") return html + pvDrySummary() + pvRawCard("ds");
   if(v === "dh") return html + pvDryHarvest() + pvRawCard("dh");
@@ -28641,6 +28653,125 @@ function renderPrivateWorkbooks(){
   return html + '<div class="card"><div class="empty-state">' + (v === "cp"
     ? 'Nothing in Picking Details yet. Upload a Cotton spreadsheet with Picking in its name to fill this.'
     : 'Nothing in Cotton Summary yet. Upload a spreadsheet with Cotton in its name to fill this.') + '</div></div>';
+}
+
+/* ---- All Entities 1 Page Info Sheets ----
+   Each sheet is a file (PDF, Word, Excel, or a photo) kept in its own locked row on the server (api/private.js fileSave / fileGet /
+   fileDelete) -- never in the shared app data and never saved on the phone. Only a small list (name, size, who/when) sits with the
+   rest of the Private data in PV.data.privateInfo.entities = [{id, name, fileName, type, size, uploadedAt, uploadedBy}]. */
+var PV_ENT_MAX = 3 * 1024 * 1024;
+function pvEntList(){ var inf = (PV.data && PV.data.privateInfo) || {}; return (inf.entities || []).slice().sort(function(a, b){ return String(a.name).toLowerCase().localeCompare(String(b.name).toLowerCase()); }); }
+function pvFmtSize(n){ return n >= 1048576 ? (n / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round(n / 1024)) + " KB"; }
+function pvEntClose(quiet){
+  if(ui.pvEntView && ui.pvEntView.url){ try{ URL.revokeObjectURL(ui.pvEntView.url); }catch(e){} }
+  ui.pvEntView = null; if(!quiet) render();
+}
+function pvB64ToBlob(b64, type){
+  var bin = atob(b64), n = bin.length, arr = new Uint8Array(n);
+  for(var i = 0; i < n; i++) arr[i] = bin.charCodeAt(i);
+  return new Blob([arr], { type: type || "application/octet-stream" });
+}
+function pvEntUpload(input){
+  var files = Array.prototype.slice.call((input && input.files) || []);
+  if(input) input.value = "";
+  if(!files.length) return;
+  var info = PV.data && PV.data.privateInfo; if(!info){ ui.pvEntMsg = "Private isn't open."; render(); return; }
+  var u = currentUser(), msgs = [], done = Promise.resolve();
+  ui.pvEntMsg = "Uploading " + (files.length === 1 ? files[0].name : files.length + " files") + "..."; ui.pvEntBusy = true; render();
+  files.forEach(function(f){
+    done = done.then(function(){
+      if(f.size > PV_ENT_MAX){ msgs.push(f.name + ": too big (the limit is 3 MB)."); return; }
+      return new Promise(function(res){
+        var rd = new FileReader();
+        rd.onerror = function(){ msgs.push(f.name + ": couldn't be opened."); res(); };
+        rd.onload = function(){
+          var data = String(rd.result || ""), b64 = data.slice(data.indexOf(",") + 1), fid = uid("ent");
+          var t = pvTokens();
+          secureCall("/api/private", { action: "fileSave", token: t.token, ptoken: t.ptoken, fid: fid, name: f.name, type: f.type || "", b64: b64 }, 60000).then(function(r){
+            if(r.ok){
+              info.entities = info.entities || [];
+              info.entities.push({ id: fid, name: f.name.replace(/\.[A-Za-z0-9]{1,5}$/, "").replace(/_+/g, " ").trim() || f.name, fileName: f.name, type: f.type || "", size: f.size, uploadedAt: new Date().toISOString(), uploadedBy: u ? u.name : null });
+              msgs.push(f.name + ": added.");
+            } else if(r.needUnlock || r.needReauth || r.denied){ msgs.push(f.name + ": not saved -- " + (r.error || "please open Private again.")); }
+            else msgs.push(f.name + ": " + (r.network ? "no signal, not saved." : (r.error || "couldn't be saved.")));
+            res();
+          });
+        };
+        rd.readAsDataURL(f);
+      });
+    });
+  });
+  done.then(function(){
+    ui.pvEntBusy = false; ui.pvEntMsg = msgs.join("  ");
+    info.updatedAt = new Date().toISOString(); info.updatedBy = u ? u.name : null;
+    persistPrivate();
+  });
+}
+function pvEntRename(id){
+  var info = PV.data.privateInfo, e = byId(info.entities || [], id); if(!e) return;
+  var n = prompt("Name of this entity", e.name);
+  if(n == null) return; n = n.trim(); if(!n || n === e.name) return;
+  e.name = n.slice(0, 120); persistPrivate();
+}
+async function pvEntRemove(id){
+  var info = PV.data.privateInfo, e = byId(info.entities || [], id); if(!e) return;
+  if(!confirm("Remove \"" + e.name + "\" from Private? You can upload it again later.")) return;
+  var t = pvTokens();
+  var r = await secureCall("/api/private", { action: "fileDelete", token: t.token, ptoken: t.ptoken, fid: id });
+  if(!r.ok && !r.gone){ ui.pvEntMsg = r.network ? "No signal -- it wasn't removed." : (r.error || "It couldn't be removed."); render(); return; }
+  if(ui.pvEntView && ui.pvEntView.id === id) pvEntClose(true);
+  removeById(info.entities, id); persistPrivate();
+}
+async function pvEntFetch(id){
+  var t = pvTokens();
+  var r = await secureCall("/api/private", { action: "fileGet", token: t.token, ptoken: t.ptoken, fid: id }, 60000);
+  if(!r.ok) return { error: r.network ? "No signal -- couldn't get the file." : (r.gone ? "That file isn't there any more." : (r.error || "Couldn't get the file.")) };
+  try{ return { blob: pvB64ToBlob(r.b64, r.type), type: r.type, name: r.name }; }catch(e){ return { error: "The file couldn't be read." }; }
+}
+async function pvEntView(id){
+  if(ui.pvEntView && ui.pvEntView.id === id){ pvEntClose(); return; }
+  pvEntClose(true);
+  ui.pvEntView = { id: id, loading: true }; render();
+  var g = await pvEntFetch(id);
+  if(!ui.pvEntView || ui.pvEntView.id !== id) return;          // closed or switched while it was loading
+  if(g.error){ ui.pvEntView = { id: id, error: g.error }; render(); return; }
+  ui.pvEntView = { id: id, type: g.type, url: URL.createObjectURL(g.blob) }; render();
+}
+async function pvEntSave(id){
+  var e = byId((PV.data.privateInfo.entities || []), id); if(!e) return;
+  var g = await pvEntFetch(id);
+  if(g.error){ ui.pvEntMsg = g.error; render(); return; }
+  var url = URL.createObjectURL(g.blob), a = document.createElement("a");
+  a.href = url; a.download = e.fileName || g.name || "info-sheet"; document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(function(){ URL.revokeObjectURL(url); }, 4000);
+}
+function renderPvEntities(){
+  var list = pvEntList(), v = ui.pvEntView;
+  var html = '<div class="card"><div class="card-row"><h3 style="margin:0;font-size:15px;">All Entities 1 Page Info Sheets</h3>' +
+    '<button type="button" class="btn btn-primary btn-sm" style="width:auto;"' + (ui.pvEntBusy ? ' disabled' : '') + ' onclick="document.getElementById(\'pv-ent-file\').click()">Upload info sheet</button></div>' +
+    '<input type="file" id="pv-ent-file" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.gif,.webp,.txt,application/pdf,image/*" style="display:none;" onchange="pvEntUpload(this)" />' +
+    '<p class="row-muted" style="margin:4px 0 0;font-size:12px;">One page per entity. PDF, Word, Excel or a photo, up to 3 MB each. They are kept locked in Private, never on this phone.</p>' +
+    (ui.pvEntMsg ? '<p style="margin:8px 0 0;font-size:12.5px;font-weight:600;">' + esc(ui.pvEntMsg) + '</p>' : '') + '</div>';
+  if(!list.length) return html + '<div class="card"><div class="empty-state">No info sheets yet. Press Upload info sheet to add the first one.</div></div>';
+  list.forEach(function(e){
+    var open = v && v.id === e.id;
+    html += '<div class="card pv-ent"><div class="card-row" style="align-items:flex-start;gap:8px;"><div style="min-width:0;"><h3 style="margin:0;overflow-wrap:anywhere;">' + esc(e.name) + '</h3>' +
+      '<div class="row-muted" style="font-size:12px;margin-top:2px;">Uploaded ' + fmtDateTime(e.uploadedAt) + (e.uploadedBy ? ' by ' + esc(e.uploadedBy) : '') + ' &middot; ' + esc(e.fileName) + ' &middot; ' + pvFmtSize(e.size || 0) + '</div></div></div>' +
+      '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;">' +
+        '<button type="button" class="btn btn-primary btn-sm" style="width:auto;" onclick="pvEntView(\'' + e.id + '\')">' + (open ? 'Close' : 'View') + '</button>' +
+        '<button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="pvEntSave(\'' + e.id + '\')">Save</button>' +
+        '<button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="pvEntRename(\'' + e.id + '\')">Rename</button>' +
+        '<button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="pvEntRemove(\'' + e.id + '\')">Remove</button></div>';
+    if(open){
+      if(v.loading) html += '<p class="row-muted" style="margin:10px 0 0;">Opening&hellip;</p>';
+      else if(v.error) html += '<p style="margin:10px 0 0;color:var(--danger);font-weight:600;">' + esc(v.error) + '</p>';
+      else if(v.type === "application/pdf") html += '<iframe class="pv-ent-view" src="' + v.url + '" title="' + escAttr(e.name) + '"></iframe>';
+      else if(/^image\//.test(v.type || "")) html += '<img class="pv-ent-img" src="' + v.url + '" alt="' + escAttr(e.name) + '" />';
+      else html += '<p class="row-muted" style="margin:10px 0 0;font-size:13px;">This kind of file can&rsquo;t be shown on screen. Press Save to open it in another app.</p>';
+    }
+    html += '</div>';
+  });
+  return html;
 }
 function renderPrivateInfoCard(){
   var info = PV.data.privateInfo || { groups: [] };
