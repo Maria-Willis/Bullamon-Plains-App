@@ -2061,7 +2061,7 @@ const DEFAULT_STATE = {
 // change to this file, same as CACHE_NAME in sw.js -- it gives an instant,
 // no-technical-steps-needed way to confirm whether a given device is
 // actually running the latest deploy, without comparing file contents.
-var APP_BUILD = "2026-11-01.1";
+var APP_BUILD = "2026-11-02.1";
 
 /* ======================================================================
    UTILITIES
@@ -15801,6 +15801,23 @@ function tsMarkPaid(id){
   sheet.paidBy = currentUser().name;
   persist();
 }
+// Archive a whole fortnight in one click (admin only): every submitted, unpaid sheet with that start date is marked paid exactly as
+// "Mark paid" does it one at a time, so they all move into that fortnight's folder under "Paid fortnights" (and "Undo paid" still works
+// per sheet). Sheets still in draft are left alone and stay in the list.
+function tsArchiveFortnight(start){
+  if(!isAdmin()) return;
+  var all = tsData().items.filter(function(s){ return s.startDate === start && tsCanView(s); });
+  var ready = all.filter(function(s){ return s.status === "submitted" && !s.paid; });
+  if(!ready.length) return;
+  var drafts = all.filter(function(s){ return s.status !== "submitted"; });
+  var names = ready.map(function(s){ return s.person; }).filter(function(n, i, a){ return a.indexOf(n) === i; });
+  if(!confirm("Archive " + tsRangeLabel(start) + "? " + ready.length + (ready.length === 1 ? " submitted time sheet" : " submitted time sheets") + " (" + names.join(", ") + ") will be marked paid and moved into that fortnight's folder." +
+    (drafts.length ? "\n\n" + drafts.length + (drafts.length === 1 ? " sheet is" : " sheets are") + " still a draft and will stay where it is." : "") + "\n\nYou can undo each one from the folder.")) return;
+  var now = new Date().toISOString(), by = currentUser().name;
+  ready.forEach(function(s){ s.paid = true; s.paidAt = now; s.paidBy = by; });
+  setNotice("ok", tsRangeLabel(start) + " archived (" + ready.length + (ready.length === 1 ? " sheet" : " sheets") + " moved to Paid fortnights).");
+  persist();
+}
 function tsUnmarkPaid(id){
   var sheet = tsFind(id);
   if(!isAdmin() || !sheet || !sheet.paid) return;
@@ -16031,7 +16048,20 @@ function renderTimeSheets(){
   if(!all.length){
     html += '<div class="empty-state">No time sheets yet.</div>';
   } else {
-    if(items.length) html += items.map(tsCardHtml).join("");
+    if(items.length){
+      // 2026-11-02 (Maria: "a button ... that archives the fortnight once it's been dealt with"): unpaid sheets are grouped by
+      // fortnight, and an admin gets one "Archive fortnight" button per group that marks every submitted sheet in it paid at once.
+      var fStarts = [];
+      items.forEach(function(s){ if(fStarts.indexOf(s.startDate) === -1) fStarts.push(s.startDate); });
+      fStarts.sort(function(a, b){ return b.localeCompare(a); });
+      fStarts.forEach(function(st){
+        var here = items.filter(function(s){ return s.startDate === st; });
+        var ready = tsData().items.filter(function(s){ return s.startDate === st && s.status === "submitted" && !s.paid && tsCanView(s); }).length;
+        html += '<div class="card-row" style="gap:10px;flex-wrap:wrap;align-items:center;margin:14px 0 8px;"><h3 style="margin:0;">' + tsRangeLabel(st) + '</h3>' +
+          (isAdmin() && ready ? '<button type="button" class="btn btn-primary btn-sm" style="width:auto;" onclick="tsArchiveFortnight(\'' + st + '\')">Archive fortnight (' + ready + (ready === 1 ? ' sheet' : ' sheets') + ')</button>' : '') + '</div>' +
+          here.map(tsCardHtml).join("");
+      });
+    }
     else html += '<div class="empty-state">No unpaid time sheets.</div>';
     if(paidAll.length){
       var starts = [];
