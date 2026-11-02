@@ -2061,7 +2061,7 @@ const DEFAULT_STATE = {
 // change to this file, same as CACHE_NAME in sw.js -- it gives an instant,
 // no-technical-steps-needed way to confirm whether a given device is
 // actually running the latest deploy, without comparing file contents.
-var APP_BUILD = "2026-11-02.1";
+var APP_BUILD = "2026-11-02.2";
 
 /* ======================================================================
    UTILITIES
@@ -15808,8 +15808,11 @@ function tsArchiveFortnight(start){
   if(!isAdmin()) return;
   var all = tsData().items.filter(function(s){ return s.startDate === start && tsCanView(s); });
   var ready = all.filter(function(s){ return s.status === "submitted" && !s.paid; });
-  if(!ready.length) return;
   var drafts = all.filter(function(s){ return s.status !== "submitted"; });
+  if(!ready.length){
+    setNotice("err", drafts.length ? ("Nothing to archive yet for " + tsRangeLabel(start) + " -- its " + (drafts.length === 1 ? "sheet is" : drafts.length + " sheets are") + " still a draft. Sheets need to be submitted first.") : ("Nothing to archive for " + tsRangeLabel(start) + " -- it has no submitted sheets waiting to be marked paid."));
+    return;
+  }
   var names = ready.map(function(s){ return s.person; }).filter(function(n, i, a){ return a.indexOf(n) === i; });
   if(!confirm("Archive " + tsRangeLabel(start) + "? " + ready.length + (ready.length === 1 ? " submitted time sheet" : " submitted time sheets") + " (" + names.join(", ") + ") will be marked paid and moved into that fortnight's folder." +
     (drafts.length ? "\n\n" + drafts.length + (drafts.length === 1 ? " sheet is" : " sheets are") + " still a draft and will stay where it is." : "") + "\n\nYou can undo each one from the folder.")) return;
@@ -16057,8 +16060,8 @@ function renderTimeSheets(){
       fStarts.forEach(function(st){
         var here = items.filter(function(s){ return s.startDate === st; });
         var ready = tsData().items.filter(function(s){ return s.startDate === st && s.status === "submitted" && !s.paid && tsCanView(s); }).length;
-        html += '<div class="card-row" style="gap:10px;flex-wrap:wrap;align-items:center;margin:14px 0 8px;"><h3 style="margin:0;">' + tsRangeLabel(st) + '</h3>' +
-          (isAdmin() && ready ? '<button type="button" class="btn btn-primary btn-sm" style="width:auto;" onclick="tsArchiveFortnight(\'' + st + '\')">Archive fortnight (' + ready + (ready === 1 ? ' sheet' : ' sheets') + ')</button>' : '') + '</div>' +
+        html += '<div class="card-row" style="gap:10px;flex-wrap:wrap;align-items:center;margin-top:14px;margin-bottom:8px;"><h3 style="margin:0;">' + tsRangeLabel(st) + '</h3>' +
+          (isAdmin() ? '<button type="button" class="btn ' + (ready ? 'btn-primary' : 'btn-ghost') + ' btn-sm" style="width:auto;" onclick="tsArchiveFortnight(\'' + st + '\')">Archive fortnight' + (ready ? ' (' + ready + (ready === 1 ? ' sheet' : ' sheets') + ')' : '') + '</button>' : '') + '</div>' +
           here.map(tsCardHtml).join("");
       });
     }
@@ -16067,11 +16070,11 @@ function renderTimeSheets(){
       var starts = [];
       paidAll.forEach(function(s){ if(starts.indexOf(s.startDate) === -1) starts.push(s.startDate); });
       starts.sort(function(a, b){ return b.localeCompare(a); });
-      html += '<h3 style="margin:18px 0 8px;">Paid fortnights</h3>' + starts.map(function(st){
+      html += '<h3 style="margin-top:18px;margin-bottom:8px;">Paid fortnights</h3>' + starts.map(function(st){
         var here = paidAll.filter(function(s){ return s.startDate === st; });
         var names = here.map(function(s){ return s.person; }).filter(function(n, i, a){ return a.indexOf(n) === i; });
-        return '<button type="button" class="card ts-folder" style="margin-bottom:8px;width:100%;text-align:left;cursor:pointer;display:flex;gap:12px;align-items:center;" onclick="tsOpenFolder(\'' + st + '\')">' + TS_FOLDER_ICON +
-          '<span><span style="font-weight:700;display:block;">' + tsRangeLabel(st) + '</span><span class="row-muted" style="font-size:12.5px;">' + here.length + (here.length === 1 ? ' sheet' : ' sheets') + ' · ' + esc(names.join(", ")) + '</span></span></button>';
+        return '<div style="margin-bottom:8px;"><button type="button" class="card ts-folder" style="margin:0;width:100%;box-sizing:border-box;text-align:left;cursor:pointer;display:flex;gap:12px;align-items:center;" onclick="tsOpenFolder(\'' + st + '\')">' + TS_FOLDER_ICON +
+          '<span><span style="font-weight:700;display:block;">' + tsRangeLabel(st) + '</span><span class="row-muted" style="font-size:12.5px;">' + here.length + (here.length === 1 ? ' sheet' : ' sheets') + ' · ' + esc(names.join(", ")) + '</span></span></button></div>';
       }).join("");
     }
   }
