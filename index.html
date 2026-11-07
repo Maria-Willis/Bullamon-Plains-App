@@ -86,11 +86,15 @@
   button{font-family:inherit;}
   ::selection{background:var(--accent);color:var(--accent-contrast);}
 
+  /* 2026-11-04 (Maria: "when the app is viewed on certain phones, it resizes itself when it is used"): stop phones inflating text when
+     the screen turns, and let the page height follow the visible screen (dvh) so it doesn't jump as the browser's address bar slides away. */
+  html{-webkit-text-size-adjust:100%;text-size-adjust:100%;}
   .visually-hidden{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;}
 
   /* ---------- sign-in ---------- */
   #signin-screen{
     min-height:100vh;
+    min-height:100dvh;
     display:flex;
     align-items:center;
     justify-content:center;
@@ -203,7 +207,7 @@
   }
 
   /* ---------- app shell ---------- */
-  #app-shell{display:flex;min-height:100vh;}
+  #app-shell{display:flex;min-height:100vh;min-height:100dvh;}
   .sidebar{
     width:264px;
     flex:0 0 264px;
@@ -2062,7 +2066,28 @@ const DEFAULT_STATE = {
 // change to this file, same as CACHE_NAME in sw.js -- it gives an instant,
 // no-technical-steps-needed way to confirm whether a given device is
 // actually running the latest deploy, without comparing file contents.
-var APP_BUILD = "2026-11-03.2";
+// 2026-11-04: iPhones/iPads zoom the whole page in whenever a box smaller than 16px is tapped (every box in this app is 14px or less)
+// and often stay zoomed -- which looks like the app "resizing itself". While a text box is focused the page is told not to zoom
+// (maximum-scale=1), then the normal setting is put back, so pinch-zooming still works the rest of the time. Does nothing on other phones.
+(function(){
+  try{
+    var meta = document.querySelector('meta[name="viewport"]');
+    if(!meta) return;
+    var ios = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+    if(!ios) return;
+    var base = meta.getAttribute("content") || "width=device-width, initial-scale=1";
+    var isField = function(t){ return !!(t && /^(INPUT|SELECT|TEXTAREA)$/.test(t.tagName)); };
+    document.addEventListener("focusin", function(e){
+      if(!isField(e.target)) return;
+      var vv = window.visualViewport;
+      if(!vv || vv.scale <= 1.01) meta.setAttribute("content", base + ", maximum-scale=1");
+    });
+    document.addEventListener("focusout", function(){
+      setTimeout(function(){ if(!isField(document.activeElement)) meta.setAttribute("content", base); }, 300);
+    });
+  }catch(e){}
+})();
+var APP_BUILD = "2026-11-07.1";
 
 /* ======================================================================
    UTILITIES
@@ -27379,12 +27404,23 @@ function removeDriver(id){
 // sent to the server as base64 so the server never needs to touch Supabase
 // Storage for this -- it's a point-in-time export, not a stored file.
 var HARVEST_EXPORT_COLUMNS = ["Docket No","Date","Time","Driver","Carrier","Rego","Completed By","Commodity","Property","Paddock","Delivered To","Approx Weight","Email Status","Edited"];
+// 2026-11-07 (Maria: the Excel report is fed into another app, which couldn't recognise a silo because the cell carried extra words):
+// for a silo delivery the "Delivered To" cell is now just the silo's own identifier (its code in Silo Storage, e.g. "D3" or "1").
+// Everything else (GrainCorp, Thallon Grains, Farm -- Bunker..., Other...) reads exactly as before, and the screens/emails are unchanged.
+function harvestExportDeliveredTo(d){
+  if(d.deliveredTo === "Farm" && d.farmType !== "Bunker"){
+    var sl = d.siloId ? byId(siloData().items, d.siloId) : null;
+    if(sl && sl.code != null && String(sl.code) !== "") return String(sl.code);
+    if(d.siloNumber) return String(d.siloNumber);          // silo since removed, or an older docket typed by hand: what was recorded
+  }
+  return deliveredToSummary(d);
+}
 function harvestExportRows(){
   var items = (state.harvest.items || []).slice().sort(function(a,b){ return compareDockets(b,a); });
   return items.map(function(d){
     return [
       docketNumberDisplay(d), d.date || "", d.time || "", d.driverName || "", d.carrier || "", d.rego || "",
-      d.completedBy || "", commodityLabel(d), propertyLabel(d), d.paddock || "", deliveredToSummary(d),
+      d.completedBy || "", commodityLabel(d), propertyLabel(d), d.paddock || "", harvestExportDeliveredTo(d),
       d.approxWeight || "", d.emailStatus || "", d.editedAt ? (fmtDateTime(d.editedAt) + (d.editedBy ? (" by " + d.editedBy) : "")) : ""
     ];
   });
