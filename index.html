@@ -677,6 +677,15 @@
   /* each mob in its own box with a shadow (2026-10-29, Maria) */
   .pv-tabs{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-bottom:14px;}
   .pv-tabs-one{grid-template-columns:1fr;}
+  /* the single big Private button (All Entities 1 Page Info Sheets) */
+  #app .job-area-tab.pv-big{flex-direction:row;display:flex;align-items:center;justify-content:flex-start;gap:14px;min-height:84px;padding:16px 18px;border-radius:18px;background:var(--accent);border:1px solid var(--accent);color:#fff;box-shadow:0 10px 22px -10px rgba(24,112,185,.75);text-align:left;width:100%;}
+  #app .job-area-tab.pv-big:hover{background:var(--accent-strong);}
+  #app .job-area-tab.pv-big .job-area-name{font-size:19px;font-weight:800;color:#fff;line-height:1.2;display:block;}
+  .pv-big-ic{flex:none;width:46px;height:46px;border-radius:14px;background:rgba(255,255,255,.18);display:flex;align-items:center;justify-content:center;color:#fff;}
+  .pv-big-ic svg{width:26px;height:26px;}
+  .pv-big-txt{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px;}
+  .pv-big-sub{font-size:13px;font-weight:500;color:rgba(255,255,255,.88);}
+  .pv-big-go{flex:none;font-size:34px;line-height:1;color:#fff;opacity:.9;}
   .pv-tabs-sub .job-area-tab{padding-top:10px;padding-bottom:10px;}
   .pv-tabs-sub .job-area-name{font-size:14px;}
   .pv-ent-view{width:100%;height:70vh;border:1px solid var(--divider);border-radius:10px;background:#fff;margin-top:10px;}
@@ -2087,7 +2096,7 @@ const DEFAULT_STATE = {
     });
   }catch(e){}
 })();
-var APP_BUILD = "2026-11-07.1";
+var APP_BUILD = "2026-11-09.1";
 
 /* ======================================================================
    UTILITIES
@@ -16817,6 +16826,8 @@ function docketSiloField(style, selectedId, oldText, required){
     var its = siloSortedItems(d.items.filter(function(x){ return x.site === st.id; }));
     if(!its.length) return;
     opts += '<optgroup label="' + escAttr(st.name) + '">' + its.map(function(x){
+      // (2026-11-07: shortened to "1 (Bullamon Plains)" at Maria's request, then put back the same day -- the crop and room left help the men
+      // in the paddock see a silo is full or holds the wrong crop.)
       var room = siloCap(x) ? siloFmt(Math.max(0, siloCap(x) - siloBalance(x))) + ' t room' : 'no fill level';
       return '<option value="' + escAttr(x.id) + '"' + (x.id === selectedId ? " selected" : "") + '>' + esc(x.code + (x.crop ? " - " + x.crop : "") + " (" + room + ")") + '</option>';
     }).join("") + '</optgroup>';
@@ -28310,7 +28321,7 @@ function renderPrivate(){
   if(pvTop() !== "home") return html;               // a Cropping Summary / Entities page shows only itself; go back to Private for the rest
   // the old hand-typed Cropping Summary was scrapped (2026-10-29); its card only shows if something is in it
   if(((PV.data.privateInfo || {}).groups || []).length || ui.openForms.editPrivateInfo || ui.openForms.importPrivateInfo) html += renderPrivateInfoCard();
-  html += renderPrivateNotesCard();
+  if(PV_SHOW_NOTES) html += renderPrivateNotesCard();
   // the code and access cards sit at the bottom so the Cotton / Dryland tabs are the first thing on the page (2026-10-29)
   html += renderPrivateCodeCard();
   if(isAdmin()) html += renderPrivateAccessCard();
@@ -28810,6 +28821,16 @@ function pvWbsFor(v){
 }
 function pvSetView(k){ ui.pvView = k; render(); }
 function pvToggleRaw(v){ ui.pvRaw = ui.pvRaw || {}; ui.pvRaw[v] = !ui.pvRaw[v]; render(); }
+// 2026-11-09 (Maria: "make the All Entities 1 Page Info Sheets more obvious"): while it is the only button on the Private page it is a large
+// blue button with a folder picture, how many sheets are in it, and an arrow -- not a plain white tile.
+function pvBigButton(it){
+  var n = pvEntList().length;
+  return '<div class="pv-tabs pv-tabs-one"><button type="button" role="tab" class="job-area-tab pv-big" onclick="pvSetTop(\'' + it.k + '\')">' +
+    '<span class="pv-big-ic">' + TS_FOLDER_ICON + '</span>' +
+    '<span class="pv-big-txt"><span class="job-area-name">' + esc(it.label) + '</span>' +
+    '<span class="pv-big-sub">' + (n ? n + (n === 1 ? ' info sheet' : ' info sheets') + ' &middot; tap to open' : 'Tap to open and add the first one') + '</span></span>' +
+    '<span class="pv-big-go" aria-hidden="true">&rsaquo;</span></button></div>';
+}
 function pvTabBar(items, cur, fn, extraClass){
   return '<div class="pv-tabs' + (extraClass ? ' ' + extraClass : '') + '" role="tablist">' + items.map(function(it){
     return '<button type="button" role="tab" aria-selected="' + (cur === it.k ? 'true' : 'false') + '" class="job-area-tab' + (cur === it.k ? ' active' : '') + '" onclick="' + fn + '(\'' + it.k + '\')"><span class="job-area-name">' + esc(it.label) + '</span></button>';
@@ -28869,6 +28890,9 @@ var PV_TOPS = [{ k: "crop", label: "Cropping Summary" }, { k: "ent", label: "All
 // 2026-10-31 (Maria: "lets hide the cropping summary section for now"): set PV_SHOW_CROP to true to bring the Cropping Summary button back.
 // Nothing is deleted -- its uploaded spreadsheets stay safely in Private and reappear as they were.
 var PV_SHOW_CROP = false;
+// 2026-11-09 (Maria: "remove the notes section from Private"): the Notes card is hidden. Nothing is deleted -- any notes already saved stay safely in Private;
+// set PV_SHOW_NOTES to true to bring the card back as it was.
+var PV_SHOW_NOTES = false;
 function pvTop(){ return ui.pvTop === "ent" ? "ent" : (ui.pvTop === "crop" && PV_SHOW_CROP ? "crop" : "home"); }
 function pvSetTop(k){ ui.pvTop = k; pvEntClose(true); render(); }
 function pvGoHome(){ pvSetTop("home"); window.scrollTo(0, 0); }
@@ -28880,7 +28904,8 @@ function renderPrivateWorkbooks(){
   var top = pvTop();
   if(top === "home"){
     var tops = PV_TOPS.filter(function(t){ return PV_SHOW_CROP || t.k !== "crop"; });
-    return pvTabBar(tops, "", "pvSetTop", tops.length === 1 ? "pv-tabs-one" : "");
+    if(tops.length === 1) return pvBigButton(tops[0]);
+    return pvTabBar(tops, "", "pvSetTop", "");
   }
   var html = pvBackBar(top === "ent" ? PV_TOPS[1].label : PV_TOPS[0].label);
   if(top === "ent") return html + renderPvEntities();
