@@ -530,6 +530,9 @@
 // v187 (2026-10-28, later): Livestock: on All Farms the map has farm buttons so any farm's map can be shown -- index.html changed.
 // v188 (2026-10-28, later): Livestock: Bullamon Plains paddock outlines (29) on the map; each paddock drawn in its own AgriWebb colour -- index.html changed.
 // v189 (2026-10-28, later): Livestock: Fenton and Nullera outlines, every paddock in its own AgriWebb colour, and the latest AgriWebb mob lists added (mobs already there skipped) -- index.html changed.
+// v231 (2026-11-09): Private: Notes card hidden; All Entities 1 Page Info Sheets is a large blue button with a folder picture and sheet count -- index.html changed.
+// v230 (2026-11-07, later still): Harvest docket form: silo dropdown back to showing crop and room left (v229 change undone at Maria's request) -- index.html changed.
+// v229 (2026-11-07, later): Harvest docket form: silo dropdown lists just the silo code and heading, e.g. "1 (Bullamon Plains)" -- index.html changed.
 // v228 (2026-11-07): Harvest Dockets Excel: silo deliveries show just the silo code in Delivered To -- index.html changed.
 // v227 (2026-11-04): phones: stops iPhone zooming in when a text box is tapped, text size lock, page height follows the visible screen -- index.html changed.
 // v226 (2026-11-03, later): Private: PDF info sheets are drawn on screen with pdf.js so they open on phones; Private unlock remembered 30 days -- index.html changed (api/_secure.js too).
@@ -569,7 +572,7 @@
 // v192 (2026-10-28, later): Phone layout: every box runs edge to edge across the full width of the screen -- index.html changed.
 // v191 (2026-10-28, later): Livestock map: Full screen button -- the map fills the whole phone screen (farm buttons on top, zoom/Fit/Sat buttons, paddock panel at the bottom, satellite stays on) -- index.html changed.
 // v190 (2026-10-28, later): Livestock map: mobs show as a small cow / sheep symbol and only show their names once you zoom in far enough -- index.html changed.
-var CACHE_NAME = "bullamon-plains-shell-v228";
+var CACHE_NAME = "bullamon-plains-shell-v231";
 
 var SHELL_ASSETS = [
   "./",
