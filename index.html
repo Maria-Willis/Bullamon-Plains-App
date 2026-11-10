@@ -2096,7 +2096,7 @@ const DEFAULT_STATE = {
     });
   }catch(e){}
 })();
-var APP_BUILD = "2026-11-09.1";
+var APP_BUILD = "2026-11-10.2";
 
 /* ======================================================================
    UTILITIES
@@ -24539,7 +24539,10 @@ function renderSdsList(){
   '</div>';
 
   html += '<div class="card"><div class="card-row"><h3 style="margin:0;">Safety data sheets</h3>' +
-    (isAdmin() ? '<button type="button" class="btn btn-primary btn-sm" style="width:auto;" onclick="toggleForm(\'newSds\')">' + (ui.openForms.newSds ? "Cancel" : "+ Add SDS") + '</button>' : '') + '</div>' +
+    '<span style="display:flex;gap:6px;flex-wrap:wrap;">' +
+    (isAdmin() && sdsAll.length ? '<button type="button" class="btn btn-ghost btn-sm" style="width:auto;color:var(--danger);" onclick="sdsClearAll()">Clear all chemicals&hellip;</button>' : '') +
+    (isAdmin() ? '<button type="button" class="btn btn-primary btn-sm" style="width:auto;" onclick="sdsBulkToggle()">' + (ui.openForms.bulkSds ? "Close bulk upload" : "Upload many SDS") + '</button>' : '') +
+    (isAdmin() ? '<button type="button" class="btn btn-primary btn-sm" style="width:auto;" onclick="toggleForm(\'newSds\')">' + (ui.openForms.newSds ? "Cancel" : "+ Add SDS") + '</button>' : '') + '</span></div>' +
     '<div style="margin-top:10px;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--surface-2);">' +
       '<div style="font-weight:700;font-size:14px;">' + cOk + ' of ' + sdsAll.length + ' have the manufacturer\u2019s SDS on file</div>' +
       '<div class="row-muted" style="font-size:12.5px;margin-top:2px;">The details shown in this app are a summary only, not the Safety Data Sheet. The manufacturer\u2019s own SDS (PDF) is the document to rely on.</div>' +
@@ -24557,8 +24560,9 @@ function renderSdsList(){
       '<input id="sds-search-input" class="search-input" type="text" placeholder="Search safety data sheets…" value="' + escAttr(ui.sdsQuery) + '" oninput="ui.sdsQuery=this.value;render();" />' +
     '</div>';
   if(ui.openForms.newSds) html += renderSdsForm();
+  if(isAdmin() && ui.openForms.bulkSds) html += renderSdsBulkPanel();
   if(sdsList.length === 0){
-    html += '<div class="empty-state">No safety data sheets match your search.</div>';
+    html += '<div class="empty-state">' + (sdsAll.length ? 'No safety data sheets match your search.' : (isAdmin() ? 'No chemicals yet. Tap + Add SDS to add the first one.' : 'No chemicals have been added yet.')) + '</div>';
   }
   html += '<div class="list-cards" style="margin-top:8px;">' + sdsList.map(function(c){
     var needsDetails = sdsNeedsDetails(c);
@@ -25103,6 +25107,213 @@ function saveSds(e, id){
   if(id){ Object.assign(byId(state.chemicals.sds, id), data); ui.editing.sds = null; }
   else { state.chemicals.sds.push(Object.assign({ id: uid("c") }, data)); ui.openForms.newSds = false; }
   persist();
+}
+/* BULK SDS UPLOAD (2026-11-10, Maria: "Yes build it please" -- after clearing the section to start again with many SDS to upload).
+   Admin-only. Pick many PDFs at once; each becomes one chemical named from its file name (editable before uploading), with the
+   manufacturer's PDF attached exactly as for a single upload (same storage folder, same record: c.sdsDoc). If a chemical with the
+   same name is already in the list the PDF is attached to it instead of making a duplicate. New chemicals are marked "Name to check"
+   (the name came from a file name, not the label) and "Needs SDS details" until someone adds the summary. The issue date is read from
+   the PDF's own text where possible (pdf.js, best effort) and shown for checking; it can be left blank and added later. */
+var SDS_MONTHS = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12 };
+function sdsNameFromFile(fn){
+  var n = String(fn || "").replace(/\.pdf$/i, "").replace(/_+/g, " ");
+  n = n.replace(/\b(m?sds|safety[\s-]*data[\s-]*sheet)\b/ig, " ").replace(/\(\s*\d+\s*\)\s*$/, " ");
+  n = n.replace(/\s{2,}/g, " ").replace(/^[\s\-–—.,]+|[\s\-–—.,]+$/g, "").trim();
+  return n || String(fn || "").replace(/\.pdf$/i, "").trim();
+}
+function sdsNormName(s){ return String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, ""); }
+function sdsIso(y, m, d){
+  y = +y; m = +m; d = +d;
+  if(y < 100) y += 2000;
+  if(!(y >= 1990 && m >= 1 && m <= 12 && d >= 1 && d <= 31)) return "";
+  var iso = y + "-" + (m < 10 ? "0" : "") + m + "-" + (d < 10 ? "0" : "") + d;
+  return iso <= todayISO() ? iso : "";
+}
+// Looks for "Issue date / Date of issue / Revision date / Date prepared ..." in the SDS text and reads the date after it.
+function sdsFindIssueDate(text){
+  var t = String(text || "").replace(/\s+/g, " ");
+  var re = /(issue date|date of issue|date issued|issued|revision date|date of revision|date revised|revised|date prepared|date of preparation|preparation date|date compiled)\b[^0-9A-Za-z]{0,6}(.{0,40})/ig, m;
+  while((m = re.exec(t))){
+    var s = m[2], x;
+    if((x = /(\d{4})[\/.-](\d{1,2})[\/.-](\d{1,2})/.exec(s))){ var a = sdsIso(x[1], x[2], x[3]); if(a) return a; }
+    if((x = /(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})/.exec(s))){ var b = sdsIso(x[3], x[2], x[1]); if(b) return b; }
+    if((x = /(\d{1,2})(?:st|nd|rd|th)?\s+([A-Za-z]{3,9})\.?,?\s+(\d{4})/.exec(s)) && SDS_MONTHS[x[2].slice(0, 3).toLowerCase()]){ var c = sdsIso(x[3], SDS_MONTHS[x[2].slice(0, 3).toLowerCase()], x[1]); if(c) return c; }
+    if((x = /([A-Za-z]{3,9})\.?\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{4})/.exec(s)) && SDS_MONTHS[x[1].slice(0, 3).toLowerCase()]){ var d2 = sdsIso(x[3], SDS_MONTHS[x[1].slice(0, 3).toLowerCase()], x[2]); if(d2) return d2; }
+  }
+  return "";
+}
+function sdsBulkToggle(){ if(!isAdmin()) return; ui.openForms.bulkSds = !ui.openForms.bulkSds; render(); }
+function sdsBulkMatch(){
+  var b = ui.sdsBulk; if(!b) return;
+  var seen = {};
+  b.items.forEach(function(it){
+    if(it.status === "done") return;
+    var k = sdsNormName(it.name);
+    var ex = k ? (state.chemicals.sds || []).filter(function(c){ return sdsNormName(c.productName) === k; })[0] : null;
+    it.matchId = ex ? ex.id : ""; it.matchName = ex ? ex.productName : "";
+    it.dup = !!(k && seen[k]);
+    if(k && it.include !== false) seen[k] = true;
+  });
+}
+function sdsBulkPick(input){
+  if(!isAdmin()) return;
+  var files = Array.prototype.slice.call((input && input.files) || []);
+  if(input) input.value = "";
+  var b = ui.sdsBulk || (ui.sdsBulk = { items: [], msg: "" });
+  var skipped = 0;
+  files.forEach(function(file){
+    if(!/\.pdf$/i.test(file.name || "") && file.type !== "application/pdf"){ skipped++; return; }
+    b.items.push({ id: uid("sb"), file: file, name: sdsNameFromFile(file.name), include: true, issueDate: "", dateAuto: false, status: "", error: "" });
+  });
+  b.msg = skipped ? (skipped + (skipped === 1 ? " file was skipped because it isn't a PDF." : " files were skipped because they aren't PDFs.")) : "";
+  b.done = false;
+  sdsBulkMatch(); render(); sdsBulkReadDates();
+}
+async function sdsBulkReadDates(){
+  var b = ui.sdsBulk; if(!b) return;
+  var todo = b.items.filter(function(it){ return !it.dateRead && it.status !== "done"; });
+  if(!todo.length) return;
+  var lib = null;
+  try{ lib = await loadPdfJs(); }catch(e){ lib = null; }
+  for(var i = 0; i < todo.length; i++){
+    var it = todo[i];
+    if(ui.sdsBulk !== b) return;
+    it.dateRead = true;
+    if(!lib) continue;
+    try{
+      var pdf = await lib.getDocument({ data: await it.file.arrayBuffer() }).promise, txt = "";
+      for(var p = 1; p <= Math.min(3, pdf.numPages); p++){
+        var tc = await (await pdf.getPage(p)).getTextContent();
+        txt += " " + tc.items.map(function(x){ return x.str; }).join(" ");
+      }
+      var found = sdsFindIssueDate(txt);
+      if(found && !it.issueDate && ui.sdsBulk === b){
+        it.issueDate = found; it.dateAuto = true;
+        var el = document.getElementById("sdsb-date-" + it.id); if(el) el.value = found;
+        var lab = document.getElementById("sdsb-auto-" + it.id); if(lab) lab.style.display = "";
+      }
+    }catch(e){}
+  }
+}
+function sdsBulkItem(id){ var b = ui.sdsBulk; return b ? b.items.filter(function(x){ return x.id === id; })[0] : null; }
+function sdsBulkName(id, v){ var it = sdsBulkItem(id); if(!it) return; it.name = String(v || "").trim(); sdsBulkMatch(); render(); }
+function sdsBulkDate(id, v){ var it = sdsBulkItem(id); if(!it) return; it.issueDate = v || ""; it.dateAuto = false; var lab = document.getElementById("sdsb-auto-" + id); if(lab) lab.style.display = "none"; }
+function sdsBulkInclude(id, on){ var it = sdsBulkItem(id); if(!it) return; it.include = !!on; sdsBulkMatch(); render(); }
+function sdsBulkRemove(id){ var b = ui.sdsBulk; if(!b || b.running) return; b.items = b.items.filter(function(x){ return x.id !== id; }); sdsBulkMatch(); if(!b.items.length) ui.sdsBulk = null; render(); }
+function sdsBulkClear(){ var b = ui.sdsBulk; if(b && b.running) return; ui.sdsBulk = null; render(); }
+function renderSdsBulkPanel(){
+  var b = ui.sdsBulk || { items: [], msg: "" };
+  var html = '<div class="form-panel" style="margin-top:10px;"><h4 style="margin:0 0 6px;">Upload many SDS at once</h4>' +
+    '<p class="row-muted" style="margin:0 0 10px;font-size:12.5px;">Choose all the manufacturers&rsquo; SDS PDFs. Each one becomes a chemical named from its file name &mdash; fix any name below before uploading. If a chemical with that name is already in the list the PDF is attached to it. Needs a connection; up to 50 MB per file.</p>' +
+    '<input type="file" id="sds-bulk-file" multiple accept="application/pdf,.pdf" style="display:none;" onchange="sdsBulkPick(this)" />' +
+    '<div style="display:flex;gap:8px;flex-wrap:wrap;"><button type="button" class="btn btn-primary btn-sm" style="width:auto;"' + (b.running ? ' disabled' : '') + ' onclick="document.getElementById(\'sds-bulk-file\').click()">' + (b.items.length ? 'Add more PDFs' : 'Choose PDFs') + '</button>' +
+    (b.items.length ? '<button type="button" class="btn btn-ghost btn-sm" style="width:auto;"' + (b.running ? ' disabled' : '') + ' onclick="sdsBulkClear()">Clear list</button>' : '') + '</div>';
+  if(b.msg) html += '<p style="margin:8px 0 0;font-size:12.5px;font-weight:600;">' + esc(b.msg) + '</p>';
+  b.items.forEach(function(it){
+    var st = it.status === "done" ? '<span style="color:var(--success,#166534);font-weight:600;">&#10003; ' + esc(it.result || "Done") + '</span>'
+      : it.status === "error" ? '<span style="color:var(--danger);font-weight:600;">' + esc(it.error || "Couldn\'t upload") + '</span>'
+      : it.dup ? '<span style="color:var(--danger);">Same name as an earlier file in this list &mdash; change the name or remove it</span>'
+      : it.matchId ? '<span class="row-muted">Already in the list &mdash; the PDF will be attached to &ldquo;' + esc(it.matchName) + '&rdquo;</span>'
+      : '<span class="row-muted">New chemical</span>';
+    var locked = b.running || it.status === "done";
+    html += '<div class="card" style="box-shadow:none;border:1px solid var(--border);margin:10px 0 0;padding:10px 12px;">' +
+      '<div style="display:flex;gap:8px;align-items:flex-start;">' +
+      '<input type="checkbox" style="margin-top:12px;flex:none;"' + (it.include !== false && !it.dup ? ' checked' : '') + (locked || it.dup ? ' disabled' : '') + ' onchange="sdsBulkInclude(\'' + it.id + '\',this.checked)" />' +
+      '<div style="flex:1;min-width:0;"><input type="text" value="' + escAttr(it.name) + '"' + (locked ? ' disabled' : '') + ' style="font-weight:600;" onchange="sdsBulkName(\'' + it.id + '\',this.value)" />' +
+      '<div style="font-size:12px;margin-top:4px;">' + st + '</div>' +
+      '<div class="row-muted" style="font-size:11.5px;margin-top:2px;overflow-wrap:anywhere;">' + esc(it.file.name) + ' &middot; ' + esc(fmtFileSize(it.file.size)) + '</div>' +
+      '<div style="margin-top:6px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;"><label style="font-size:12px;margin:0;">Issue date</label><input type="date" id="sdsb-date-' + it.id + '" value="' + escAttr(it.issueDate) + '"' + (locked ? ' disabled' : '') + ' style="width:auto;" onchange="sdsBulkDate(\'' + it.id + '\',this.value)" />' +
+      '<span id="sdsb-auto-' + it.id + '" class="row-muted" style="font-size:11.5px;' + (it.dateAuto ? '' : 'display:none;') + '">read from the PDF &mdash; please check</span></div></div>' +
+      (locked ? '' : '<button type="button" class="btn btn-ghost btn-sm" style="width:auto;flex:none;" onclick="sdsBulkRemove(\'' + it.id + '\')" aria-label="Remove from list">&times;</button>') +
+      '</div></div>';
+  });
+  if(b.items.length){
+    var n = b.items.filter(function(it){ return it.status !== "done" && it.include !== false && !it.dup; }).length;
+    if(b.running) html += '<p style="margin:12px 0 0;font-weight:600;">Uploading ' + Math.min(b.n + 1, b.total) + ' of ' + b.total + '&hellip; keep this page open.</p>';
+    else html += '<div class="form-actions" style="margin-top:12px;"><button type="button" class="btn btn-primary" style="width:auto;"' + (n ? '' : ' disabled') + ' onclick="sdsBulkRun()">Upload ' + n + (n === 1 ? ' SDS' : ' SDS') + '</button></div>' +
+      '<p class="row-muted" style="margin:8px 0 0;font-size:12px;">New chemicals are added with &ldquo;Name to check&rdquo; and &ldquo;Needs SDS details&rdquo; until you confirm each name and add its summary. The PDF itself is kept exactly as supplied.</p>';
+  }
+  return html + '</div>';
+}
+async function sdsBulkRun(){
+  var b = ui.sdsBulk;
+  if(!isAdmin() || !b || b.running) return;
+  if(!supabaseClient || isOffline){ b.msg = "Can't upload PDFs without a connection. Try again once you have signal."; render(); return; }
+  sdsBulkMatch();
+  var todo = b.items.filter(function(it){ return it.status !== "done" && it.include !== false && !it.dup; });
+  var bad = 0;
+  todo = todo.filter(function(it){
+    it.error = "";
+    if(!it.name){ it.status = "error"; it.error = "Give it a name first."; bad++; return false; }
+    if(it.issueDate && it.issueDate > todayISO()){ it.status = "error"; it.error = "That issue date is in the future."; bad++; return false; }
+    if(it.file.size > PARTS_PDF_MAX_BYTES){ it.status = "error"; it.error = "Over the 50 MB limit (" + fmtFileSize(it.file.size) + ")."; bad++; return false; }
+    it.status = "";
+    return true;
+  });
+  if(!todo.length){ b.msg = bad ? "Fix the items marked in red, then upload again." : "Nothing selected to upload."; render(); return; }
+  b.running = true; b.total = todo.length; b.n = 0; b.msg = ""; render();
+  var added = 0, attached = 0, failed = bad;
+  for(var i = 0; i < todo.length; i++){
+    var it = todo[i];
+    try{
+      var path = "sds/" + uid("sds") + ".pdf";
+      var up = await supabaseClient.storage.from("machinery-photos").upload(path, it.file, { cacheControl: "3600", upsert: false, contentType: "application/pdf" });
+      if(up.error) throw up.error;
+      var pub = supabaseClient.storage.from("machinery-photos").getPublicUrl(path);
+      var doc = { name: (it.file.name || "SDS").replace(/\.pdf$/i, ""), url: pub.data.publicUrl, storagePath: path, size: it.file.size, issueDate: it.issueDate || "", addedBy: currentUser() ? currentUser().name : "", addedAt: new Date().toISOString() };
+      var k = sdsNormName(it.name);
+      var ex = (state.chemicals.sds || []).filter(function(c){ return sdsNormName(c.productName) === k; })[0];
+      if(ex){
+        var old = ex.sdsDoc;
+        ex.sdsDoc = doc;
+        if(old && old.storagePath) supabaseClient.storage.from("machinery-photos").remove([old.storagePath]).catch(function(err){ console.error("[Bullamon Plains] couldn't delete the replaced SDS file (left in storage):", err); });
+        it.result = "Attached to “" + ex.productName + "”"; attached++;
+      } else {
+        state.chemicals.sds.push({ id: uid("c"), productName: it.name, nameNeedsCheck: true, sdsDoc: doc, hazardStatements: [], precautions: [], hazardCategories: [], pictograms: [], ppePoints: [], storagePoints: [], bufferDistances: [], applicationLimits: [], withholdingHarvest: [], withholdingGrazing: [], lastReviewed: todayISO() });
+        it.result = "Added as a new chemical"; added++;
+      }
+      it.status = "done";
+    }catch(err){
+      console.error("[Bullamon Plains] bulk SDS upload failed for", it.file && it.file.name, err);
+      it.status = "error"; it.error = "Couldn't upload (" + (err && err.message ? err.message : "unknown error") + "). Try again.";
+      failed++;
+    }
+    b.n++;
+    if(i % 5 === 4 && i < todo.length - 1) persist(); else render();
+  }
+  b.running = false; b.done = true;
+  b.msg = "Finished: " + added + " new " + (added === 1 ? "chemical" : "chemicals") + " added, " + attached + " attached to existing" + (failed ? ", " + failed + " not uploaded (marked in red)" : "") + ".";
+  persist();
+}
+// 2026-11-10 (Maria: "Clear every chemical from the safety data sheets section and start again. I have many SDS to upload"): admin-only.
+// Removes every chemical from Safety Data Sheets (and the manufacturer's SDS PDFs uploaded to them), after two confirmations. A backup
+// of the list is saved to the device first. The separate Chemical Register (stock, batch numbers, usage) is NOT touched.
+function sdsClearAll(){
+  if(!isAdmin()) return;
+  var list = state.chemicals.sds || [];
+  if(!list.length){ setNotice("err", "There are no chemicals in Safety Data Sheets to clear."); return; }
+  var files = list.filter(function(c){ return c && c.sdsDoc && c.sdsDoc.storagePath; }).map(function(c){ return c.sdsDoc.storagePath; });
+  if(!confirm("Remove ALL " + list.length + " chemicals from Safety Data Sheets?\n\n" +
+    (files.length ? "The " + files.length + " uploaded SDS " + (files.length === 1 ? "file" : "files") + " will be deleted too.\n" : "") +
+    "A backup file of the list is saved to this device first. The Chemical Register (stock and usage) is not touched.\n\nThis cannot be undone.")) return;
+  var word = prompt("To confirm, type CLEAR");
+  if(!word || word.trim().toUpperCase() !== "CLEAR"){ setNotice("warn", "Nothing was cleared."); return; }
+  var backupOk = false;
+  try{
+    var blob = new Blob([JSON.stringify({ savedAt: new Date().toISOString(), safetyDataSheets: list }, null, 1)], { type: "application/json" });
+    var url = URL.createObjectURL(blob), a = document.createElement("a");
+    a.href = url; a.download = "sds-backup-" + todayISO() + ".json"; document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(function(){ URL.revokeObjectURL(url); }, 4000);
+    backupOk = true;
+  }catch(e){ backupOk = false; }
+  if(files.length && supabaseClient){
+    supabaseClient.storage.from("machinery-photos").remove(files).catch(function(err){ console.error("[Bullamon Plains] couldn't delete some stored SDS files (left in storage):", err); });
+  }
+  state.chemicals.sds = [];
+  state.chemicals.sdsClearedAt = new Date().toISOString();
+  ui.sdsSelected = null; ui.editing.sds = null; ui.sdsQuery = ""; ui.sdsFilter = ""; ui.openForms.newSds = false;
+  persist();
+  setNotice("ok", "All " + list.length + " chemicals were cleared from Safety Data Sheets." + (backupOk ? " A backup file (sds-backup-" + todayISO() + ".json) was saved to your Downloads." : "") + " You can start adding again with + Add SDS.");
 }
 function removeSds(id){
   removeById(state.chemicals.sds, id);
