@@ -530,6 +530,7 @@
 // v187 (2026-10-28, later): Livestock: on All Farms the map has farm buttons so any farm's map can be shown -- index.html changed.
 // v188 (2026-10-28, later): Livestock: Bullamon Plains paddock outlines (29) on the map; each paddock drawn in its own AgriWebb colour -- index.html changed.
 // v189 (2026-10-28, later): Livestock: Fenton and Nullera outlines, every paddock in its own AgriWebb colour, and the latest AgriWebb mob lists added (mobs already there skipped) -- index.html changed.
+// v234 (2026-11-11): Safety Data Sheets: app reads each SDS PDF (first aid, signal word, hazard statements, pictograms) and never attaches the same PDF twice -- index.html changed.
 // v233 (2026-11-10, later): Safety Data Sheets: admin "Upload many SDS" (bulk PDF upload, one chemical per file) -- index.html changed.
 // v232 (2026-11-10): Safety Data Sheets: admin "Clear all chemicals" button (backup first, two confirmations) -- index.html changed.
 // v231 (2026-11-09): Private: Notes card hidden; All Entities 1 Page Info Sheets is a large blue button with a folder picture and sheet count -- index.html changed.
@@ -574,7 +575,7 @@
 // v192 (2026-10-28, later): Phone layout: every box runs edge to edge across the full width of the screen -- index.html changed.
 // v191 (2026-10-28, later): Livestock map: Full screen button -- the map fills the whole phone screen (farm buttons on top, zoom/Fit/Sat buttons, paddock panel at the bottom, satellite stays on) -- index.html changed.
 // v190 (2026-10-28, later): Livestock map: mobs show as a small cow / sheep symbol and only show their names once you zoom in far enough -- index.html changed.
-var CACHE_NAME = "bullamon-plains-shell-v233";
+var CACHE_NAME = "bullamon-plains-shell-v234";
 
 var SHELL_ASSETS = [
   "./",
