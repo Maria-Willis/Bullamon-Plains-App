@@ -2096,7 +2096,7 @@ const DEFAULT_STATE = {
     });
   }catch(e){}
 })();
-var APP_BUILD = "2026-11-10.2";
+var APP_BUILD = "2026-11-10.3";
 
 /* ======================================================================
    UTILITIES
@@ -24840,6 +24840,7 @@ function renderSdsDetail(c){
   // same for every chemical in Australia, so they're fixed here rather than
   // fields to fill in per product.
   html += '<div class="banner warn" style="margin:0 0 12px;"><span><strong>Summary only &ndash; not the Safety Data Sheet.</strong> What is below was put together from labels and other sources and may be out of date or wrong. In an emergency use the manufacturer&rsquo;s SDS and call Poisons Info 13 11 26 or 000.</span></div>';
+  if(!hideSummary) html += renderSdsAutoReadBanner(c);
   html += '<div class="card" style="background:var(--danger-contrast);border:1px solid #f3c6bd;">' +
     '<h3 style="margin:0 0 8px;color:var(--danger);font-size:15px;">+ First aid</h3>' +
     '<p style="margin:0 0 14px;font-size:13px;white-space:pre-wrap;">' + (hideSummary ? "First aid details are not shown because there is no manufacturer SDS on file for this product. Open the product label or the SDS, or call Poisons Info now." : (c.firstAid ? esc(c.firstAid) : "First aid details haven’t been added for this product yet — check the product label or contact the supplier.")) + '</p>' +
@@ -24928,15 +24929,16 @@ function renderSdsDocCard(c){
   }
   if(admin){
     html += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;"><button type="button" class="btn btn-ghost btn-sm" onclick="toggleForm(\'' + key + '\')">' + (ui.openForms[key] ? "Cancel" : (d && d.url ? "Replace the SDS" : "+ Upload the SDS")) + '</button>' +
-      (d && d.url ? '<button type="button" class="btn btn-danger btn-sm" onclick="removeSdsDoc(\'' + c.id + '\')">Remove</button>' : '') + '</div>';
+      (d && d.url ? '<button type="button" class="btn btn-ghost btn-sm" onclick="sdsReadFromStored(\'' + c.id + '\')">Read first aid &amp; hazard info from this SDS</button><button type="button" class="btn btn-danger btn-sm" onclick="removeSdsDoc(\'' + c.id + '\')">Remove</button>' : '') + '</div>' +
+      (ui.sdsReadMsg && ui.sdsReadMsg[c.id] ? '<p style="margin:8px 0 0;font-size:12.5px;font-weight:600;">' + esc(ui.sdsReadMsg[c.id]) + '</p>' : '');
     if(ui.openForms[key]){
       html += '<form class="form-panel" style="margin-top:10px;" onsubmit="addSdsDoc(event,\'' + c.id + '\')"><div class="form-grid">' +
-        '<div class="field"><label>SDS file (PDF)</label><input type="file" name="pdf" accept="application/pdf,.pdf" required /></div>' +
+        '<div class="field"><label>SDS file (PDF)</label><input type="file" name="pdf" accept="application/pdf,.pdf" required onchange="sdsDocPicked(this)" /></div>' +
         '<div class="field"><label>Issue date printed on the SDS</label><input type="date" name="issueDate" required /></div>' +
       '</div>' +
       (ui.formErrors[key] ? '<div class="signin-error" style="margin-bottom:8px;">' + esc(ui.formErrors[key]) + '</div>' : '') +
       '<div class="form-actions"><button type="submit" class="btn btn-primary" style="width:auto;">Upload</button><button type="button" class="btn btn-ghost" onclick="toggleForm(\'' + key + '\')">Cancel</button></div>' +
-      '<p class="row-muted" style="margin:8px 0 0;font-size:12px;">Upload the manufacturer&rsquo;s own SDS exactly as supplied. Do not edit or re-type it. Needs a connection; the limit is 50 MB.</p></form>';
+      '<p class="row-muted" style="margin:8px 0 0;font-size:12px;">Upload the manufacturer&rsquo;s own SDS exactly as supplied. Do not edit or re-type it. The issue date is filled in from the PDF where it can be read &mdash; check it. Blank first aid / hazard details are filled in from the SDS too. The same PDF can&rsquo;t be uploaded twice. Needs a connection; the limit is 50 MB.</p></form>';
     }
   }
   return html + '</div>';
@@ -24955,19 +24957,25 @@ async function addSdsDoc(e, id){
   if(file.size > PARTS_PDF_MAX_BYTES) return fail("That file is " + fmtFileSize(file.size) + ", over the 50 MB limit.");
   if(!supabaseClient || isOffline) return fail("Can't upload a PDF without a connection. Try again once you have signal.");
   var btn = f.querySelector('button[type="submit"]');
-  if(btn){ btn.disabled = true; btn.textContent = "Uploading\u2026"; }
+  if(btn){ btn.disabled = true; btn.textContent = "Reading\u2026"; }
+  var rd = null;
+  try{ rd = await sdsReadFile(file); }catch(err){ rd = null; }
+  var dupC = sdsFindDup(rd && rd.hash, file.name, file.size);
+  if(dupC) return fail(dupC.id === id ? "That exact PDF is already the SDS on file for this chemical." : "That exact PDF is already attached to \u201c" + dupC.productName + "\u201d. Open that chemical instead of uploading it twice.");
+  if(btn) btn.textContent = "Uploading\u2026";
   try{
     var path = "sds/" + uid("sds") + ".pdf";
     var up = await supabaseClient.storage.from("machinery-photos").upload(path, file, { cacheControl: "3600", upsert: false, contentType: "application/pdf" });
     if(up.error) throw up.error;
     var pub = supabaseClient.storage.from("machinery-photos").getPublicUrl(path);
     var old = c.sdsDoc;
-    c.sdsDoc = { name: (file.name || "SDS").replace(/\.pdf$/i, ""), url: pub.data.publicUrl, storagePath: path, size: file.size, issueDate: issue, addedBy: currentUser().name, addedAt: new Date().toISOString() };
+    c.sdsDoc = { name: (file.name || "SDS").replace(/\.pdf$/i, ""), url: pub.data.publicUrl, storagePath: path, size: file.size, sha256: (rd && rd.hash) || "", issueDate: issue, addedBy: currentUser().name, addedAt: new Date().toISOString() };
     delete ui.formErrors[key];
     ui.openForms[key] = false;
     if(old && old.storagePath && supabaseClient){
       supabaseClient.storage.from("machinery-photos").remove([old.storagePath]).catch(function(err){ console.error("[Bullamon Plains] couldn't delete the replaced SDS file (left in storage):", err); });
     }
+    if(rd && rd.text){ var pr = sdsParseSds(rd.text); if(pr.found) sdsApplyRead(c, pr, false); }
     persist();
   }catch(err){
     console.error("[Bullamon Plains] SDS upload failed:", err);
@@ -25108,6 +25116,218 @@ function saveSds(e, id){
   else { state.chemicals.sds.push(Object.assign({ id: uid("c") }, data)); ui.openForms.newSds = false; }
   persist();
 }
+/* READING AN SDS (2026-11-11, Maria: "teach the app to read the sds and fill in the first aid and hazard label"). Best-effort text
+   reading of a manufacturer's SDS (standard 16-section layout) with pdf.js: Section 2 (hazard identification) gives the signal word,
+   hazard classification, hazard statements, precautionary statements and pictograms; Section 4 gives first aid; the poison schedule is
+   looked for in the whole text. Nothing is invented -- a field the SDS doesn't clearly state is left empty. A scanned (image-only) PDF
+   has no text to read. Everything read this way is marked on the chemical as "read automatically -- check against the PDF". */
+var SDS_SECTION_TITLES = { 2: "hazards?\\s*identification", 3: "composition", 4: "first[\\s-]*aid", 5: "fire[\\s-]*fighting", 14: "transport", 15: "regulatory" };
+function sdsTidyText(t){ return String(t || "").replace(/\u00a0/g, " ").replace(/[ \t]+/g, " ").replace(/ *\n */g, "\n"); }
+// text of "Section N" (heading to the next section's heading); the longest candidate wins, so a table of contents line is ignored
+function sdsSectionText(text, n, nextN){
+  var head = new RegExp("(?:^|\\n)[ \\t]*(?:section[ \\t]*)?" + n + "[ \\t]*[.:)\\-\\u2013\\u2014]?[ \\t]*" + SDS_SECTION_TITLES[n] + "[^\\n]*", "ig");
+  var nextRe = new RegExp("(?:^|\\n)[ \\t]*(?:section[ \\t]*)?" + nextN + "[ \\t]*[.:)\\-\\u2013\\u2014]?[ \\t]*(?:" + SDS_SECTION_TITLES[nextN] + ")", "i");
+  var m, best = "";
+  while((m = head.exec(text))){
+    var rest = text.slice(m.index + m[0].length), e = rest.search(nextRe);
+    var body = (e < 0 ? rest.slice(0, 6000) : rest.slice(0, e));
+    if(body.length > best.length) best = body;
+  }
+  return best;
+}
+// "H315 Causes skin irritation." style statements (also P-codes) from a block of text; works for one-per-line and run-on layouts
+function sdsCodedStatements(block, letter, max){
+  var re = new RegExp("\\b(" + (letter === "H" ? "(?:EUH|AUH)?" : "") + letter + "\\d{3}[A-Za-z]{0,2}(?:\\s*\\+\\s*" + letter + "\\d{3}[A-Za-z]{0,2})*)\\b", "g");
+  var hits = [], m;
+  while((m = re.exec(block))){
+    var prev = block.slice(Math.max(0, m.index - 1), m.index);
+    if(prev === "(") continue;
+    hits.push({ code: m[1].replace(/\s+/g, ""), start: m.index, end: m.index + m[0].length });
+  }
+  var out = [], seen = {};
+  hits.forEach(function(h, i){
+    var stop = i + 1 < hits.length ? hits[i + 1].start : block.length;
+    var tail = block.slice(h.end, stop);
+    var cut = tail.search(/\n\s*\n|\n[ \t]*(?:[A-Z][A-Za-z ]{2,30}:|\d+\.\d+\b)/);
+    if(cut >= 0) tail = tail.slice(0, cut);
+    var cut2 = tail.search(/\b(?:Precautionary|Hazard statement|Hazard pictogram|Other hazards|Signal word|Label elements|Supplemental|Prevention|Response|Storage|Disposal)\b|\b(?:EUH|AUH)?[HP]\d{3}[A-Za-z]{0,2}\b/);
+    if(cut2 > 0) tail = tail.slice(0, cut2);
+    tail = tail.replace(/\s+/g, " ").replace(/^[\s:\-\u2013\u2014)]+/, "").trim();
+    if(!/^[A-Z]/.test(tail) || tail.length < 6) return;
+    if(tail.length > 160) tail = tail.slice(0, 160).replace(/\s+\S*$/, "");
+    if(!/[.]$/.test(tail)) tail += ".";
+    var key = h.code.toUpperCase();
+    if(seen[key]) return;
+    seen[key] = true;
+    out.push(h.code + " " + tail);
+  });
+  return out.slice(0, max);
+}
+function sdsPictogramsFrom(hstmts, s2){
+  var keys = {};
+  (hstmts || []).forEach(function(s){
+    (s.split(" ")[0].match(/H\d{3}/g) || []).forEach(function(c){
+      var n = +c.slice(1);
+      if(n >= 200 && n <= 205) keys.explosive = 1;
+      else if((n >= 220 && n <= 228) || (n >= 240 && n <= 242) || (n >= 250 && n <= 252) || (n >= 260 && n <= 261)) keys.flammable = 1;
+      else if(n >= 270 && n <= 272) keys.oxidizing = 1;
+      else if(n === 280 || n === 281) keys.gas = 1;
+      else if(n === 290 || n === 314 || n === 318) keys.corrosive = 1;
+      else if(n === 300 || n === 301 || n === 310 || n === 311 || n === 330 || n === 331) keys.toxic = 1;
+      else if(n === 302 || n === 312 || n === 332 || n === 315 || n === 317 || n === 319 || n === 335 || n === 336) keys.irritant = 1;
+      else if(n === 334 || (n >= 340 && n <= 341) || (n >= 350 && n <= 351) || (n >= 360 && n <= 362) || (n >= 370 && n <= 373)) keys.health = 1;
+      else if(n === 400 || n === 410 || n === 411) keys.environment = 1;
+    });
+  });
+  var map = { 1: "explosive", 2: "flammable", 3: "oxidizing", 4: "gas", 5: "corrosive", 6: "toxic", 7: "irritant", 8: "health", 9: "environment" }, m, re = /GHS\s?0?([1-9])\b/g;
+  while((m = re.exec(s2 || ""))) keys[map[m[1]]] = 1;
+  var order = ["explosive", "flammable", "oxidizing", "gas", "corrosive", "toxic", "irritant", "health", "environment"];
+  return order.filter(function(k){ return keys[k]; });
+}
+function sdsFirstAidFrom(s4){
+  if(!s4) return "";
+  var t = s4.replace(/\n[ \t]*4\.\d+\b[^\n]{0,80}(?=\n)/g, "\n").replace(/\s+/g, " ").trim();
+  t = t.replace(/\b(Inhalation|Inhaled|Skin contact|Skin|Eye contact|Eyes?|Ingestion|Swallowed|If swallowed|Advice to doctor|Notes? to physician|Notes? for medical (?:personnel|practitioners))\b\s*[:\-\u2013]/gi, function(m, w){ return "\n" + w.charAt(0).toUpperCase() + w.slice(1).toLowerCase() + ": "; });
+  t = t.replace(/^\s+/, "").replace(/[ ]*\n[ ]*/g, "\n").replace(/\s+$/, "");
+  if(t.length > 1800) t = t.slice(0, 1800).replace(/\s+\S*$/, "") + "\u2026";
+  return t.length >= 15 ? t : "";
+}
+function sdsParseSds(text){
+  text = sdsTidyText(text);
+  var out = { firstAid: "", signalWord: "", hazardClass: "", poisonSchedule: "", hazardCategories: [], hazardStatements: [], precautions: [], pictograms: [] };
+  var s2 = sdsSectionText(text, 2, 3), s4 = sdsSectionText(text, 4, 5);
+  out.firstAid = sdsFirstAidFrom(s4);
+  var sw = /signal\s*word[\s:\-\u2013]*(dangerous poison|danger|warning|caution|poison)\b/i.exec(s2 || text);
+  if(sw) out.signalWord = sw[1].toLowerCase().replace(/\b\w/g, function(c){ return c.toUpperCase(); });
+  out.hazardStatements = sdsCodedStatements(s2, "H", 30);
+  out.precautions = sdsCodedStatements(s2, "P", 30);
+  out.pictograms = sdsPictogramsFrom(out.hazardStatements, s2);
+  var cl = /classification[^\n]*\n?([\s\S]{0,500}?)(?=label elements|signal word|hazard pictogram|hazard statement|precautionary|other hazards|\n\s*2\.2)/i.exec(s2 || "");
+  if(cl){
+    var pieces = cl[1].split(/[;\n]|,(?=\s*[A-Z])/).map(function(p){ return p.replace(/\s+/g, " ").replace(/\(?\bH\d{3}[A-Za-z]*\)?/g, "").replace(/[\s,.:-]+$/, "").trim(); })
+      .filter(function(p){ return p.length >= 3 && p.length <= 80 && /\d|not classified/i.test(p) && !/^(according|the substance|this product|poisons? schedule|hazard statement)/i.test(p); });
+    out.hazardCategories = pieces.slice(0, 8);
+  }
+  if(s2 && /not\s+(?:classified|a)\s+(?:as\s+)?(?:a\s+)?hazardous|non[\s-]*hazardous/i.test(s2) && !out.hazardStatements.length) out.hazardClass = "Not classified as hazardous";
+  var ps = /(?:poisons?\s*schedule|susmp|scheduled?\s*poison|schedule\s*(?:no\.?|number))[^\n]{0,120}?\b(?:S|Schedule\s*)(\d)\b/i.exec(text);
+  if(ps) out.poisonSchedule = "Schedule " + ps[1];
+  out.found = ["firstAid", "signalWord", "hazardClass", "poisonSchedule"].filter(function(k){ return out[k]; }).length + (out.hazardCategories.length ? 1 : 0) + (out.hazardStatements.length ? 1 : 0) + (out.precautions.length ? 1 : 0) + (out.pictograms.length ? 1 : 0);
+  return out;
+}
+
+
+/* Reading the PDF + applying what was read (2026-11-11). The text is pulled out with pdf.js on the device (nothing is sent anywhere);
+   a SHA-256 fingerprint of the file is kept (sdsDoc.sha256) so the very same PDF can never be attached twice. */
+var SDS_READ_LABELS = { firstAid: "first aid", signalWord: "signal word", hazardClass: "hazard class", poisonSchedule: "poison schedule", hazardCategories: "hazard category", hazardStatements: "hazard statements", precautions: "precautionary statements", pictograms: "hazard pictograms" };
+async function sdsReadFile(file){
+  var out = { hash: "", text: "", pages: 0 };
+  var buf = await file.arrayBuffer();
+  try{
+    if(window.crypto && crypto.subtle){
+      var h = await crypto.subtle.digest("SHA-256", buf.slice(0));
+      out.hash = Array.prototype.map.call(new Uint8Array(h), function(x){ return (x < 16 ? "0" : "") + x.toString(16); }).join("");
+    }
+  }catch(e){}
+  try{
+    var lib = await loadPdfJs();
+    var pdf = await lib.getDocument({ data: new Uint8Array(buf) }).promise;
+    out.pages = pdf.numPages;
+    for(var p = 1; p <= Math.min(12, pdf.numPages); p++){
+      var tc = await (await pdf.getPage(p)).getTextContent(), line = "", lastY = null;
+      tc.items.forEach(function(x){
+        var y = x.transform ? Math.round(x.transform[5]) : 0;
+        if(lastY !== null && Math.abs(y - lastY) > 3){ out.text += line + "\n"; line = ""; }
+        line += (line && x.str && !/\s$/.test(line) && !/^\s/.test(x.str) ? " " : "") + x.str;
+        if(x.hasEOL){ out.text += line + "\n"; line = ""; lastY = null; } else lastY = y;
+      });
+      out.text += line + "\n\n";
+    }
+  }catch(e){ console.warn("[Bullamon Plains] couldn't read the SDS text:", e); }
+  return out;
+}
+// the chemical (if any) that already has this exact PDF; older uploads without a fingerprint are matched on file name + size
+function sdsFindDup(hash, fileName, size){
+  var nm = sdsNormName(String(fileName || "").replace(/\.pdf$/i, ""));
+  return (state.chemicals.sds || []).filter(function(c){
+    var d = c.sdsDoc; if(!d) return false;
+    if(hash && d.sha256) return d.sha256 === hash;
+    return !!(d.size && size && d.size === size && nm && sdsNormName(d.name) === nm);
+  })[0] || null;
+}
+function sdsApplyRead(c, r, overwrite){
+  var changed = [];
+  ["firstAid", "signalWord", "poisonSchedule", "hazardClass", "hazardCategories", "hazardStatements", "precautions", "pictograms"].forEach(function(k){
+    var v = r[k], isArr = Array.isArray(v);
+    if(isArr ? !v.length : !v) return;
+    var cur = c[k], empty = isArr ? !(cur && cur.length) : !cur;
+    if(!empty && !overwrite) return;
+    if(!empty && (isArr ? JSON.stringify(cur) === JSON.stringify(v) : String(cur) === String(v))) return;
+    c[k] = isArr ? v.slice() : v; changed.push(k);
+  });
+  if(changed.length) c.sdsAutoRead = { at: todayISO(), fields: changed };
+  return changed;
+}
+function sdsReadSummary(r){
+  var bits = [];
+  if(r.firstAid) bits.push("first aid");
+  if(r.signalWord) bits.push("signal word");
+  if(r.poisonSchedule) bits.push("poison schedule");
+  if(r.hazardStatements.length) bits.push(r.hazardStatements.length + " hazard " + (r.hazardStatements.length === 1 ? "statement" : "statements"));
+  if(r.precautions.length) bits.push(r.precautions.length + " precautionary");
+  if(r.pictograms.length) bits.push("pictograms");
+  return bits.join(", ");
+}
+async function sdsDocPicked(input){
+  var file = input && input.files && input.files[0], f = input && input.form;
+  if(!file || !f || !f.issueDate || f.issueDate.value) return;
+  try{ var r = await sdsReadFile(file), d = sdsFindIssueDate(r.text); if(d && !f.issueDate.value) f.issueDate.value = d; }catch(e){}
+}
+async function sdsReadFromStored(id){
+  var c = byId(state.chemicals.sds || [], id);
+  if(!c || !c.sdsDoc || !c.sdsDoc.url || !isAdmin()) return;
+  ui.sdsReadMsg = ui.sdsReadMsg || {};
+  if(isOffline){ ui.sdsReadMsg[id] = "Can't read the PDF without a connection."; render(); return; }
+  ui.sdsReadMsg[id] = "Reading the SDS\u2026"; render();
+  try{
+    var resp = await fetch(c.sdsDoc.url);
+    if(!resp.ok) throw new Error("HTTP " + resp.status);
+    var rd = await sdsReadFile(await resp.blob());
+    if(rd.hash && !c.sdsDoc.sha256) c.sdsDoc.sha256 = rd.hash;
+    var r = sdsParseSds(rd.text);
+    if(!r.found){
+      ui.sdsReadMsg[id] = rd.text.replace(/\s/g, "").length < 40 ? "Couldn't read any text from this PDF \u2014 it may be a scanned image. Add the details by hand with Edit." : "Read the PDF but couldn't recognise first aid or hazard details in it. Add them by hand with Edit.";
+      persist(); return;
+    }
+    var differ = Object.keys(SDS_READ_LABELS).filter(function(k){
+      var v = r[k], cur = c[k], isArr = Array.isArray(v);
+      if(isArr ? !v.length : !v) return false;
+      if(isArr ? !(cur && cur.length) : !cur) return false;
+      return isArr ? JSON.stringify(cur) !== JSON.stringify(v) : String(cur) !== String(v);
+    });
+    var overwrite = false;
+    if(differ.length) overwrite = confirm("This chemical already has " + differ.map(function(k){ return SDS_READ_LABELS[k]; }).join(", ") + " filled in.\n\nReplace it with what was read from the SDS?\n\nOK = replace   Cancel = keep what is there and only fill the blanks");
+    var changed = sdsApplyRead(c, r, overwrite);
+    ui.sdsReadMsg[id] = changed.length ? "Filled in from the SDS: " + changed.map(function(k){ return SDS_READ_LABELS[k]; }).join(", ") + ". Please check it against the PDF." : "Nothing new to fill in \u2014 what is already there matches or was kept.";
+    persist();
+  }catch(err){
+    console.error("[Bullamon Plains] read SDS failed:", err);
+    ui.sdsReadMsg[id] = "Couldn't read the PDF (" + (err && err.message ? err.message : "unknown error") + "). Try again with a connection.";
+    render();
+  }
+}
+function sdsMarkChecked(id){
+  var c = byId(state.chemicals.sds || [], id);
+  if(!c || !c.sdsAutoRead || !isAdmin()) return;
+  c.sdsAutoRead.checkedAt = todayISO(); c.sdsAutoRead.checkedBy = currentUser() ? currentUser().name : "";
+  persist();
+}
+function renderSdsAutoReadBanner(c){
+  var a = c.sdsAutoRead;
+  if(!a || a.checkedAt) return "";
+  return '<div class="banner warn" style="margin:0 0 12px;flex-wrap:wrap;"><span><strong>Read automatically from the SDS</strong> (' + fmtDate(a.at) + '): ' + esc((a.fields || []).map(function(k){ return SDS_READ_LABELS[k] || k; }).join(", ")) + '. The app read this from the PDF &mdash; it was not typed by a person. Check it against the SDS before relying on it.</span>' +
+    (isAdmin() ? '<button type="button" class="btn btn-ghost btn-sm" style="width:auto;margin-top:8px;" onclick="sdsMarkChecked(\'' + c.id + '\')">I\u2019ve checked it</button>' : '') + '</div>';
+}
+
 /* BULK SDS UPLOAD (2026-11-10, Maria: "Yes build it please" -- after clearing the section to start again with many SDS to upload).
    Admin-only. Pick many PDFs at once; each becomes one chemical named from its file name (editable before uploading), with the
    manufacturer's PDF attached exactly as for a single upload (same storage folder, same record: c.sdsDoc). If a chemical with the
@@ -25145,14 +25365,18 @@ function sdsFindIssueDate(text){
 function sdsBulkToggle(){ if(!isAdmin()) return; ui.openForms.bulkSds = !ui.openForms.bulkSds; render(); }
 function sdsBulkMatch(){
   var b = ui.sdsBulk; if(!b) return;
-  var seen = {};
+  var seen = {}, seenHash = {};
   b.items.forEach(function(it){
     if(it.status === "done") return;
     var k = sdsNormName(it.name);
     var ex = k ? (state.chemicals.sds || []).filter(function(c){ return sdsNormName(c.productName) === k; })[0] : null;
-    it.matchId = ex ? ex.id : ""; it.matchName = ex ? ex.productName : "";
-    it.dup = !!(k && seen[k]);
-    if(k && it.include !== false) seen[k] = true;
+    it.matchId = ex ? ex.id : ""; it.matchName = ex ? ex.productName : ""; it.matchHasDoc = !!(ex && ex.sdsDoc && ex.sdsDoc.url);
+    var same = sdsFindDup(it.hash, it.file.name, it.file.size);
+    it.sameId = same ? same.id : ""; it.sameName = same ? same.productName : "";
+    it.dupFile = !!(it.hash && seenHash[it.hash]);
+    if(it.hash && !it.sameId && it.include !== false) seenHash[it.hash] = true;
+    it.dup = !it.dupFile && !!(k && seen[k]);
+    if(k && it.include !== false && !it.dupFile && !it.sameId) seen[k] = true;
   });
 }
 function sdsBulkPick(input){
@@ -25167,33 +25391,28 @@ function sdsBulkPick(input){
   });
   b.msg = skipped ? (skipped + (skipped === 1 ? " file was skipped because it isn't a PDF." : " files were skipped because they aren't PDFs.")) : "";
   b.done = false;
-  sdsBulkMatch(); render(); sdsBulkReadDates();
+  sdsBulkMatch(); render();
+  b.analysing = (b.analysing || Promise.resolve()).then(sdsBulkAnalyse);
 }
-async function sdsBulkReadDates(){
+async function sdsBulkAnalyse(){
   var b = ui.sdsBulk; if(!b) return;
-  var todo = b.items.filter(function(it){ return !it.dateRead && it.status !== "done"; });
-  if(!todo.length) return;
-  var lib = null;
-  try{ lib = await loadPdfJs(); }catch(e){ lib = null; }
+  var todo = b.items.filter(function(it){ return !it.analysed && it.status !== "done"; });
   for(var i = 0; i < todo.length; i++){
     var it = todo[i];
     if(ui.sdsBulk !== b) return;
-    it.dateRead = true;
-    if(!lib) continue;
+    it.analysed = true;
     try{
-      var pdf = await lib.getDocument({ data: await it.file.arrayBuffer() }).promise, txt = "";
-      for(var p = 1; p <= Math.min(3, pdf.numPages); p++){
-        var tc = await (await pdf.getPage(p)).getTextContent();
-        txt += " " + tc.items.map(function(x){ return x.str; }).join(" ");
-      }
-      var found = sdsFindIssueDate(txt);
+      var rd = await sdsReadFile(it.file);
+      it.hash = rd.hash; it.textLen = rd.text.replace(/\s/g, "").length; it.read = sdsParseSds(rd.text);
+      var found = sdsFindIssueDate(rd.text);
       if(found && !it.issueDate && ui.sdsBulk === b){
         it.issueDate = found; it.dateAuto = true;
         var el = document.getElementById("sdsb-date-" + it.id); if(el) el.value = found;
         var lab = document.getElementById("sdsb-auto-" + it.id); if(lab) lab.style.display = "";
       }
-    }catch(e){}
+    }catch(e){ it.textLen = 0; }
   }
+  if(ui.sdsBulk === b && !b.running){ sdsBulkMatch(); render(); }
 }
 function sdsBulkItem(id){ var b = ui.sdsBulk; return b ? b.items.filter(function(x){ return x.id === id; })[0] : null; }
 function sdsBulkName(id, v){ var it = sdsBulkItem(id); if(!it) return; it.name = String(v || "").trim(); sdsBulkMatch(); render(); }
@@ -25204,21 +25423,28 @@ function sdsBulkClear(){ var b = ui.sdsBulk; if(b && b.running) return; ui.sdsBu
 function renderSdsBulkPanel(){
   var b = ui.sdsBulk || { items: [], msg: "" };
   var html = '<div class="form-panel" style="margin-top:10px;"><h4 style="margin:0 0 6px;">Upload many SDS at once</h4>' +
-    '<p class="row-muted" style="margin:0 0 10px;font-size:12.5px;">Choose all the manufacturers&rsquo; SDS PDFs. Each one becomes a chemical named from its file name &mdash; fix any name below before uploading. If a chemical with that name is already in the list the PDF is attached to it. Needs a connection; up to 50 MB per file.</p>' +
+    '<p class="row-muted" style="margin:0 0 10px;font-size:12.5px;">Choose all the manufacturers&rsquo; SDS PDFs. Each one becomes a chemical named from its file name &mdash; fix any name below before uploading. The app also reads each PDF for its first aid and hazard label details. If a chemical with that name is already in the list the PDF is attached to it, and a PDF that is already attached anywhere is skipped, so nothing doubles up. Needs a connection; up to 50 MB per file.</p>' +
     '<input type="file" id="sds-bulk-file" multiple accept="application/pdf,.pdf" style="display:none;" onchange="sdsBulkPick(this)" />' +
     '<div style="display:flex;gap:8px;flex-wrap:wrap;"><button type="button" class="btn btn-primary btn-sm" style="width:auto;"' + (b.running ? ' disabled' : '') + ' onclick="document.getElementById(\'sds-bulk-file\').click()">' + (b.items.length ? 'Add more PDFs' : 'Choose PDFs') + '</button>' +
     (b.items.length ? '<button type="button" class="btn btn-ghost btn-sm" style="width:auto;"' + (b.running ? ' disabled' : '') + ' onclick="sdsBulkClear()">Clear list</button>' : '') + '</div>';
   if(b.msg) html += '<p style="margin:8px 0 0;font-size:12.5px;font-weight:600;">' + esc(b.msg) + '</p>';
   b.items.forEach(function(it){
+    var skip = !!(it.sameId || it.dupFile || it.dup);
+    var rdTxt = !it.analysed ? '<span class="row-muted">Reading the PDF&hellip;</span>'
+      : (it.read && it.read.found ? '<span style="color:var(--success,#166534);">Read from the PDF: ' + esc(sdsReadSummary(it.read)) + ' &mdash; please check against the SDS</span>'
+      : '<span class="row-muted">' + (it.textLen < 40 ? 'Couldn&rsquo;t read any text (scanned PDF?) &mdash; details will need adding by hand' : 'No first aid or hazard details recognised &mdash; add them by hand') + '</span>');
     var st = it.status === "done" ? '<span style="color:var(--success,#166534);font-weight:600;">&#10003; ' + esc(it.result || "Done") + '</span>'
       : it.status === "error" ? '<span style="color:var(--danger);font-weight:600;">' + esc(it.error || "Couldn\'t upload") + '</span>'
+      : it.sameId ? '<span style="color:var(--danger);font-weight:600;">This exact PDF is already attached to &ldquo;' + esc(it.sameName) + '&rdquo; &mdash; it will be skipped</span>'
+      : it.dupFile ? '<span style="color:var(--danger);font-weight:600;">Same PDF as an earlier file in this list &mdash; it will be skipped</span>'
       : it.dup ? '<span style="color:var(--danger);">Same name as an earlier file in this list &mdash; change the name or remove it</span>'
-      : it.matchId ? '<span class="row-muted">Already in the list &mdash; the PDF will be attached to &ldquo;' + esc(it.matchName) + '&rdquo;</span>'
+      : it.matchId ? '<span class="row-muted">Already in the list &mdash; the PDF will be attached to &ldquo;' + esc(it.matchName) + '&rdquo;' + (it.matchHasDoc ? ' (replacing the SDS now on file)' : '') + '</span>'
       : '<span class="row-muted">New chemical</span>';
+    if(it.status !== "done" && it.status !== "error") st += '<div style="margin-top:2px;">' + rdTxt + '</div>';
     var locked = b.running || it.status === "done";
     html += '<div class="card" style="box-shadow:none;border:1px solid var(--border);margin:10px 0 0;padding:10px 12px;">' +
       '<div style="display:flex;gap:8px;align-items:flex-start;">' +
-      '<input type="checkbox" style="margin-top:12px;flex:none;"' + (it.include !== false && !it.dup ? ' checked' : '') + (locked || it.dup ? ' disabled' : '') + ' onchange="sdsBulkInclude(\'' + it.id + '\',this.checked)" />' +
+      '<input type="checkbox" style="margin-top:12px;flex:none;"' + (it.include !== false && !skip ? ' checked' : '') + (locked || skip ? ' disabled' : '') + ' onchange="sdsBulkInclude(\'' + it.id + '\',this.checked)" />' +
       '<div style="flex:1;min-width:0;"><input type="text" value="' + escAttr(it.name) + '"' + (locked ? ' disabled' : '') + ' style="font-weight:600;" onchange="sdsBulkName(\'' + it.id + '\',this.value)" />' +
       '<div style="font-size:12px;margin-top:4px;">' + st + '</div>' +
       '<div class="row-muted" style="font-size:11.5px;margin-top:2px;overflow-wrap:anywhere;">' + esc(it.file.name) + ' &middot; ' + esc(fmtFileSize(it.file.size)) + '</div>' +
@@ -25228,10 +25454,10 @@ function renderSdsBulkPanel(){
       '</div></div>';
   });
   if(b.items.length){
-    var n = b.items.filter(function(it){ return it.status !== "done" && it.include !== false && !it.dup; }).length;
+    var n = b.items.filter(function(it){ return it.status !== "done" && it.include !== false && !it.dup && !it.sameId && !it.dupFile; }).length;
     if(b.running) html += '<p style="margin:12px 0 0;font-weight:600;">Uploading ' + Math.min(b.n + 1, b.total) + ' of ' + b.total + '&hellip; keep this page open.</p>';
     else html += '<div class="form-actions" style="margin-top:12px;"><button type="button" class="btn btn-primary" style="width:auto;"' + (n ? '' : ' disabled') + ' onclick="sdsBulkRun()">Upload ' + n + (n === 1 ? ' SDS' : ' SDS') + '</button></div>' +
-      '<p class="row-muted" style="margin:8px 0 0;font-size:12px;">New chemicals are added with &ldquo;Name to check&rdquo; and &ldquo;Needs SDS details&rdquo; until you confirm each name and add its summary. The PDF itself is kept exactly as supplied.</p>';
+      '<p class="row-muted" style="margin:8px 0 0;font-size:12px;">New chemicals are added with &ldquo;Name to check&rdquo; and &ldquo;Needs SDS details&rdquo; until you confirm each name. First aid and hazard details are read automatically and marked &ldquo;check against the SDS&rdquo;. The PDF itself is kept exactly as supplied.</p>';
   }
   return html + '</div>';
 }
@@ -25239,8 +25465,10 @@ async function sdsBulkRun(){
   var b = ui.sdsBulk;
   if(!isAdmin() || !b || b.running) return;
   if(!supabaseClient || isOffline){ b.msg = "Can't upload PDFs without a connection. Try again once you have signal."; render(); return; }
+  if(b.analysing){ b.msg = "Reading the PDFs\u2026"; render(); try{ await b.analysing; }catch(e){} b.msg = ""; }
+  if(ui.sdsBulk !== b) return;
   sdsBulkMatch();
-  var todo = b.items.filter(function(it){ return it.status !== "done" && it.include !== false && !it.dup; });
+  var todo = b.items.filter(function(it){ return it.status !== "done" && it.include !== false && !it.dup && !it.sameId && !it.dupFile; });
   var bad = 0;
   todo = todo.filter(function(it){
     it.error = "";
@@ -25260,17 +25488,21 @@ async function sdsBulkRun(){
       var up = await supabaseClient.storage.from("machinery-photos").upload(path, it.file, { cacheControl: "3600", upsert: false, contentType: "application/pdf" });
       if(up.error) throw up.error;
       var pub = supabaseClient.storage.from("machinery-photos").getPublicUrl(path);
-      var doc = { name: (it.file.name || "SDS").replace(/\.pdf$/i, ""), url: pub.data.publicUrl, storagePath: path, size: it.file.size, issueDate: it.issueDate || "", addedBy: currentUser() ? currentUser().name : "", addedAt: new Date().toISOString() };
-      var k = sdsNormName(it.name);
+      var doc = { name: (it.file.name || "SDS").replace(/\.pdf$/i, ""), url: pub.data.publicUrl, storagePath: path, size: it.file.size, sha256: it.hash || "", issueDate: it.issueDate || "", addedBy: currentUser() ? currentUser().name : "", addedAt: new Date().toISOString() };
+      var k = sdsNormName(it.name), filled = [];
+      it.matchId = "";
       var ex = (state.chemicals.sds || []).filter(function(c){ return sdsNormName(c.productName) === k; })[0];
       if(ex){
         var old = ex.sdsDoc;
         ex.sdsDoc = doc;
         if(old && old.storagePath) supabaseClient.storage.from("machinery-photos").remove([old.storagePath]).catch(function(err){ console.error("[Bullamon Plains] couldn't delete the replaced SDS file (left in storage):", err); });
-        it.result = "Attached to “" + ex.productName + "”"; attached++;
+        if(it.read && it.read.found) filled = sdsApplyRead(ex, it.read, false);
+        it.result = "Attached to “" + ex.productName + "”" + (filled.length ? " \u00b7 blank first aid / hazard details filled in" : ""); attached++;
       } else {
-        state.chemicals.sds.push({ id: uid("c"), productName: it.name, nameNeedsCheck: true, sdsDoc: doc, hazardStatements: [], precautions: [], hazardCategories: [], pictograms: [], ppePoints: [], storagePoints: [], bufferDistances: [], applicationLimits: [], withholdingHarvest: [], withholdingGrazing: [], lastReviewed: todayISO() });
-        it.result = "Added as a new chemical"; added++;
+        var rec = { id: uid("c"), productName: it.name, nameNeedsCheck: true, sdsDoc: doc, hazardStatements: [], precautions: [], hazardCategories: [], pictograms: [], ppePoints: [], storagePoints: [], bufferDistances: [], applicationLimits: [], withholdingHarvest: [], withholdingGrazing: [], lastReviewed: todayISO() };
+        if(it.read && it.read.found) filled = sdsApplyRead(rec, it.read, true);
+        state.chemicals.sds.push(rec);
+        it.result = "Added as a new chemical" + (filled.length ? " \u00b7 first aid / hazard details read from the PDF" : ""); added++;
       }
       it.status = "done";
     }catch(err){
