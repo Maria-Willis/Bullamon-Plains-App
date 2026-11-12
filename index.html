@@ -706,6 +706,10 @@
   .pv-newrow td{background:#e6f6ea;}
   .pv-was{display:block;font-size:11px;font-weight:600;color:var(--muted);}
   .pv-new{display:inline-block;background:#1f8f4e;color:#fff;border-radius:99px;font-size:10px;font-weight:800;padding:1px 6px;margin-left:4px;vertical-align:middle;}
+  .ls-origin{display:flex;gap:10px;}
+  .ls-origin label{flex:1;display:flex;align-items:center;justify-content:center;gap:8px;padding:14px 10px;border:2px solid var(--border);border-radius:12px;font-weight:700;font-size:16px;cursor:pointer;margin:0;text-align:center;}
+  .ls-origin input{width:auto;margin:0;}
+  .ls-origin label:has(input:checked){background:var(--accent);color:var(--accent-contrast);border-color:var(--accent);}
   .ls-mob{padding:12px 14px;margin:10px 0;border:1px solid var(--border,#e3e8ee);border-radius:12px;background:var(--surface,#fff);box-shadow:var(--shadow);}
   .ls-pad{display:inline-block;padding:3px 9px;border:1px solid var(--border);border-radius:99px;font-size:13px;}
   @media (max-width:560px){ .ls-farm-tabs{grid-template-columns:repeat(2,1fr);} }
@@ -2096,7 +2100,7 @@ const DEFAULT_STATE = {
     });
   }catch(e){}
 })();
-var APP_BUILD = "2026-11-10.3";
+var APP_BUILD = "2026-11-12.1";
 
 /* ======================================================================
    UTILITIES
@@ -18466,7 +18470,7 @@ function lsFormVals(form){
   var saved = [];
   if(form) Array.prototype.forEach.call(form.elements, function(el){
     if(!el.name || el.type === "file" || el.type === "button" || el.type === "submit") return;
-    if(el.type === "checkbox") saved.push({ name: el.name, value: el.value, checked: el.checked });
+    if(el.type === "checkbox" || el.type === "radio") saved.push({ name: el.name, value: el.value, checked: el.checked });
     else saved.push({ name: el.name, value: el.value });
   });
   return saved;
@@ -18475,7 +18479,7 @@ function lsRestoreVals(f2, saved){
   if(f2) (saved || []).forEach(function(s){
     Array.prototype.forEach.call(f2.elements, function(el){
       if(el.name !== s.name) return;
-      if(el.type === "checkbox"){ if(el.value === s.value) el.checked = s.checked; } else el.value = s.value;
+      if(el.type === "checkbox" || el.type === "radio"){ if(el.value === s.value) el.checked = s.checked; } else el.value = s.value;
     });
   });
 }
@@ -18754,8 +18758,9 @@ function renderLsForm(){
     lsNumField("n", "How many (blank = the whole mob)", 'min="1"') + lsDateField("date") + lsNoteField("Buyer, price or note (optional)"), "Save");
   if(k === "newmob"){
     var L2 = lsData(), nf = ui.lsNewFarm || (ui.lsFarm && ui.lsFarm !== "All" && L2.farms.indexOf(ui.lsFarm) > -1 ? ui.lsFarm : (L2.farms[0] || ""));
-    return lsFormWrap("Add a new mob (bought in or transferred on)", "lsSaveNewMob",
-      lsNameFields(lsNextJulyYear(today), "", "Year they become cows (cows and heifers only)") +
+    return lsFormWrap("Add a new mob", "lsSaveNewMob",
+      lsField("Mob name", '<input type="text" name="words" maxlength="60" required />') +
+      lsField("Were they grown or purchased?", '<div class="ls-origin"><label><input type="radio" name="origin" value="grown" required /> Grown</label><label><input type="radio" name="origin" value="purchased" /> Purchased</label></div>', "span-2") +
       lsNumField("n", "How many head", 'min="1" required') + lsDateField("date", "Date they arrived") +
       lsField("Species", '<select name="species"><option>Cattle</option><option>Sheep</option></select>') + lsField("Class", lsClassSelect("klass", "Cows")) +
       lsField("Breed", '<input type="text" name="breed" maxlength="40" />') + lsField("Tag colour", '<input type="text" name="colour" maxlength="30" />') +
@@ -18958,10 +18963,9 @@ function lsNewMobFarm(sel){
 function lsSaveNewMob(e){
   e.preventDefault(); var f = e.target, n = lsInt(f, "n"), date = lsVal(f, "date") || lsLocalToday(), note = lsVal(f, "note");
   if(!n || n < 1) return lsFormError("Enter how many head.");
-  var klass = lsVal(f, "klass"), year = lsInt(f, "year"), words = lsVal(f, "words");
+  var klass = lsVal(f, "klass"), words = lsVal(f, "words"), origin = (f.elements.origin && f.elements.origin.value) || "";
   if(!words) return lsFormError("Give the new mob a name.");
-  var breeder = klass === "Heifers" || klass === "Cows";
-  if(breeder && !year) return lsFormError("Enter the year these become cows.");
+  if(origin !== "grown" && origin !== "purchased") return lsFormError("Choose whether they were grown or purchased.");
   var L = lsData(), farm = lsVal(f, "farm"), pad = lsPaddock(lsVal(f, "paddock")), pname = lsVal(f, "pname");
   if(!pad){
     if(!pname) return lsFormError("Choose a paddock, or type a name for a new one.");
@@ -18969,11 +18973,11 @@ function lsSaveNewMob(e){
     pad = L.paddocks.filter(function(p){ return p.farm === farm && p.name.toLowerCase() === pname.toLowerCase(); })[0];
     if(!pad){ pad = { id: uid("lsp"), farm: farm, name: pname }; L.paddocks.push(pad); }
   }
-  var full = lsBuildName(breeder ? year : null, words);
+  var full = words;
   if(lsActiveMobs().some(function(m){ return m.name.toLowerCase() === full.toLowerCase(); })) return lsFormError("There is already a mob called " + full + ". Choose a different name, or use Buy / transfer on to add head to it.");
-  var nm = lsNewMob({ name: full, nameWords: words, cohortYear: breeder ? year : null, species: lsVal(f, "species"), breed: lsVal(f, "breed"),
+  var nm = lsNewMob({ name: full, nameWords: words, cohortYear: null, origin: origin, species: lsVal(f, "species"), breed: lsVal(f, "breed"),
     ageClass: klass, colour: lsVal(f, "colour"), head: n, paddockId: pad.id, note: note });
-  lsLog(nm, "buy", "New mob added: " + n + " head into " + pad.name + " (" + pad.farm + ")." + (note ? " " + note : ""), { date: date, farm: pad.farm });
+  lsLog(nm, "buy", "New mob added (" + (origin === "grown" ? "grown on our properties" : "purchased") + "): " + n + " head into " + pad.name + " (" + pad.farm + ")." + (note ? " " + note : ""), { date: date, farm: pad.farm });
   ui.lsOpenMob = nm.id;
   lsFinish();
 }
@@ -19820,7 +19824,7 @@ function lsMobCard(m, showFarm){
     '<div style="font-size:14.5px;font-weight:700;">In ' + pads + '</div>' +
     '<div style="margin:6px 0;display:flex;gap:6px;flex-wrap:wrap;">' +
       ((m.calvesAtFoot || 0) > 0 ? '<span class="pill pill-progress">' + m.calvesAtFoot + ' calves at foot</span>' : '') + lsFlag(m) +
-      (m.toSell ? '<span class="pill pill-open">To sell</span>' : '') + '</div>' +
+      (m.toSell ? '<span class="pill pill-open">To sell</span>' : '') + (m.origin ? '<span class="pill">' + (m.origin === "grown" ? "Grown" : "Purchased") + '</span>' : '') + '</div>' +
     (bits.length ? '<div class="row-muted" style="font-size:13px;">' + bits.join(' &middot; ') + '</div>' : '') +
     (m.note ? '<div style="font-size:13.5px;margin-top:4px;">' + esc(m.note) + '</div>' : '') +
     '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;">' + buttons + '</div>' +
