@@ -672,6 +672,21 @@
   /* Livestock section: farm tabs reuse the Jobs tab buttons; mob cards and action buttons */
   .ls-farm-tabs{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:18px;}
   .ls-actions{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;}
+  /* Livestock mob-first layout (2026-11-12) */
+  .ls-bigbtns{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin:0 0 10px;}
+  .ls-bigbtns .btn{width:100%;min-height:68px;font-size:17px;font-weight:800;line-height:1.2;}
+  .ls-seg{display:flex;border:2px solid var(--accent);border-radius:12px;overflow:hidden;margin:0 0 10px;}
+  .ls-seg button{flex:1;padding:12px 8px;border:0;background:var(--surface);color:var(--accent);font-weight:800;font-size:15px;cursor:pointer;}
+  .ls-seg button.on{background:var(--accent);color:var(--accent-contrast);}
+  .ls-attn-row{display:flex;width:100%;align-items:center;justify-content:space-between;gap:10px;text-align:left;padding:10px 12px;margin:6px 0 0;border:1px solid var(--border);border-left-width:5px;border-radius:10px;background:var(--surface);font-size:14px;cursor:pointer;color:inherit;}
+  .ls-attn-row.high{border-left-color:var(--danger);} .ls-attn-row.medium{border-left-color:#d98a00;}
+  .ls-grp{font-weight:800;font-size:13px;letter-spacing:.04em;text-transform:uppercase;margin:14px 0 2px;}
+  .ls-mobbtns{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-top:10px;}
+  .ls-mobbtns .btn{width:100%;min-height:46px;font-weight:700;}
+  .ls-sheet{position:fixed;top:0;left:0;right:0;bottom:0;z-index:1900;background:var(--surface);overflow-y:auto;overscroll-behavior:contain;padding:10px 14px calc(28px + env(safe-area-inset-bottom));}
+  .ls-sheet .form-panel{margin:0 !important;}
+  main > .ls-sheet{margin:0 !important;}
+  .ls-sheet-bar{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:0 0 8px;}
   .ls-actions .btn{width:100%;min-height:50px;font-weight:700;font-size:14px;line-height:1.2;padding:8px 6px;}
   @media (min-width:700px){ .ls-actions{grid-template-columns:repeat(4,1fr);} }
   /* each mob in its own box with a shadow (2026-10-29, Maria) */
@@ -2100,7 +2115,7 @@ const DEFAULT_STATE = {
     });
   }catch(e){}
 })();
-var APP_BUILD = "2026-11-12.1";
+var APP_BUILD = "2026-11-12.2";
 
 /* ======================================================================
    UTILITIES
@@ -19804,33 +19819,54 @@ function lsBullsBoxHtml(farm){
   });
   return html + '</div>';
 }
+var LS_BIG_KEYS = ["move", "weight", "newmob", "sell"];
+function lsToggleMore(id){ ui.lsMobMore = ui.lsMobMore || {}; ui.lsMobMore[id] = !ui.lsMobMore[id]; render(); }
+function lsSetView(map){ ui.lsShowMap = !!map; render(); }
+function lsGoMob(id){
+  ui.lsOpenMob = id; ui.lsSearch = ""; render();
+  setTimeout(function(){ var el = document.getElementById("ls-mob-" + id); if(el && el.scrollIntoView) el.scrollIntoView({ block: "start", behavior: "smooth" }); }, 30);
+}
+// What needs doing soon: steers at/near selling weight, cow mobs whose joining has finished with no pregnancy test since.
+function lsAttention(list){
+  var t = lsLocalToday(), out = [];
+  list.forEach(function(m){
+    if(lsClass(m) === "Steers" && m.weight && m.weight >= LS_STEER_NEAR) out.push({ m: m, level: m.weight >= LS_STEER_TARGET ? "high" : "medium", text: (m.weight >= LS_STEER_TARGET ? "Ready to sell" : "Near " + LS_STEER_TARGET + " kg") + " (" + m.weight + " kg)" });
+    if(lsIsBreeder(m) && m.joining && m.joining.end && m.joining.end < t && (!m.pregTest || (m.pregTest.date || "") <= m.joining.end)) out.push({ m: m, level: "medium", text: "Joining finished " + fmtDate(m.joining.end) + " – pregnancy test due" });
+  });
+  return out.sort(function(a, b){ return (a.level === "high" ? 0 : 1) - (b.level === "high" ? 0 : 1); });
+}
 function lsMobCard(m, showFarm){
-  var cls = lsClass(m), bits = [], open = ui.lsOpenMob === m.id, breeder = lsIsBreeder(m);
-  var meta = [m.species, m.breed, cls].filter(Boolean).join(" / ");
+  var cls = lsClass(m), bits = [], open = ui.lsOpenMob === m.id, breeder = lsIsBreeder(m), more = !!(ui.lsMobMore && ui.lsMobMore[m.id]);
+  var meta = [cls, m.breed].filter(Boolean).join(" · ");
   var pads = esc(lsPaddockLabel(m)) + (showFarm && lsMobFarm(m) ? ' <span class="row-muted">(' + esc(lsMobFarm(m)) + ')</span>' : '');
   if(m.weight) bits.push('Last weight ' + m.weight + ' kg (' + fmtDate(m.weighed) + ')');
   if(m.joining) bits.push('Joined ' + fmtDate(m.joining.start) + ' to ' + fmtDate(m.joining.end) + (m.joining.bulls && m.joining.bulls.length ? ' with ' + esc(m.joining.bulls.map(function(b){ return b.label; }).join(", ")) : ''));
   if(m.pregTest) bits.push('Preg test ' + fmtDate(m.pregTest.date) + ': ' + m.pregTest.inCalf + ' in calf, ' + m.pregTest.notInCalf + ' not');
-  var btn = function(label, key, primary){ return '<button type="button" class="btn ' + (primary || (ui.lsMobId === m.id && ui.openForms.lsForm === key) ? 'btn-primary' : 'btn-ghost') + ' btn-sm" style="width:auto;" onclick="lsOpenForm(\'' + key + '\',\'' + m.id + '\')">' + label + '</button>'; };
-  var plain = function(label, fn){ return '<button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="' + fn + '">' + label + '</button>'; };
-  var buttons = open
-    ? (breeder ? btn("Add calves", "calves") : '') + (breeder && (m.calvesAtFoot || 0) > 0 ? btn("Wean and brand", "wean") : '') + (breeder ? btn("Pregnancy test", "preg") + btn("Joining", "join") : '') +
-      btn("Move", "move") + btn("Agistment", "agist") + plain("Pick up", "lsPickUp(\'" + m.id + "\')") + btn("Weight", "weight") + btn("Recount", "recount") + btn("Split", "split") + (lsAgeHidden(m) ? '' : btn("Age", "age")) + btn("Rename", "rename") + btn("Sell / death", "sell") +
-      (isAdmin() ? plain("Delete", "lsDeleteMob(\'" + m.id + "\')") : '') + plain("Close", "lsToggleMob(\'" + m.id + "\')")
-    : plain("Open", "lsToggleMob(\'" + m.id + "\')") + (breeder ? btn("Add calves", "calves") : '') + btn("Move", "move") + btn("Agistment", "agist") + plain("Pick up", "lsPickUp(\'" + m.id + "\')") + (lsAgeHidden(m) ? '' : btn("Age", "age")) + btn("Rename", "rename");
+  var btn = function(label, key, primary){ return '<button type="button" class="btn ' + (primary ? 'btn-primary' : 'btn-ghost') + '" onclick="lsOpenForm(\'' + key + '\',\'' + m.id + '\')">' + label + '</button>'; };
+  var plain = function(label, fn){ return '<button type="button" class="btn btn-ghost" onclick="' + fn + '">' + label + '</button>'; };
+  var main = (breeder ? btn("Add calves", "calves") : '') + (breeder && (m.calvesAtFoot || 0) > 0 ? btn("Wean and brand", "wean") : '') + (breeder ? btn("Pregnancy test", "preg") + btn("Joining", "join") : '') +
+    btn("Move", "move", true) + btn("Weigh", "weight") + (!breeder && !lsAgeHidden(m) ? btn("Age", "age") : '') + btn("Sold / died", "sell");
+  var rest = btn("Split", "split") + btn("Recount", "recount") + (breeder && !lsAgeHidden(m) ? btn("Age", "age") : '') + btn("Rename", "rename") + btn("Agistment", "agist") + plain("Pick up (map)", "ui.lsShowMap=true;lsPickUp(\'" + m.id + "\')") + (isAdmin() ? plain("Delete", "lsDeleteMob(\'" + m.id + "\')") : '');
+  var buttons = open ? '<div class="ls-mobbtns">' + main + '</div>' +
+      '<button type="button" class="btn btn-ghost btn-sm" style="width:auto;margin-top:8px;" onclick="lsToggleMore(\'' + m.id + '\')">' + (more ? 'Fewer options' : 'More options') + '</button>' + (more ? '<div class="ls-mobbtns">' + rest + '</div>' : '')
+    : '<div class="ls-mobbtns">' + btn("Move", "move", true) + plain("Open", "lsToggleMob(\'" + m.id + "\')") + '</div>';
   return '<div class="ls-mob" id="ls-mob-' + m.id + '"' + (open ? ' data-open="1"' : '') + '>' +
-    '<div class="card-row" style="cursor:pointer;" onclick="lsToggleMob(\'' + m.id + '\')"><h4 style="margin:0;font-size:17px;">' + esc(m.name) + '</h4><span style="font-size:22px;font-weight:800;white-space:nowrap;">' + m.head + ' <span style="font-size:13px;font-weight:600;" class="row-muted">head</span></span></div>' +
+    '<div class="card-row" style="cursor:pointer;" onclick="lsToggleMob(\'' + m.id + '\')"><h4 style="margin:0;font-size:18px;">' + esc(m.name) + '</h4><span style="font-size:24px;font-weight:800;white-space:nowrap;">' + m.head + ' <span style="font-size:13px;font-weight:600;" class="row-muted">head</span></span></div>' +
     '<div class="row-muted" style="font-size:13.5px;margin:2px 0 6px;">' + esc(meta) + (m.colour ? ' &middot; ' + esc(m.colour) + ' tag' : '') + '</div>' +
-    '<div style="font-size:14.5px;font-weight:700;">In ' + pads + '</div>' +
+    '<div style="font-size:15px;font-weight:700;">In ' + pads + '</div>' +
     '<div style="margin:6px 0;display:flex;gap:6px;flex-wrap:wrap;">' +
       ((m.calvesAtFoot || 0) > 0 ? '<span class="pill pill-progress">' + m.calvesAtFoot + ' calves at foot</span>' : '') + lsFlag(m) +
       (m.toSell ? '<span class="pill pill-open">To sell</span>' : '') + (m.origin ? '<span class="pill">' + (m.origin === "grown" ? "Grown" : "Purchased") + '</span>' : '') + '</div>' +
-    (bits.length ? '<div class="row-muted" style="font-size:13px;">' + bits.join(' &middot; ') + '</div>' : '') +
-    (m.note ? '<div style="font-size:13.5px;margin-top:4px;">' + esc(m.note) + '</div>' : '') +
-    '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;">' + buttons + '</div>' +
-    (ui.lsMobId === m.id && ui.openForms.lsForm ? renderLsForm() : '') +
-    (open ? lsMobRecords(m) : '') +
+    (open && bits.length ? '<div class="row-muted" style="font-size:13px;">' + bits.join(' &middot; ') + '</div>' : '') +
+    (open && m.note ? '<div style="font-size:13.5px;margin-top:4px;">' + esc(m.note) + '</div>' : '') +
+    buttons +
+    (open ? '<button type="button" class="btn btn-ghost btn-sm" style="width:auto;margin-top:8px;" onclick="lsToggleMob(\'' + m.id + '\')">Close</button>' + lsMobRecords(m) : '') +
   '</div>';
+}
+// The form for whatever job was chosen opens as a full-screen sheet (2026-11-12) so it is never lost down the page.
+function renderLsSheet(){
+  if(!ui.openForms.lsForm) return "";
+  return '<div class="ls-sheet" id="ls-sheet"><div class="ls-sheet-bar"><button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="lsCloseForm()">&#8249; Back</button></div>' + renderLsForm() + '</div>';
 }
 function renderLivestock(){
   var L = lsData(), farm = ui.lsFarm && L.farms.indexOf(ui.lsFarm) > -1 ? ui.lsFarm : "All";
@@ -19848,17 +19884,30 @@ function renderLivestock(){
   }).join("") + '</div>';
 
   html += renderLsCarryBanner();
-  html += '<div class="card"><div class="card-row"><h3 style="margin:0;">Paddock map</h3><button type="button" class="btn ' + (ui.lsShowMap ? 'btn-ghost' : 'btn-primary') + ' btn-sm" style="width:auto;" onclick="lsToggleMap()">' + (ui.lsShowMap ? 'Hide map' : 'Show map') + '</button></div></div>';
-  if(ui.lsShowMap) html += renderLsMapCard(farm);
-  var inlineForm = !!(ui.lsMobId && ui.openForms.lsForm && shown.some(function(m){ return m.id === ui.lsMobId; }));
-  html += '<div class="card"><h3 style="margin:0 0 8px;">Record something</h3><div class="ls-actions">' + LS_FORMS.map(function(x){
-    return '<button type="button" class="btn ' + (ui.openForms.lsForm === x.key && !inlineForm ? 'btn-primary' : 'btn-ghost') + '" onclick="lsOpenForm(\'' + x.key + '\')">' + esc(x.label) + '</button>';
-  }).join("") + '</div>' + (inlineForm ? '' : renderLsForm()) + '</div>';
+  var bigLabel = { move: "Move a mob", weight: "Weigh", newmob: "Add new mob", sell: "Sold / died" };
+  html += '<div class="ls-bigbtns">' + LS_BIG_KEYS.map(function(k){ return '<button type="button" class="btn btn-primary" onclick="lsOpenForm(\'' + k + '\')">' + bigLabel[k] + '</button>'; }).join("") + '</div>' +
+    '<div style="margin-top:0;margin-bottom:12px;"><button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="ui.lsMore=!ui.lsMore;render();">' + (ui.lsMore ? 'Fewer jobs' : 'More jobs (calves, weaning, joining, buy, split, merge...)') + '</button>' +
+    (ui.lsMore ? '<div class="ls-actions" style="margin-top:8px;">' + LS_FORMS.filter(function(x){ return LS_BIG_KEYS.indexOf(x.key) < 0; }).map(function(x){ return '<button type="button" class="btn btn-ghost" onclick="lsOpenForm(\'' + x.key + '\')">' + esc(x.label) + '</button>'; }).join("") + '</div>' : '') + '</div>';
 
-  html += '<div class="card"><div class="card-row"><h3 style="margin:0;">Mobs' + (farm !== "All" ? ' on ' + esc(farm) : '') + '</h3><button type="button" class="btn btn-primary btn-sm" style="width:auto;" onclick="lsOpenForm(\'newmob\')">+ Add new mob</button></div>' +
-    '<div class="row-muted" style="font-size:13px;margin:2px 0 6px;">' + shown.length + ' mobs &middot; ' + headSum(shown, "Cattle") + ' cattle &middot; ' + headSum(shown, "Sheep") + ' sheep' + (foot ? ' &middot; ' + foot + ' calves at foot' : '') + '. Tap a mob to open it.</div>';
-  var bullsBox = lsBullsBoxHtml(farm);
-  html += (shown.length || bullsBox) ? bullsBox + shown.map(function(m){ return lsMobCard(m, farm === "All"); }).join("") : '<div class="empty-state">No mobs here yet. Tap "+ Add new mob" to add one.</div>';
+  var attn = lsAttention(shown);
+  if(attn.length) html += '<div class="card"><h3 style="margin:0;font-size:16px;">Needs attention <span class="row-muted" style="font-weight:600;">(' + attn.length + ')</span></h3>' +
+    attn.slice(0, 8).map(function(x){ return '<button type="button" class="ls-attn-row ' + x.level + '" onclick="lsGoMob(\'' + x.m.id + '\')"><span><strong>' + esc(x.m.name) + '</strong><br/><span class="row-muted">' + esc(x.text) + '</span></span><span aria-hidden="true">&#8250;</span></button>'; }).join("") + '</div>';
+
+  html += '<div class="row-muted" style="font-size:13.5px;margin-top:0;margin-bottom:8px;"><strong style="color:var(--text,inherit);font-size:15px;">' + shown.length + ' mobs</strong> &middot; ' + headSum(shown, "Cattle") + ' cattle &middot; ' + headSum(shown, "Sheep") + ' sheep' + (foot ? ' &middot; ' + foot + ' calves at foot' : '') + '</div>';
+  html += '<div class="ls-seg" role="tablist" aria-label="View"><button type="button" role="tab" aria-selected="' + (!ui.lsShowMap) + '" class="' + (!ui.lsShowMap ? 'on' : '') + '" onclick="lsSetView(false)">List</button><button type="button" role="tab" aria-selected="' + (!!ui.lsShowMap) + '" class="' + (ui.lsShowMap ? 'on' : '') + '" onclick="lsSetView(true)">Map</button></div>';
+  if(ui.lsShowMap) html += renderLsMapCard(farm);
+  var q = String(ui.lsSearch || "").trim().toLowerCase();
+  var listShown = q ? shown.filter(function(m){ return [m.name, m.breed, lsClass(m), lsPaddockLabel(m), m.colour, m.note].join(" ").toLowerCase().indexOf(q) > -1; }) : shown;
+  html += '<div class="card"><div class="toolbar" style="margin:0 0 6px;"><input id="ls-search-input" class="search-input" type="text" placeholder="Search mobs, paddocks, breed&hellip;" value="' + escAttr(ui.lsSearch || "") + '" oninput="ui.lsSearch=this.value;render();" /></div>';
+  var bullsBox = (!q || "bulls".indexOf(q) > -1 || q.indexOf("bull") > -1) ? lsBullsBoxHtml(farm) : "";
+  if(listShown.length || bullsBox){
+    var lastFarm = null;
+    html += bullsBox + listShown.map(function(m){
+      var f = lsMobFarm(m) || "No paddock", head = "";
+      if(farm === "All" && f !== lastFarm){ head = '<div class="ls-grp">' + esc(f) + '</div>'; lastFarm = f; }
+      return head + lsMobCard(m, false);
+    }).join("");
+  } else html += '<div class="empty-state">' + (q ? 'No mobs match &ldquo;' + esc(ui.lsSearch) + '&rdquo;.' : 'No mobs here yet. Tap &ldquo;Add new mob&rdquo; above to add one.') + '</div>';
   html += '</div>';
 
   // paddocks
@@ -19912,7 +19961,7 @@ function renderLivestock(){
         '<button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="lsReopenMob(\'' + m.id + '\')">Bring back</button></div></div>'; }).join("");
     html += '</div>';
   }
-  return html;
+  return html + renderLsSheet();
 }
 
 /* ----------------------------------------------------------------------
