@@ -530,6 +530,8 @@
 // v187 (2026-10-28, later): Livestock: on All Farms the map has farm buttons so any farm's map can be shown -- index.html changed.
 // v188 (2026-10-28, later): Livestock: Bullamon Plains paddock outlines (29) on the map; each paddock drawn in its own AgriWebb colour -- index.html changed.
 // v189 (2026-10-28, later): Livestock: Fenton and Nullera outlines, every paddock in its own AgriWebb colour, and the latest AgriWebb mob lists added (mobs already there skipped) -- index.html changed.
+// v247 (2026-11-17, night): Dashboard notes: stronger highlight on the new note in the Notes list (thicker outline, stronger colour, larger text) -- index.html changed.
+// v246 (2026-11-17, night): Dashboard notes: larger note text (17px) -- index.html changed.
 // v245 (2026-11-17, last): Dashboard notes: the PRIVATE line lists only the people picked (no 'and admin') -- index.html changed.
 // v244 (2026-11-17, later still): Dashboard notes: Notifications box moved to the bottom of the section, note text bold, 'No acknowledgement needed' and 'Select staff' wording -- index.html changed.
 // v243 (2026-11-17, later): Dashboard notes: Notifications button now shows a clear ON/OFF badge; notes can be sent to Everyone or picked people (private notes visible only to them + admin) -- index.html changed.
@@ -585,7 +587,7 @@
 // v192 (2026-10-28, later): Phone layout: every box runs edge to edge across the full width of the screen -- index.html changed.
 // v191 (2026-10-28, later): Livestock map: Full screen button -- the map fills the whole phone screen (farm buttons on top, zoom/Fit/Sat buttons, paddock panel at the bottom, satellite stays on) -- index.html changed.
 // v190 (2026-10-28, later): Livestock map: mobs show as a small cow / sheep symbol and only show their names once you zoom in far enough -- index.html changed.
-var CACHE_NAME = "bullamon-plains-shell-v245";
+var CACHE_NAME = "bullamon-plains-shell-v247";
 
 var SHELL_ASSETS = [
   "./",
