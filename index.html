@@ -673,6 +673,18 @@
   .ls-farm-tabs{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:18px;}
   .ls-actions{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;}
   /* Livestock mob-first layout (2026-11-12) */
+  .note-private{display:inline-block;background:#475569;color:#fff;font-weight:800;font-size:11px;letter-spacing:.06em;text-transform:uppercase;padding:2px 9px;border-radius:999px;}
+  .push-box{border:1px solid var(--border);border-left-width:6px;border-radius:12px;padding:10px 12px;margin:0 0 12px;background:var(--surface);}
+  .push-box.on{border-left-color:#166534;} .push-box.off{border-left-color:#c2410c;}
+  .push-state{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-weight:700;font-size:14.5px;}
+  .push-pill{display:inline-block;padding:3px 12px;border-radius:999px;color:#fff;font-weight:800;font-size:13px;letter-spacing:.05em;}
+  .push-pill.on{background:#166534;} .push-pill.off{background:#c2410c;}
+  .push-help{font-size:12.5px;margin:4px 0 8px;color:var(--text-muted);}
+  .note-flash{background:rgba(240,180,41,.3);box-shadow:0 0 0 3px #f0b429 inset;border-radius:8px;padding-left:10px !important;padding-right:10px !important;}
+  .note-flash .note-new{display:inline-block;background:#d98a00;color:#fff;font-size:11px;font-weight:800;letter-spacing:.06em;padding:2px 8px;border-radius:999px;margin-right:6px;}
+  .note-focus{border:3px solid #f0b429;background:rgba(240,180,41,.2);}
+  .note-focus .nf-label{display:inline-block;background:#d98a00;color:#fff;font-size:12px;font-weight:800;letter-spacing:.08em;padding:3px 10px;border-radius:999px;}
+  .note-focus .nf-text{font-size:20px;line-height:1.35;font-weight:700;white-space:pre-wrap;margin:10px 0 4px;color:var(--text);overflow-wrap:anywhere;}
   .ls-bigbtns{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin:0 0 10px;}
   .ls-bigbtns .btn{width:100%;min-height:68px;font-size:17px;font-weight:800;line-height:1.2;}
   .ls-seg{display:flex;border:2px solid var(--accent);border-radius:12px;overflow:hidden;margin:0 0 10px;}
@@ -2115,7 +2127,7 @@ const DEFAULT_STATE = {
     });
   }catch(e){}
 })();
-var APP_BUILD = "2026-11-15.1";
+var APP_BUILD = "2026-11-17.5";
 
 /* ======================================================================
    UTILITIES
@@ -14652,6 +14664,7 @@ function render(){
     return;
   }
   lsFullSync();
+  if(ui.pendingNotes) setTimeout(applyPendingNotes, 0);
   trackScreenForBackButton();
   siloFitText();
   if(focusId){
@@ -18024,6 +18037,7 @@ function renderDashboard(){
   var dueService = (state.machinery || []).filter(function(m){ return m.status !== "archived" && machineDueForService(m); });
 
   var html = pageHead("Welcome back, " + u.name.split(" ")[0], "Here's what's happening on Bullamon Plains today.");
+  html += renderNoteFocusBanner();
   // Each tile opens the section it counts (tap anywhere on it; Enter/Space work too).
   var statTile = function(kind, num, label){
     return '<div class="stat stat-link" role="button" tabindex="0" aria-label="' + escAttr(label + ': ' + num + '. Tap to open') + '" onclick="dashGo(event,\'' + kind + '\')" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();dashGo(event,\'' + kind + '\');}">' +
@@ -18160,36 +18174,144 @@ function renderDashboardServiceRemindersCard(){
   return html;
 }
 
-function renderDashboardNotes(){
-  var notes = (state.dashboardNotes || []).slice().sort(byDateDesc("postedAt"));
+/* TAP A NOTE NOTIFICATION -> GO STRAIGHT TO THE NOTE (2026-11-16, Maria). sw.js sends the tap here two ways: if the app is already
+   open it posts a message; if not, it opens the app at "#open=notes[&note=<id>]". Either way the app (once signed in) switches to the
+   Dashboard, scrolls to the Notes card and highlights the note (the one in the notification if its id is known, else the newest). */
+function readOpenNotesFromUrl(){
+  var m = /^#open=notes(?:&note=([A-Za-z0-9_\-]+))?/.exec(String(location.hash || ""));
+  if(!m) return;
+  ui.pendingNotes = { noteId: m[1] || "" };
+  try{ history.replaceState(null, "", location.pathname + location.search); }catch(e){}
+}
+function noteFocusNote(){
+  if(!ui.noteFlash) return null;
+  var notes = visibleNotes().sort(byDateDesc("postedAt"));
+  var one = byId(state.dashboardNotes || [], ui.noteFlash);
+  return ui.noteFlash === "newest" ? (notes[0] || null) : ((one && noteVisible(one) ? one : null) || notes[0] || null);
+}
+// The note someone just tapped a notification for: shown big at the very top of the Dashboard until they tap "Got it".
+function renderNoteFocusBanner(){
+  var n = noteFocusNote();
+  if(!n) return "";
+  return '<div class="card note-focus" id="note-focus" role="status"><span class="nf-label">NEW NOTE</span>' +
+    '<div class="nf-text">' + esc(n.text) + '</div>' +
+    '<div class="row-muted" style="font-size:13px;">' + esc(n.author) + ' &middot; ' + fmtDateTime(n.postedAt) + '</div>' +
+    (function(){
+      var u = currentUser(), mine = u && n.acks && n.acks[u.name], isAuthor = u && n.author === u.name, ask = noteCanAck(n, u);
+      return '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;">' +
+        (ask && !mine ? '<button type="button" class="btn btn-primary" style="width:auto;min-height:48px;font-size:16px;" onclick="acknowledgeNote(\'' + escAttr(n.id) + '\')">&#10003; Acknowledge</button>' : '') +
+        '<button type="button" class="btn btn-ghost" style="width:auto;min-height:48px;" onclick="dismissNoteFocus()">' + (!ask || mine || isAuthor ? 'Close' : 'Not now') + '</button>' +
+        '<button type="button" class="btn btn-ghost" style="width:auto;min-height:48px;" onclick="seeNoteInList()">See all notes</button></div>' +
+        (ask && mine ? '<div style="font-size:13px;margin-top:8px;color:var(--success,#166534);font-weight:700;">&#10003; You acknowledged this</div>' : '');
+    })() + '</div>';
+}
+/* ACKNOWLEDGE A NOTE (2026-11-16, Maria: "What about an acknowledge button for the note?"): each person can tap Acknowledge on a note; it keeps
+   who and when in note.acks = { "Name": isoTime } (an object keyed by name, so two people acknowledging at the same moment both count when
+   devices sync). Everyone sees who has acknowledged; the note's author and admins also see who hasn't yet. */
+function noteAckNames(n){ return Object.keys(n.acks || {}).sort(function(a, b){ return String(n.acks[a]).localeCompare(String(n.acks[b])); }); }
+// Who a note asks to acknowledge: the people picked when it was posted, otherwise everyone active on the team except its author.
+function noteVisible(n){
+  if(!n.to || !n.to.length) return true;
   var u = currentUser();
-  var html = '<div class="card"><div class="card-row"><h3 style="margin:0;">Notes</h3>' +
+  return !!(u && (isAdmin() || n.author === u.name || n.to.indexOf(u.name) > -1));
+}
+function visibleNotes(){ return (state.dashboardNotes || []).filter(noteVisible); }
+function noteAudience(n){
+  var picked = n.to && n.to.length ? n.to : (n.ackFor && n.ackFor.length ? n.ackFor : null);
+  return (state.team || []).filter(function(m){ return m.active !== false && m.name && m.name !== n.author && (!picked || picked.indexOf(m.name) > -1); }).map(function(m){ return m.name; });
+}
+function noteWaitingOn(n){
+  var acks = n.acks || {};
+  return noteAudience(n).filter(function(nm){ return !acks[nm]; });
+}
+function noteCanAck(n, u){ return !!(u && n.ackRequired && noteAudience(n).indexOf(u.name) > -1); }
+function acknowledgeNote(id){
+  var n = byId(state.dashboardNotes || [], id), u = currentUser();
+  if(!n || !u || !noteVisible(n)) return;
+  n.acks = n.acks || {};
+  if(!n.acks[u.name]) n.acks[u.name] = new Date().toISOString();
+  if(ui.noteFlash) ui.noteFlash = null;
+  persist();
+}
+function noteAckTotal(n){ return noteAudience(n).length; }
+function noteAckToggle(id){ ui.noteAckOpen = ui.noteAckOpen || {}; ui.noteAckOpen[id] = !ui.noteAckOpen[id]; render(); }
+// One quiet line under a note that asked for acknowledgement ("3 of 17 acknowledged", tap for names); nothing at all on other notes.
+function noteAckHtml(n){
+  if(!n.ackRequired) return "";
+  var u = currentUser(), acks = n.acks || {}, isAuthor = u && n.author === u.name, mine = u && acks[u.name];
+  var waiting = noteWaitingOn(n), total = noteAckTotal(n), done = Math.max(0, total - waiting.length);
+  var open = ui.noteAckOpen && ui.noteAckOpen[n.id];
+  var html = '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:6px;">';
+  if(noteCanAck(n, u) && !mine) html += '<button type="button" class="btn btn-primary btn-sm" style="width:auto;" onclick="acknowledgeNote(\'' + escAttr(n.id) + '\')">Acknowledge</button>';
+  html += '<button type="button" class="btn btn-ghost btn-sm" style="width:auto;border:0;padding:4px 6px;font-size:12.5px;' + (waiting.length ? '' : 'color:var(--success,#166534);') + '" onclick="noteAckToggle(\'' + escAttr(n.id) + '\')">' +
+    (waiting.length ? done + ' of ' + total + ' acknowledged' : '&#10003; Everyone acknowledged') + (mine ? ' &middot; you &#10003;' : '') + ' ' + (open ? '&#9652;' : '&#9662;') + '</button></div>';
+  if(open){
+    var names = noteAckNames(n);
+    html += '<div style="font-size:12.5px;margin-top:4px;">' + (names.length ? '<div style="color:var(--success,#166534);font-weight:600;">&#10003; ' + esc(names.join(", ")) + '</div>' : '') +
+      ((isAuthor || isAdmin()) && waiting.length ? '<div class="row-muted">Not yet: ' + esc(waiting.join(", ")) + '</div>' : '') +
+      ((n.to && n.to.length) || (n.ackFor && n.ackFor.length) ? '<div class="row-muted">Asked: ' + esc(noteAudience(n).join(", ")) + '</div>' : '') + '</div>';
+  }
+  return html;
+}
+function dismissNoteFocus(){ ui.noteFlash = null; render(); }
+function seeNoteInList(){ var el = document.getElementById("dash-notes"); if(el && el.scrollIntoView) el.scrollIntoView({ block: "start", behavior: "smooth" }); }
+function applyPendingNotes(){
+  var pn = ui.pendingNotes;
+  if(!pn || !booted || !isSignedIn()) return;
+  ui.pendingNotes = null;
+  ui.noteFlash = pn.noteId || "newest";
+  ui.mobileMenuOpen = false;
+  goTo("dashboard");
+  setTimeout(function(){ try{ window.scrollTo({ top: 0, behavior: "smooth" }); }catch(e){ window.scrollTo(0, 0); } }, 60);
+}
+function renderDashboardNotes(){
+  var notes = visibleNotes().sort(byDateDesc("postedAt"));
+  var u = currentUser();
+  var flashId = ui.noteFlash === "newest" ? (notes[0] ? notes[0].id : "") : (ui.noteFlash || "");
+  var html = '<div class="card" id="dash-notes"><div class="card-row"><h3 style="margin:0;">Notes</h3>' +
     '<button type="button" class="btn btn-primary btn-sm" style="width:auto;" onclick="toggleForm(\'newDashboardNote\')">' + (ui.openForms.newDashboardNote ? "Cancel" : "+ Add note") + '</button></div>' +
-    '<p class="row-muted" style="margin:4px 0 10px;font-size:12.5px;">A shared noticeboard for anything the whole team should see — reminders, heads-up, quick updates.</p>' +
-    renderPushToggle();
+    '<p class="row-muted" style="margin:4px 0 10px;font-size:12.5px;">A shared noticeboard for anything the whole team should see — reminders, heads-up, quick updates.</p>';
   if(ui.openForms.newDashboardNote) html += renderDashboardNoteForm();
   if(notes.length === 0){
     html += '<div class="empty-state">No notes yet.</div>';
   } else {
     html += notes.map(function(n){
       var canDelete = isAdmin() || (u && n.author === u.name);
-      return '<div style="padding:10px 0;border-top:1px solid var(--divider);">' +
-        '<div class="card-row" style="margin-bottom:4px;"><span class="row-muted" style="font-size:12px;">' + esc(n.author) + ' &middot; ' + fmtDateTime(n.postedAt) + '</span>' +
+      return '<div id="note-' + escAttr(n.id) + '"' + (flashId && n.id === flashId ? ' class="note-flash"' : '') + ' style="padding:10px 0;border-top:1px solid var(--divider);">' +
+        '<div class="card-row" style="margin-bottom:4px;"><span class="row-muted" style="font-size:12px;">' + (flashId && n.id === flashId ? '<span class="note-new">NEW</span>' : '') + esc(n.author) + ' &middot; ' + fmtDateTime(n.postedAt) + '</span>' +
         (canDelete ? '<button type="button" class="btn btn-ghost btn-sm" onclick="confirmDeleteDashboardNote(\'' + n.id + '\')">Delete</button>' : '') +
         '</div>' +
-        '<p style="margin:0;font-size:13.5px;white-space:pre-wrap;">' + esc(n.text) + '</p>' +
+        (n.to && n.to.length ? '<div style="margin:0 0 4px;"><span class="note-private">Private</span> <span class="row-muted" style="font-size:12px;">only ' + esc(n.to.join(", ")) + '</span></div>' : '') +
+        '<p style="margin:0;font-size:14.5px;font-weight:700;white-space:pre-wrap;">' + esc(n.text) + '</p>' + noteAckHtml(n) +
       '</div>';
     }).join("");
   }
+  html += '<div style="border-top:1px solid var(--divider);padding-top:12px;margin-top:2px;">' + renderPushToggle() + '</div>';
   html += '</div>';
   return html;
 }
 
+function noteFormMode(f){
+  var pick = f.elements.toWho && f.elements.toWho.value === "pick";
+  var ppl = document.getElementById("nf-people"), er = document.getElementById("nf-err"), hint = document.getElementById("nf-hint");
+  if(ppl) ppl.style.display = pick ? "" : "none";
+  if(hint) hint.style.display = pick ? "" : "none";
+  if(er) er.textContent = "";
+}
 function renderDashboardNoteForm(){
-  var err = ui.formErrors.newDashboardNote;
+  var err = ui.formErrors.newDashboardNote, me = currentUser();
+  var people = (state.team || []).filter(function(m){ return m.active !== false && m.name && (!me || m.name !== me.name); });
   return '<form class="form-panel" style="margin:0 0 10px;" onsubmit="addDashboardNote(event)">' +
     (err ? '<p style="color:var(--danger);font-size:12.5px;font-weight:600;margin:0 0 10px;">' + esc(err) + '</p>' : '') +
     '<div class="field"><label>Note</label><textarea name="text" rows="3" required placeholder="e.g. Front gate lock code changed, ask Maria"></textarea></div>' +
+    '<div class="field"><label>Who is it for?</label><div class="ls-origin"><label><input type="radio" name="toWho" value="everyone" checked onchange="noteFormMode(this.form)" /> Everyone</label><label><input type="radio" name="toWho" value="pick" onchange="noteFormMode(this.form)" /> Select staff</label></div></div>' +
+    '<div id="nf-people" style="display:none;margin:0 0 6px;border:1px solid var(--border);border-radius:10px;padding:6px 12px;max-height:220px;overflow:auto;">' +
+      (people.length ? people.map(function(m){ return '<label style="display:flex;gap:10px;align-items:center;padding:8px 0;font-size:15px;font-weight:600;cursor:pointer;text-transform:none;letter-spacing:0;"><input type="checkbox" name="toPeople" value="' + escAttr(m.name) + '" style="width:auto;margin:0;" /> ' + esc(m.name) + '</label>'; }).join("") : '<span class="row-muted">No other staff on the team yet.</span>') +
+    '</div>' +
+    '<p id="nf-hint" class="row-muted" style="display:none;margin:0 0 10px;font-size:12px;">Only the people you tick (and the admin) can see this note, and only they get the notification.</p>' +
+    '<div class="field"><label>Does it need acknowledging?</label><div class="ls-origin" style="display:grid;grid-template-columns:1fr;"><label><input type="radio" name="ackMode" value="none" checked /> No acknowledgement needed</label><label><input type="radio" name="ackMode" value="ack" /> Needs acknowledgement</label></div></div>' +
+    '<div id="nf-err" style="color:var(--danger);font-size:13px;font-weight:700;margin:0 0 8px;"></div>' +
+    '<p class="row-muted" style="margin:0 0 10px;font-size:12px;">Nobody gets an extra notification when someone acknowledges.</p>' +
     '<div class="form-actions"><button type="submit" class="btn btn-primary" style="width:auto;">Post note</button><button type="button" class="btn btn-ghost" onclick="delete ui.formErrors.newDashboardNote;toggleForm(\'newDashboardNote\')">Cancel</button></div>' +
   '</form>';
 }
@@ -18198,10 +18320,18 @@ function addDashboardNote(e){
   var f = e.target;
   var text = f.text.value.trim();
   if(!text){ ui.formErrors.newDashboardNote = "Write something before posting."; render(); return; }
+  var ask = f.elements.ackMode && f.elements.ackMode.value === "ack", pick = f.elements.toWho && f.elements.toWho.value === "pick", chosen = [];
+  if(pick){
+    Array.prototype.forEach.call(f.querySelectorAll('input[name="toPeople"]'), function(c){ if(c.checked) chosen.push(c.value); });
+    if(!chosen.length){ var er = document.getElementById("nf-err"); if(er) er.textContent = "Tick at least one person, or choose Everyone."; return; }
+  }
   delete ui.formErrors.newDashboardNote;
   var u = currentUser();
   state.dashboardNotes = state.dashboardNotes || [];
-  state.dashboardNotes.push({ id: uid("note"), text: text, author: u ? u.name : "Unknown", postedAt: new Date().toISOString() });
+  var note = { id: uid("note"), text: text, author: u ? u.name : "Unknown", postedAt: new Date().toISOString() };
+  if(ask) note.ackRequired = true;
+  if(pick) note.to = chosen;
+  state.dashboardNotes.push(note);
   ui.openForms.newDashboardNote = false;
   persist();
 }
@@ -20033,16 +20163,19 @@ async function refreshPushSubscriptionStatus(){
 }
 function renderPushToggle(){
   if(!pushSupported()){
-    return '<p class="row-muted" style="margin:0 0 10px;font-size:11.5px;">Push notifications aren\'t supported in this browser.</p>';
+    return '<p class="row-muted" style="margin:0 0 10px;font-size:11.5px;">Notifications can\'t be used in this browser. (On an iPhone, add the app to the Home Screen first, then open it from there.)</p>';
   }
-  var html = "";
-  if(ui.pushError) html += '<p style="color:var(--danger);font-size:12px;font-weight:600;margin:0 0 6px;">' + esc(ui.pushError) + '</p>';
-  if(ui.pushSubscribed){
-    html += '<button type="button" class="btn btn-ghost btn-sm"' + (ui.pushBusy ? " disabled" : "") + ' onclick="disableDashboardNotifications()">' + iconSvg("bell") + ' Notifications on &mdash; turn off</button>';
-  } else {
-    html += '<button type="button" class="btn btn-ghost btn-sm"' + (ui.pushBusy ? " disabled" : "") + ' onclick="enableDashboardNotifications()">' + (ui.pushBusy ? "Turning on…" : (iconSvg("bell") + " Get notified of new notes")) + '</button>';
-  }
-  return '<div style="margin:0 0 10px;">' + html + '</div>';
+  var on = ui.pushSubscribed === true, busy = !!ui.pushBusy;
+  var blocked = !on && typeof Notification !== "undefined" && Notification.permission === "denied";
+  var html = '<div class="push-box ' + (on ? 'on' : 'off') + '"><div class="push-state">Notifications on this phone: <span class="push-pill ' + (on ? 'on' : 'off') + '">' + (on ? 'ON' : 'OFF') + '</span></div>';
+  html += '<div class="push-help">' + (on ? 'You will get a message on this phone when a new note is posted.'
+    : (blocked ? 'This phone is blocking notifications for the app. Allow them in the phone\'s settings for this app, then come back and tap Turn on.'
+    : 'You will NOT be told about new notes on this phone.')) + '</div>';
+  if(ui.pushError) html += '<p style="color:var(--danger);font-size:12.5px;font-weight:600;margin:0 0 8px;">' + esc(ui.pushError) + '</p>';
+  html += on
+    ? '<button type="button" class="btn btn-ghost btn-sm" style="width:auto;"' + (busy ? " disabled" : "") + ' onclick="disableDashboardNotifications()">' + (busy ? "Turning off…" : "Turn notifications off") + '</button>'
+    : '<button type="button" class="btn btn-primary btn-sm" style="width:auto;"' + (busy ? " disabled" : "") + ' onclick="enableDashboardNotifications()">' + (busy ? "Turning on…" : iconSvg("bell") + " Turn notifications on") + '</button>';
+  return html + '</div>';
 }
 async function enableDashboardNotifications(){
   if(!pushSupported()){
@@ -29909,6 +30042,10 @@ if("serviceWorker" in navigator){
   // A device that already had the app's files saved (a controller exists) and then gets a
   // different worker taking over has a newer version waiting -- see renderUpdateBanner().
   // (The very first install also fires this, but with no earlier controller, so it's ignored.)
+  navigator.serviceWorker.addEventListener("message", function(ev){
+    var d = ev && ev.data;
+    if(d && d.type === "open-notes"){ ui.pendingNotes = { noteId: d.noteId || "" }; if(booted && isSignedIn()) applyPendingNotes(); else render(); }
+  });
   var hadController = !!navigator.serviceWorker.controller;
   navigator.serviceWorker.addEventListener("controllerchange", function(){
     if(hadController) markUpdateReady();
@@ -29995,6 +30132,7 @@ if("serviceWorker" in navigator){
   walk(document.body);
   obs.observe(document.body, { childList: true, subtree: true });
 })();
+readOpenNotesFromUrl();
 boot();
 </script>
 </body>
