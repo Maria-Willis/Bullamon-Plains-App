@@ -2115,7 +2115,7 @@ const DEFAULT_STATE = {
     });
   }catch(e){}
 })();
-var APP_BUILD = "2026-11-12.2";
+var APP_BUILD = "2026-11-15.1";
 
 /* ======================================================================
    UTILITIES
@@ -26629,19 +26629,18 @@ function renderHarvest(){
   if(isAdmin()){
     html += '<div class="toolbar" style="margin-top:-6px;">' +
       '<button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="toggleForm(\'docketNumbering\')">' + (ui.openForms.docketNumbering ? "Hide docket numbering" : "Docket numbering") + '</button>' +
-      '<button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="toggleForm(\'harvestArchives\')">' + (ui.openForms.harvestArchives ? "Hide archived seasons" : ("Archived seasons" + ((state.harvest.archives||[]).length ? " (" + state.harvest.archives.length + ")" : ""))) + '</button>' +
-      '<button type="button" class="btn btn-ghost btn-sm" style="width:auto;" onclick="archiveHarvestSeason()">Archive this season&hellip;</button>' +
+      '<button type="button" class="btn ' + ((state.harvest.items || []).length ? 'btn-primary' : 'btn-ghost') + ' btn-sm" style="width:auto;" onclick="archiveHarvestSeason()">Archive dockets to a folder&hellip;</button>' +
     '</div>';
   }
   if(ui.openForms.manageDrivers) html += renderDriversPanel();
   if(isAdmin() && ui.openForms.manageProperties) html += renderPropertiesPanel();
   if(isAdmin() && ui.openForms.managePaddocks) html += renderPaddocksPanel();
   if(isAdmin() && ui.openForms.docketNumbering) html += renderDocketNumberingCard();
-  if(isAdmin() && ui.openForms.harvestArchives) html += renderHarvestArchivesPanel();
+  if(isAdmin() && ((state.harvest.archives || []).length || ui.openForms.harvestArchives)) html += renderHarvestArchivesPanel();
   if(isAdmin() && ui.openForms.harvestSummary) html += renderHarvestSummaryCard();
   if(ui.openForms.newDocket) html += renderDocketForm();
   var items = (state.harvest.items || []).slice().sort(compareDockets);
-  if(items.length === 0){ html += '<div class="empty-state">No harvest dockets logged yet. Tap "+ Add docket" above to log the first truck load.</div>'; }
+  if(items.length === 0){ html += '<div class="empty-state">' + ((state.harvest.archives || []).length ? 'No dockets in the current list. Earlier dockets are in the Harvest folders above. Tap "+ Add docket" to log a new truck load.' : 'No harvest dockets logged yet. Tap "+ Add docket" above to log the first truck load.') + '</div>'; }
   else { html += '<div class="list-cards">' + items.map(function(d){ return ui.editing.docket === d.id ? renderDocketEditForm(d) : docketCardHtml(d, false); }).join("") + '</div>'; }
   return html;
 }
@@ -26685,49 +26684,75 @@ function setDocketYear(value){
 // Drivers, properties, commodities and paddocks are untouched by this --
 // those staff-maintained lists carry on being reused season to season,
 // only the docket entries themselves get archived.
+function hFolderName(a){ return a.name || (a.year ? a.year + " season" : "Archive"); }
 function archiveHarvestSeason(){
   var items = state.harvest.items || [];
   if(items.length === 0){ alert("There's nothing to archive -- no dockets logged yet."); return; }
-  var year = state.harvest.docketYear || "this season";
-  if(!confirm('Archive all ' + items.length + ' docket' + (items.length === 1 ? "" : "s") + ' logged for ' + year + '? They will move to "Archived seasons" and the active list will be empty, ready for new dockets. You can reinstate them later if you need to.')) return;
+  var yr = state.harvest.docketYear || String(new Date().getFullYear());
+  var name = prompt('Put all ' + items.length + ' docket' + (items.length === 1 ? "" : "s") + ' into a folder called:', "Harvest " + yr);
+  if(name === null) return;
+  name = name.trim().replace(/\s+/g, " ");
+  if(!name){ alert("Give the folder a name."); return; }
   var u = currentUser();
   state.harvest.archives = state.harvest.archives || [];
-  state.harvest.archives.unshift({
-    id: uid("harvestarchive"),
-    year: year,
-    archivedAt: new Date().toISOString(),
-    archivedBy: u ? u.name : null,
-    items: deepClone(items)
-  });
+  var existing = state.harvest.archives.filter(function(a){ return hFolderName(a).toLowerCase() === name.toLowerCase(); })[0];
+  if(existing){
+    if(!confirm('There is already a folder called "' + hFolderName(existing) + '". Add these ' + items.length + ' docket' + (items.length === 1 ? "" : "s") + ' to it?')) return;
+    existing.items = existing.items.concat(deepClone(items));
+    existing.archivedAt = new Date().toISOString();
+  } else {
+    if(!confirm('Move all ' + items.length + ' docket' + (items.length === 1 ? "" : "s") + ' into the folder "' + name + '"? The Harvest Dockets list will then be empty, ready for new dockets. The folder stays on this page (Harvest folders) and you can open it, download it as Excel or PDF, or bring the dockets back at any time.')) return;
+    state.harvest.archives.unshift({
+      id: uid("harvestarchive"),
+      name: name,
+      year: state.harvest.docketYear || "",
+      archivedAt: new Date().toISOString(),
+      archivedBy: u ? u.name : null,
+      items: deepClone(items)
+    });
+  }
   state.harvest.items = [];
-  ui.openForms.harvestArchives = true;
+  persist();
+}
+function renameHarvestFolder(id){
+  var a = byId(state.harvest.archives || [], id); if(!a || !isAdmin()) return;
+  var name = prompt("Folder name:", hFolderName(a));
+  if(name === null) return;
+  name = name.trim().replace(/\s+/g, " ");
+  if(!name || name === hFolderName(a)) return;
+  if((state.harvest.archives || []).some(function(x){ return x.id !== id && hFolderName(x).toLowerCase() === name.toLowerCase(); })){ alert('There is already a folder called "' + name + '".'); return; }
+  a.name = name;
   persist();
 }
 function reinstateHarvestArchive(archiveId){
   var archive = byId(state.harvest.archives, archiveId);
   if(!archive) return;
-  if(!confirm('Bring the ' + archive.items.length + ' docket' + (archive.items.length === 1 ? "" : "s") + ' from "' + archive.year + '" back into the active list? They will be added alongside whatever is there now.')) return;
+  if(!confirm('Bring the ' + archive.items.length + ' docket' + (archive.items.length === 1 ? "" : "s") + ' from "' + hFolderName(archive) + '" back into the Harvest Dockets list? They will be added alongside whatever is there now, and the folder is removed.')) return;
   state.harvest.items = (state.harvest.items || []).concat(deepClone(archive.items));
   removeById(state.harvest.archives, archiveId);
   persist();
 }
 function renderHarvestArchivesPanel(){
   var archives = state.harvest.archives || [];
-  var html = '<div class="card"><h3 style="margin-bottom:6px;">Archived seasons</h3>';
+  var html = '<div class="card"><h3 style="margin-bottom:6px;">Harvest folders</h3>';
   if(archives.length === 0){
-    html += '<div class="empty-state">Nothing archived yet. Use "Archive this season&hellip;" above when you\'re ready to start a new year fresh.</div>';
+    html += '<div class="empty-state">No folders yet. Tap "Archive dockets to a folder&hellip;" when harvest is finished. The dockets move into a folder (e.g. Harvest 2026) that stays here to open, download or bring back.</div>';
   } else {
     html += archives.map(function(a){
-      var open = ui.openForms["harvestArchiveView_" + a.id];
+      var open = ui.openForms["harvestArchiveView_" + a.id], sum = ui.openForms["harvestArchiveSum_" + a.id], r = hsCompute(a.items);
+      var btn = function(label, fn, cls){ return '<button type="button" class="btn ' + (cls || 'btn-ghost') + ' btn-sm" style="width:auto;" onclick="' + fn + '">' + label + '</button>'; };
+      var tog = "ui.openForms['harvestArchiveView_" + a.id + "']=!ui.openForms['harvestArchiveView_" + a.id + "'];render();";
       return '<div style="margin-bottom:14px;padding-bottom:14px;border-bottom:1px solid var(--divider);">' +
-        '<div class="card-row"><div>' +
-          '<h4 style="margin:0 0 2px;font-size:14px;">' + esc(a.year) + ' season &mdash; ' + a.items.length + ' docket' + (a.items.length === 1 ? "" : "s") + '</h4>' +
-          '<p class="row-muted" style="margin:0;font-size:12px;">Archived ' + fmtDateTime(a.archivedAt) + (a.archivedBy ? (" by " + esc(a.archivedBy)) : "") + '</p></div>' +
-          '<div style="display:flex;gap:6px;">' +
-            '<button type="button" class="btn btn-ghost btn-sm" onclick="ui.openForms[\'harvestArchiveView_' + a.id + '\']=!ui.openForms[\'harvestArchiveView_' + a.id + '\'];render();">' + (open ? "Hide" : "View") + '</button>' +
-            '<button type="button" class="btn btn-primary btn-sm" onclick="reinstateHarvestArchive(\'' + a.id + '\')">Reinstate</button>' +
-          '</div>' +
+        '<div style="cursor:pointer;" onclick="' + tog + '">' +
+          '<h4 style="margin:0 0 2px;font-size:16px;">&#128193; ' + esc(hFolderName(a)) + '</h4>' +
+          '<p class="row-muted" style="margin:0;font-size:12.5px;">' + a.items.length + ' docket' + (a.items.length === 1 ? "" : "s") + (r.all.t > 0 ? ' &middot; ' + esc(hsFmtT(r.all.t)) + ' approx' : '') + ' &middot; archived ' + fmtDate(String(a.archivedAt || "").slice(0, 10)) + (a.archivedBy ? (" by " + esc(a.archivedBy)) : "") + '</p></div>' +
+        '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;">' +
+          btn(open ? "Close folder" : "Open folder", tog, 'btn-primary') +
+          btn(sum ? "Hide summary" : "Summary", "ui.openForms['harvestArchiveSum_" + a.id + "']=!ui.openForms['harvestArchiveSum_" + a.id + "'];render();") +
+          btn("&#8681; Excel", "downloadHarvestExcel('" + a.id + "')") + btn("&#8681; PDF", "printHarvestSummary('" + a.id + "')") +
+          btn("Rename", "renameHarvestFolder('" + a.id + "')") + btn("Bring back", "reinstateHarvestArchive('" + a.id + "')") +
         '</div>' +
+        (sum ? '<div style="margin-top:10px;">' + hsBody(a.items) + '</div>' : '') +
         (open ? '<div class="list-cards" style="margin-top:10px;">' + a.items.slice().sort(compareDockets).map(function(d){ return docketCardHtml(d, true); }).join("") + '</div>' : '') +
       '</div>';
     }).join("");
@@ -27922,8 +27947,8 @@ function harvestExportDeliveredTo(d){
   }
   return deliveredToSummary(d);
 }
-function harvestExportRows(){
-  var items = (state.harvest.items || []).slice().sort(function(a,b){ return compareDockets(b,a); });
+function harvestExportRows(list){
+  var items = (list || state.harvest.items || []).slice().sort(function(a,b){ return compareDockets(b,a); });
   return items.map(function(d){
     return [
       docketNumberDisplay(d), d.date || "", d.time || "", d.driverName || "", d.carrier || "", d.rego || "",
@@ -27935,8 +27960,8 @@ function harvestExportRows(){
 // 2026-11-01 (Maria: "export to pdf to the summary under harvest" -> "a new summary on the Harvest Dockets page ... only visible to Admin"):
 // totals of the current docket log by commodity, delivered-to and paddock. Tonnes come from each docket's Approx Weight text
 // (same reader the silo stock uses); dockets with no readable weight still count as loads and are flagged.
-function hsCompute(){
-  var items = state.harvest.items || [];
+function hsCompute(items){
+  items = items || state.harvest.items || [];
   var groups = { commodity: {}, delivered: {}, paddock: {} }, all = { loads: 0, t: 0, noWt: 0 };
   function add(g, key, label, extra, t, hasWt){
     var r = g[key] || (g[key] = { label: label, extra: extra || {}, loads: 0, t: 0, noWt: 0 });
@@ -27961,8 +27986,8 @@ function hsTable(head, rows, tot){
     rows.join("") + (tot || "") + '</tbody></table>';
 }
 function hsRow(cells){ return '<tr>' + cells.map(function(c, i){ return '<td' + (i >= cells.length - 2 ? ' class="n"' : '') + '>' + esc(String(c)) + '</td>'; }).join("") + '</tr>'; }
-function hsBody(){
-  var r = hsCompute();
+function hsBody(items){
+  var r = hsCompute(items);
   if(!r.all.loads) return '<p class="row-muted">No harvest dockets logged yet.</p>';
   function wt(x){ return (x.t > 0 ? hsFmtT(x.t) : "—") + (x.noWt ? " *" : ""); }
   function tot(n){ return '<tr class="tot"><td colspan="' + (n - 2) + '">Total</td><td class="n">' + r.all.loads + '</td><td class="n">' + esc(wt(r.all)) + '</td></tr>'; }
@@ -27982,17 +28007,19 @@ function renderHarvestSummaryCard(){
     '<button type="button" class="btn btn-primary btn-sm" style="width:auto;" onclick="printHarvestSummary()">&#8681; PDF</button></div>' + hsBody() + '</div>';
 }
 // "PDF" = the device's print dialog on a dedicated A4 sheet; choose "Save as PDF" there (the same way the app's other print buttons work).
-function printHarvestSummary(){
+function printHarvestSummary(archiveId){
   if(!isAdmin()) return;
   var el = document.getElementById("print-hs-sheet");
   if(!el) return;
-  if((state.harvest.items || []).length === 0){
+  var arch = archiveId ? byId(state.harvest.archives || [], archiveId) : null;
+  var items = arch ? arch.items : (state.harvest.items || []);
+  if(items.length === 0){
     setNotice("err", "There are no harvest dockets to summarise yet.");
     render();
     return;
   }
-  var yr = state.harvest.docketYear ? (" · " + state.harvest.docketYear + " season") : "";
-  el.innerHTML = '<div class="hs-co">BULLAMON PLAINS PASTORAL</div><div class="hs-sub">Harvest dockets summary' + esc(yr) + ' · printed ' + esc(fmtDate(todayISO())) + '</div>' + hsBody();
+  var yr = arch ? (" · " + hFolderName(arch)) : (state.harvest.docketYear ? (" · " + state.harvest.docketYear + " season") : "");
+  el.innerHTML = '<div class="hs-co">BULLAMON PLAINS PASTORAL</div><div class="hs-sub">Harvest dockets summary' + esc(yr) + ' · printed ' + esc(fmtDate(todayISO())) + '</div>' + hsBody(items);
   var pageStyle = document.getElementById("hs-page-style");
   if(!pageStyle){ pageStyle = document.createElement("style"); pageStyle.id = "hs-page-style"; document.head.appendChild(pageStyle); }
   pageStyle.textContent = "@media print{ @page{ size: A4 portrait; margin: 12mm; } }";
@@ -28004,22 +28031,24 @@ function printHarvestSummary(){
 }
 // 2026-10-31 (Maria: "add a button on the Harvest Dockets that allows me to export as an excel file"): the same spreadsheet as the emailed
 // export, saved straight to this phone / computer instead of being emailed. Admin-only, like the emailed one.
-function downloadHarvestExcel(){
+function downloadHarvestExcel(archiveId){
   if(!isAdmin()) return;
   if(typeof XLSX === "undefined"){
     setNotice("err", "The Excel tool hasn't finished loading yet (it needs a connection the first time this device uses it) -- try again in a moment.");
     render();
     return;
   }
-  if((state.harvest.items || []).length === 0){
+  var arch = archiveId ? byId(state.harvest.archives || [], archiveId) : null;
+  var srcItems = arch ? arch.items : (state.harvest.items || []);
+  if(srcItems.length === 0){
     setNotice("err", "There are no harvest dockets to export yet.");
     render();
     return;
   }
-  var ws = XLSX.utils.aoa_to_sheet([HARVEST_EXPORT_COLUMNS].concat(harvestExportRows()));
+  var ws = XLSX.utils.aoa_to_sheet([HARVEST_EXPORT_COLUMNS].concat(harvestExportRows(srcItems)));
   var wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Harvest Dockets");
-  var filename = "harvest-dockets-" + todayISO() + ".xlsx";
+  var filename = "harvest-dockets-" + (arch ? hFolderName(arch).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") + "-" : "") + todayISO() + ".xlsx";
   try{
     var data = XLSX.write(wb, { type: "array", bookType: "xlsx" });
     var blob = new Blob([data], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
