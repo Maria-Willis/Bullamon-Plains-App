@@ -530,6 +530,13 @@
 // v187 (2026-10-28, later): Livestock: on All Farms the map has farm buttons so any farm's map can be shown -- index.html changed.
 // v188 (2026-10-28, later): Livestock: Bullamon Plains paddock outlines (29) on the map; each paddock drawn in its own AgriWebb colour -- index.html changed.
 // v189 (2026-10-28, later): Livestock: Fenton and Nullera outlines, every paddock in its own AgriWebb colour, and the latest AgriWebb mob lists added (mobs already there skipped) -- index.html changed.
+// v245 (2026-11-17, last): Dashboard notes: the PRIVATE line lists only the people picked (no 'and admin') -- index.html changed.
+// v244 (2026-11-17, later still): Dashboard notes: Notifications box moved to the bottom of the section, note text bold, 'No acknowledgement needed' and 'Select staff' wording -- index.html changed.
+// v243 (2026-11-17, later): Dashboard notes: Notifications button now shows a clear ON/OFF badge; notes can be sent to Everyone or picked people (private notes visible only to them + admin) -- index.html changed.
+// v241 (2026-11-17): Dashboard notes: Add note has two big buttons (Just a note / Needs acknowledgement) and Everyone / Pick people (people picker) -- index.html changed.
+// v240 (2026-11-16, later still): Dashboard notes: acknowledgement is now opt-in per note (tick box when posting) and shown as one quiet line ("3 of 17 acknowledged", tap for names) -- index.html changed.
+// v239 (2026-11-16, later): Dashboard notes: big "NEW NOTE" card when opened from a notification + Acknowledge button (who/when kept, shown on each note) -- index.html changed.
+// v238 (2026-11-16): Dashboard note notifications: tapping one opens the app (or the open app) straight on the Dashboard Notes and highlights the note; sw.js push/notificationclick changed -- index.html + sw.js changed.
 // v237 (2026-11-15): Harvest Dockets: "Archive dockets to a folder" (named, e.g. Harvest 2026) + Harvest folders card (open, summary, Excel, PDF, rename, bring back) -- index.html changed.
 // v236 (2026-11-12, later): Livestock page redesigned mob-first (big Move/Weigh/Add new mob/Sold buttons, needs-attention list, search, List/Map switch, forms as a full-screen sheet) -- index.html changed.
 // v235 (2026-11-12): Livestock "Add new mob": year-they-become-cows field removed; new Grown / Purchased choice (shown on the mob card + history) -- index.html changed.
@@ -578,7 +585,7 @@
 // v192 (2026-10-28, later): Phone layout: every box runs edge to edge across the full width of the screen -- index.html changed.
 // v191 (2026-10-28, later): Livestock map: Full screen button -- the map fills the whole phone screen (farm buttons on top, zoom/Fit/Sat buttons, paddock panel at the bottom, satellite stays on) -- index.html changed.
 // v190 (2026-10-28, later): Livestock map: mobs show as a small cow / sheep symbol and only show their names once you zoom in far enough -- index.html changed.
-var CACHE_NAME = "bullamon-plains-shell-v237";
+var CACHE_NAME = "bullamon-plains-shell-v245";
 
 var SHELL_ASSETS = [
   "./",
@@ -701,11 +708,16 @@ self.addEventListener("push", function(event){
     data = { title: "Bullamon Plains", body: event.data ? event.data.text() : "You have a new notification." };
   }
   var title = data.title || "Bullamon Plains";
+  // Every push today is a new Dashboard note. Tapping it should land on that note, so unless the sender gave a more specific address,
+  // open the app at "#open=notes" (the app reads that, switches to the Dashboard and highlights the note -- see applyPendingNotes()).
+  var noteId = data.noteId || data.note_id || "";
+  var pushUrl = data.url;
+  if(!pushUrl || pushUrl === "/" || pushUrl === "./") pushUrl = "./#open=notes" + (noteId ? "&note=" + encodeURIComponent(noteId) : "");
   var options = {
     body: data.body || "",
     icon: "./icons/icon-192.png",
     badge: "./icons/icon-192.png",
-    data: { url: data.url || "./" }
+    data: { url: pushUrl, noteId: noteId }
   };
   event.waitUntil(self.registration.showNotification(title, options));
 });
@@ -714,11 +726,16 @@ self.addEventListener("push", function(event){
 // rather than always opening a new one.
 self.addEventListener("notificationclick", function(event){
   event.notification.close();
-  var url = (event.notification.data && event.notification.data.url) || "./";
+  var nd = event.notification.data || {};
+  var url = nd.url || "./#open=notes";
   event.waitUntil(
     self.clients.matchAll({ type: "window", includeUncontrolled: true }).then(function(clientList){
       for(var i = 0; i < clientList.length; i++){
-        if("focus" in clientList[i]) return clientList[i].focus();
+        if("focus" in clientList[i]){
+          var c = clientList[i];
+          // already open: bring it to the front and tell the page to go to the note
+          return c.focus().then(function(){ try{ c.postMessage({ type: "open-notes", noteId: nd.noteId || "" }); }catch(e){} });
+        }
       }
       if(self.clients.openWindow) return self.clients.openWindow(url);
     })
